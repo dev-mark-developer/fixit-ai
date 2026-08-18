@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,13 +7,21 @@ import {
   TouchableOpacity,
   Image,
   ActivityIndicator,
+  Animated,
+  Dimensions,
+  Modal,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
+import Icon from 'react-native-vector-icons/Ionicons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { PenpalStackParamList } from '../../types/navigation';
 import { Colors } from '../../utils/colors';
-import { penpalApi, PenpalConnection } from '../../api/penpal';
+import RemoteImage, {
+  RemoteImageBackground,
+} from '../../components/common/RemoteImage';
+import { penpalApi, PenpalConnection, PenpalLetter } from '../../api/penpal';
 import { getUser } from '../../store/auth';
-import AppButton from '../../components/common/AppButton';
 import AppAlert, { AlertButton } from '../../components/common/AppAlert';
 import ReportModal from '../../components/common/ReportModal';
 
@@ -21,10 +29,13 @@ type Props = NativeStackScreenProps<PenpalStackParamList, 'PenpalPublicProfile'>
 
 type ConnectionState =
   | 'none'
-  | 'sent'        // I am requester, Pending
-  | 'received'    // I am receiver, Pending
-  | 'connected'   // Accepted
-  | 'inactive';   // Declined or Cancelled → show Add again
+  | 'sent' // I am requester, Pending
+  | 'received' // I am receiver, Pending
+  | 'connected' // Accepted
+  | 'inactive'; // Declined or Cancelled → show Add again
+
+const { height: SCREEN_H } = Dimensions.get('window');
+const HEADER_H = Math.round(SCREEN_H * 0.52);
 
 const extractError = (err: any): string => {
   const data = err?.response?.data;
@@ -34,19 +45,33 @@ const extractError = (err: any): string => {
   return `Server error (${err.response?.status}). Please try again.`;
 };
 
+const timeAgo = (dateStr: string) => {
+  const then = new Date(dateStr).getTime();
+  if (Number.isNaN(then)) return '';
+  const sec = Math.max(1, Math.floor((Date.now() - then) / 1000));
+  const min = Math.floor(sec / 60);
+  const hr = Math.floor(min / 60);
+  const day = Math.floor(hr / 24);
+  if (day > 0) return `${day} day${day > 1 ? 's' : ''} ago`;
+  if (hr > 0) return `${hr} hour${hr > 1 ? 's' : ''} ago`;
+  if (min > 0) return `${min} min${min > 1 ? 's' : ''} ago`;
+  return 'just now';
+};
+
 export default function PenpalPublicProfileScreen({ route, navigation }: Props) {
   const {
     userId,
     pseudoName,
     letterType,
-    identityVisibility,
     city,
     state,
     country,
-    firstName,
-    lastName,
     profileImageUrl,
+    age,
   } = route.params;
+
+  const insets = useSafeAreaInsets();
+  const isPhysical = letterType === 'Physical';
 
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
   const [connection, setConnection] = useState<PenpalConnection | null>(null);
@@ -58,12 +83,44 @@ export default function PenpalPublicProfileScreen({ route, navigation }: Props) 
     message: string;
     buttons?: AlertButton[];
   } | null>(null);
-
-  // For Physical-to-Physical consent
   const [reportVisible, setReportVisible] = useState(false);
-  const [physicalConsentVisible, setPhysicalConsentVisible] = useState(false);
-  const [physicalConsentChecked, setPhysicalConsentChecked] = useState(false);
-  const [pendingAcceptConnectionId, setPendingAcceptConnectionId] = useState<number | null>(null);
+
+  // Accept-confirm modal (digital + physical variants)
+  const [confirmModal, setConfirmModal] = useState<{
+    connectionId: number;
+    physical: boolean;
+  } | null>(null);
+  const [consentChecked, setConsentChecked] = useState(false);
+
+  // Letters Exchanged thread (connected digital only)
+  const [letters, setLetters] = useState<PenpalLetter[]>([]);
+  const [lettersLoading, setLettersLoading] = useState(false);
+
+  // Lightweight toast
+  const [toast, setToast] = useState<string | null>(null);
+  const toastOpacity = useRef(new Animated.Value(0)).current;
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showToast = (message: string) => {
+    setToast(message);
+    Animated.timing(toastOpacity, {
+      toValue: 1,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => {
+      Animated.timing(toastOpacity, {
+        toValue: 0,
+        duration: 250,
+        useNativeDriver: true,
+      }).start(() => setToast(null));
+    }, 2200);
+  };
+
+  useEffect(() => () => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+  }, []);
 
   const showAlert = (title: string, message: string, buttons?: AlertButton[]) =>
     setAlert({ title, message, buttons });
@@ -75,14 +132,13 @@ export default function PenpalPublicProfileScreen({ route, navigation }: Props) 
       if (conn.status === 'Pending') {
         return conn.requesterId === myId ? 'sent' : 'received';
       }
-      // Declined / Cancelled / anything else → show Add again
       return 'inactive';
     },
     [],
   );
 
-  const loadConnectionStatus = useCallback(async () => {
-    setLoading(true);
+  const loadConnectionStatus = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const user = await getUser();
       const myId = user?.id ?? null;
@@ -93,12 +149,10 @@ export default function PenpalPublicProfileScreen({ route, navigation }: Props) 
         return;
       }
 
-      // Fetch all connections (no status filter so we get everything)
       const res = await penpalApi.getConnections();
       const items: PenpalConnection[] = res.data?.data ?? [];
-
       const found = items.find(
-        (c) =>
+        c =>
           (c.requesterId === userId || c.receiverId === userId) &&
           (c.requesterId === myId || c.receiverId === myId),
       );
@@ -108,7 +162,7 @@ export default function PenpalPublicProfileScreen({ route, navigation }: Props) 
     } catch {
       setConnState('none');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [userId, deriveState]);
 
@@ -116,8 +170,39 @@ export default function PenpalPublicProfileScreen({ route, navigation }: Props) 
     loadConnectionStatus();
   }, [loadConnectionStatus]);
 
-  // ── Actions ──────────────────────────────────────────────────────────────
+  // Load the letter thread whenever the screen is focused (connected digital
+  // penpals only) — so returning from Compose refetches the latest letters.
+  useFocusEffect(
+    useCallback(() => {
+      if (connState !== 'connected' || isPhysical) return;
+      let cancelled = false;
+      (async () => {
+        setLettersLoading(true);
+        try {
+          // Per-penpal thread endpoint (gap #3 resolved)
+          const res = await penpalApi.getLetters({ withUserId: userId });
+          const all: PenpalLetter[] = res.data?.data ?? [];
+          const thread = all
+            .slice()
+            .sort(
+              (a, b) =>
+                new Date(a.createdAt).getTime() -
+                new Date(b.createdAt).getTime(),
+            );
+          if (!cancelled) setLetters(thread);
+        } catch {
+          if (!cancelled) setLetters([]);
+        } finally {
+          if (!cancelled) setLettersLoading(false);
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [connState, isPhysical, userId]),
+  );
 
+  // ── Actions ────────────────────────────────────────────────
   const handleAddPenpal = async () => {
     setActionLoading(true);
     try {
@@ -125,6 +210,7 @@ export default function PenpalPublicProfileScreen({ route, navigation }: Props) 
       const newConn: PenpalConnection = res.data?.data ?? res.data;
       setConnection(newConn ?? null);
       setConnState('sent');
+      showToast(`Connection request sent to ${pseudoName}!`);
     } catch (err: any) {
       showAlert('Error', extractError(err));
     } finally {
@@ -132,39 +218,36 @@ export default function PenpalPublicProfileScreen({ route, navigation }: Props) 
     }
   };
 
-  const handleCancelRequest = async () => {
+  const handleCancelRequest = () => {
     if (!connection) return;
-    showAlert(
-      'Cancel Request',
-      'Are you sure you want to cancel this connection request?',
-      [
-        { text: 'No', style: 'cancel' },
-        {
-          text: 'Cancel Request',
-          style: 'destructive',
-          onPress: async () => {
-            setActionLoading(true);
-            try {
-              await penpalApi.cancelConnection(connection.id);
-              setConnection(null);
-              setConnState('none');
-            } catch (err: any) {
-              showAlert('Error', extractError(err));
-            } finally {
-              setActionLoading(false);
-            }
-          },
+    showAlert('Cancel Request', 'Are you sure you want to cancel this connection request?', [
+      { text: 'No', style: 'cancel' },
+      {
+        text: 'Cancel Request',
+        style: 'destructive',
+        onPress: async () => {
+          setActionLoading(true);
+          try {
+            await penpalApi.cancelConnection(connection.id);
+            setConnection(null);
+            setConnState('none');
+          } catch (err: any) {
+            showAlert('Error', extractError(err));
+          } finally {
+            setActionLoading(false);
+          }
         },
-      ],
-    );
+      },
+    ]);
   };
 
   const handleDecline = async () => {
     if (!connection) return;
+    setConfirmModal(null);
     setActionLoading(true);
     try {
       await penpalApi.respondConnection(connection.id, 'Declined');
-      setConnection((prev) => (prev ? { ...prev, status: 'Declined' } : null));
+      setConnection(prev => (prev ? { ...prev, status: 'Declined' } : null));
       setConnState('inactive');
     } catch (err: any) {
       showAlert('Error', extractError(err));
@@ -174,12 +257,17 @@ export default function PenpalPublicProfileScreen({ route, navigation }: Props) 
   };
 
   const handleAccept = async (connectionId: number) => {
+    setConfirmModal(null);
     setActionLoading(true);
     try {
       const res = await penpalApi.respondConnection(connectionId, 'Accepted');
       const updated: PenpalConnection = res.data?.data ?? res.data;
       setConnection(updated ?? (connection ? { ...connection, status: 'Accepted' } : null));
       setConnState('connected');
+      // The respond response doesn't carry the counterpart's mailing address —
+      // silently refetch the full connection so "Send Letter To:" populates
+      // immediately (physical penpals).
+      loadConnectionStatus(true);
     } catch (err: any) {
       showAlert('Error', extractError(err));
     } finally {
@@ -189,263 +277,397 @@ export default function PenpalPublicProfileScreen({ route, navigation }: Props) 
 
   const handleAcceptPress = () => {
     if (!connection) return;
-    // If both sides are Physical, require consent confirmation
-    if (letterType === 'Physical') {
-      setPendingAcceptConnectionId(connection.id);
-      setPhysicalConsentChecked(false);
-      setPhysicalConsentVisible(true);
-    } else {
-      handleAccept(connection.id);
-    }
+    setConsentChecked(false);
+    setConfirmModal({ connectionId: connection.id, physical: isPhysical });
   };
 
-  const confirmPhysicalAccept = () => {
-    if (!physicalConsentChecked) {
-      showAlert('Consent Required', 'Please check the consent box to proceed.');
-      return;
-    }
-    setPhysicalConsentVisible(false);
-    if (pendingAcceptConnectionId !== null) {
-      handleAccept(pendingAcceptConnectionId);
-    }
+  const handleRemove = () => {
+    if (!connection) return;
+    showAlert('Remove Connection', 'Are you sure you want to remove this penpal?', [
+      { text: 'No', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          setActionLoading(true);
+          try {
+            await penpalApi.removeConnection(connection.id);
+            setConnection(null);
+            setConnState('none');
+            setLetters([]);
+          } catch (err: any) {
+            showAlert('Error', extractError(err));
+          } finally {
+            setActionLoading(false);
+          }
+        },
+      },
+    ]);
   };
 
-  const handleWriteLetter = () => {
+  const handleWriteLetter = () =>
     navigation.navigate('PenpalCompose', {
       receiverId: userId,
       receiverPseudoName: pseudoName,
     });
+
+  // ── Derived display values ─────────────────────────────────
+  const initials = pseudoName.charAt(0).toUpperCase();
+  const locationText =
+    [city, state, country].filter(Boolean).join(', ') || null;
+
+  // Age now comes from the discover API via route params (gap #2 resolved)
+  const nameAge = age != null ? `${pseudoName}, ${age}` : pseudoName;
+
+  // Physical mailing address comes from the connection's "other" side.
+  const otherAddr =
+    connection && currentUserId != null
+      ? connection.requesterId === currentUserId
+        ? {
+            line1: connection.receiverAddressLine1,
+            city: connection.receiverCity,
+            state: connection.receiverState,
+            postal: connection.receiverPostalCode,
+          }
+        : {
+            line1: connection.requesterAddressLine1,
+            city: connection.requesterCity,
+            state: connection.requesterState,
+            postal: connection.requesterPostalCode,
+          }
+      : null;
+
+  // ── Render helpers ─────────────────────────────────────────
+  const PenButton = (
+    <TouchableOpacity
+      style={styles.penBtn}
+      onPress={handleWriteLetter}
+      disabled={actionLoading}
+    >
+      <Image
+        source={require('../../assets/letter.png')}
+        style={styles.btnIcon}
+        resizeMode="contain"
+      />
+    </TouchableOpacity>
+  );
+
+  // Photo-overlay actions: Remove (connected) + pen; pen only otherwise.
+  // Physical letter exchange has no in-app composing, so the pen is hidden.
+  const renderPhotoActions = () => {
+    if (loading) return <ActivityIndicator color={Colors.white} />;
+    if (connState === 'connected') {
+      return (
+        <View style={styles.actionRow}>
+          <TouchableOpacity
+            style={styles.removePhotoBtn}
+            onPress={handleRemove}
+            disabled={actionLoading}
+          >
+            {actionLoading ? (
+              <ActivityIndicator color={Colors.white} size="small" />
+            ) : (
+              <>
+                <Image
+                  source={require('../../assets/remove.png')}
+                  style={styles.removeIcon}
+                  resizeMode="contain"
+                />
+                <Text style={styles.removeBtnText}>Remove</Text>
+              </>
+            )}
+          </TouchableOpacity>
+          {!isPhysical && PenButton}
+        </View>
+      );
+    }
+    return <View style={styles.actionRow}>{!isPhysical && PenButton}</View>;
   };
 
-  const handleReport = () => setReportVisible(true);
-
-  // ── Derived display values ────────────────────────────────────────────────
-
-  const initials = pseudoName.charAt(0).toUpperCase();
-
-  const locationParts = [city, state, country].filter(Boolean);
-  const locationText = locationParts.length > 0 ? locationParts.join(', ') : null;
-
-  const identityLabel =
-    identityVisibility === 'Anonymous'
-      ? 'Anonymous'
-      : identityVisibility === 'FirstNameOnly'
-      ? 'First Name Only'
-      : 'Full Name Visible';
-
-  const showFullName =
-    identityVisibility === 'FullName' && (firstName || lastName);
-
-  const letterTypeIcon = letterType === 'Physical' ? '✉' : '💬';
-
-  // ── Render ────────────────────────────────────────────────────────────────
-
+  // ── Render ─────────────────────────────────────────────────
   return (
     <View style={styles.root}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-      >
-        {/* Navy header card */}
-        <View style={styles.headerCard}>
-          {/* Avatar */}
-          <View style={styles.avatarWrap}>
-            {profileImageUrl ? (
-              <Image source={{ uri: profileImageUrl }} style={styles.avatarImage} />
-            ) : (
-              <View style={styles.avatarPlaceholder}>
-                <Text style={styles.avatarInitials}>{initials}</Text>
+      <ScrollView showsVerticalScrollIndicator={false}>
+        {/* Photo header */}
+        <RemoteImageBackground
+          uri={profileImageUrl}
+          style={[styles.header, { height: HEADER_H }]}
+          imageStyle={styles.headerImg}
+          indicatorSize="large"
+        >
+          {!profileImageUrl && (
+            <View style={styles.headerFallback}>
+              <Text style={styles.headerFallbackText}>{initials}</Text>
+            </View>
+          )}
+          <View style={styles.headerScrim} pointerEvents="none" />
+
+          {/* Top row: back + report */}
+          <View style={[styles.topRow, { top: insets.top + 8 }]}>
+            <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={8}>
+              <Text style={styles.backArrow}>←</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setReportVisible(true)} hitSlop={8}>
+              <Image
+                source={require('../../assets/flag.png')}
+                style={styles.flagIcon}
+                resizeMode="contain"
+              />
+            </TouchableOpacity>
+          </View>
+
+          {/* Name + location */}
+          <View style={styles.nameOverlay}>
+            <Text style={styles.nameText}>{nameAge}</Text>
+            {locationText && (
+              <View style={styles.locationRow}>
+                <Icon name="location-outline" size={14} color="rgba(255,255,255,0.9)" />
+                <Text style={styles.locationText}>{locationText}</Text>
               </View>
             )}
           </View>
 
-          <Text style={styles.pseudoNameText}>{pseudoName}</Text>
+          {/* Actions */}
+          <View style={styles.actionsWrap}>{renderPhotoActions()}</View>
+        </RemoteImageBackground>
 
-          {showFullName && (
-            <Text style={styles.realNameText}>
-              {[firstName, lastName].filter(Boolean).join(' ')}
-            </Text>
-          )}
-
-          {/* Letter type badge */}
-          <View style={styles.badgeRow}>
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>
-                {letterTypeIcon} {letterType}
-              </Text>
-            </View>
+        {/* Body — connected + physical: mailing address */}
+        {connState === 'connected' && isPhysical && otherAddr && (
+          <View style={styles.body}>
+            <Text style={styles.bodyTitle}>Send Letter To:</Text>
+            {otherAddr.line1 ? (
+              <AddressField label="Address Line 1:" value={otherAddr.line1} />
+            ) : null}
+            {/* Address Line 2 isn't returned in the connection payload (only
+                profile has it) — shown when available. */}
+            <AddressField label="Postal Code:" value={otherAddr.postal} />
+            <AddressField label="State:" value={otherAddr.state} />
+            <AddressField label="City:" value={otherAddr.city} />
           </View>
+        )}
 
-          {/* Location */}
-          {locationText && (
-            <View style={styles.locationRow}>
-              <Text style={styles.locationIcon}>📍</Text>
-              <Text style={styles.locationText}>{locationText}</Text>
-            </View>
-          )}
-        </View>
-
-        {/* Identity section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Identity</Text>
-          <View style={styles.infoRow}>
-            <View style={styles.infoIconWrap}>
-              <Text style={styles.infoIcon}>👤</Text>
-            </View>
-            <View style={styles.infoContent}>
-              <Text style={styles.infoLabel}>Visibility</Text>
-              <Text style={styles.infoValue}>{identityLabel}</Text>
-            </View>
-          </View>
-          <View style={styles.infoRow}>
-            <View style={styles.infoIconWrap}>
-              <Text style={styles.infoIcon}>{letterTypeIcon}</Text>
-            </View>
-            <View style={styles.infoContent}>
-              <Text style={styles.infoLabel}>Letter Type</Text>
-              <Text style={styles.infoValue}>{letterType}</Text>
-            </View>
-          </View>
-          {locationText && (
-            <View style={styles.infoRow}>
-              <View style={styles.infoIconWrap}>
-                <Text style={styles.infoIcon}>📍</Text>
-              </View>
-              <View style={styles.infoContent}>
-                <Text style={styles.infoLabel}>Location</Text>
-                <Text style={styles.infoValue}>{locationText}</Text>
-              </View>
-            </View>
-          )}
-        </View>
-
-        {/* Action section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Connection</Text>
-
-          {loading ? (
-            <ActivityIndicator color={Colors.penpal} style={styles.actionLoader} />
+        {/* Body — connected + digital: letters thread or empty state */}
+        {connState === 'connected' && !isPhysical && (
+          lettersLoading ? (
+            <ActivityIndicator color={Colors.penpal} style={{ marginTop: 48 }} />
+          ) : letters.length === 0 ? (
+            <StateBody
+              image={require('../../assets/notfound.png')}
+              title="No Letter Exchanged"
+              desc="You haven't exchanged any letters yet. Start the conversation and send your first letter now."
+            >
+              <TouchableOpacity
+                style={[styles.fullBtn, { backgroundColor: Colors.penpal }]}
+                onPress={handleWriteLetter}
+              >
+                <Text style={styles.fullBtnText}>Exchange Letter Now!</Text>
+              </TouchableOpacity>
+            </StateBody>
           ) : (
-            <View style={styles.actionArea}>
-              {connState === 'none' || connState === 'inactive' ? (
-                <AppButton
-                  title="Add as Penpal"
-                  onPress={handleAddPenpal}
-                  loading={actionLoading}
-                  style={styles.primaryActionBtn}
-                />
-              ) : connState === 'sent' ? (
-                <AppButton
-                  title="Cancel Request"
-                  onPress={handleCancelRequest}
-                  loading={actionLoading}
-                  variant="outline"
-                  style={styles.cancelActionBtn}
-                  textStyle={styles.cancelActionBtnText}
-                />
-              ) : connState === 'received' ? (
-                <View style={styles.respondRow}>
-                  <View style={styles.respondBtnWrap}>
-                    <AppButton
-                      title="Accept"
-                      onPress={handleAcceptPress}
-                      loading={actionLoading}
-                      style={styles.acceptBtn}
-                    />
+            <View style={styles.body}>
+              <Text style={styles.bodyTitle}>Letters Exchanged</Text>
+              {letters.map(l => {
+                const mine = l.senderId === currentUserId;
+                return (
+                  <View
+                    key={l.id}
+                    style={[
+                      styles.bubbleRow,
+                      mine ? styles.bubbleRowRight : styles.bubbleRowLeft,
+                    ]}
+                  >
+                    {!mine &&
+                      (profileImageUrl ? (
+                        <RemoteImage
+                          uri={profileImageUrl}
+                          style={styles.bubbleAvatar}
+                        />
+                      ) : (
+                        <View
+                          style={[styles.bubbleAvatar, styles.bubbleAvatarFallback]}
+                        >
+                          <Text style={styles.bubbleAvatarText}>{initials}</Text>
+                        </View>
+                      ))}
+                    <View style={{ maxWidth: '78%' }}>
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={() =>
+                          navigation.navigate('PenpalLetterDetail', {
+                            letterId: l.id,
+                          })
+                        }
+                        style={[
+                          styles.bubble,
+                          mine ? styles.bubbleMine : styles.bubbleTheirs,
+                        ]}
+                      >
+                        <Text
+                          style={mine ? styles.bubbleTextMine : styles.bubbleTextTheirs}
+                          numberOfLines={1}
+                        >
+                          Title: {l.title}
+                        </Text>
+                      </TouchableOpacity>
+                      <Text
+                        style={[
+                          styles.bubbleTime,
+                          mine ? styles.bubbleTimeRight : styles.bubbleTimeLeft,
+                        ]}
+                      >
+                        {timeAgo(l.createdAt)}
+                      </Text>
+                    </View>
                   </View>
-                  <View style={styles.respondBtnWrap}>
-                    <AppButton
-                      title="Decline"
-                      onPress={handleDecline}
-                      loading={actionLoading}
-                      variant="outline"
-                      style={styles.declineBtn}
-                      textStyle={styles.declineBtnText}
-                    />
-                  </View>
-                </View>
-              ) : connState === 'connected' ? (
-                <AppButton
-                  title="Write Letter"
-                  onPress={handleWriteLetter}
-                  loading={actionLoading}
-                  style={styles.primaryActionBtn}
-                />
-              ) : null}
-
-              {/* Connection status label */}
-              {!loading && (
-                <Text style={styles.connStatusText}>
-                  {connState === 'sent' && 'Connection request sent — awaiting response'}
-                  {connState === 'received' && 'This person wants to be your penpal!'}
-                  {connState === 'connected' && 'You are connected penpals'}
-                  {connState === 'inactive' && 'Previous connection was declined or cancelled'}
-                </Text>
-              )}
+                );
+              })}
             </View>
-          )}
-        </View>
+          )
+        )}
 
-        {/* Report */}
-        <TouchableOpacity
-          style={styles.reportBtn}
-          onPress={handleReport}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.reportBtnText}>Report this user</Text>
-        </TouchableOpacity>
+        {/* Body — received request */}
+        {connState === 'received' && (
+          <StateBody
+            title="Be Friends And Start Sending Letters"
+            desc="Accept this request to connect and start exchanging heartfelt letters with each other."
+          >
+            <View style={styles.footerRow}>
+              <TouchableOpacity
+                style={[styles.fullBtn, styles.declineFullBtn]}
+                onPress={handleDecline}
+                disabled={actionLoading}
+              >
+                <Icon name="close" size={18} color={Colors.white} />
+                <Text style={styles.fullBtnText}>  Decline</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.fullBtn, styles.acceptFullBtn]}
+                onPress={handleAcceptPress}
+                disabled={actionLoading}
+              >
+                <Icon name="checkmark" size={18} color={Colors.white} />
+                <Text style={styles.fullBtnText}>  Accept</Text>
+              </TouchableOpacity>
+            </View>
+          </StateBody>
+        )}
+
+        {/* Body — request sent, pending */}
+        {connState === 'sent' && (
+          <StateBody
+            title="Request Pending"
+            desc="Your connection request has been sent. You'll be able to exchange letters once it's accepted."
+          >
+            <TouchableOpacity
+              style={[styles.fullBtn, styles.cancelFullBtn]}
+              onPress={handleCancelRequest}
+              disabled={actionLoading}
+            >
+              <Text style={[styles.fullBtnText, { color: Colors.error }]}>
+                Cancel Request
+              </Text>
+            </TouchableOpacity>
+          </StateBody>
+        )}
+
+        {/* Body — connection status still loading */}
+        {loading && (
+          <ActivityIndicator color={Colors.penpal} style={styles.bodyLoader} />
+        )}
+
+        {/* Body — not connected */}
+        {!loading && (connState === 'none' || connState === 'inactive') && (
+          <StateBody
+            title={`Add ${pseudoName}\nas a Friend`}
+            desc="Send a connection request to become penpals and start exchanging letters with each other."
+          >
+            <TouchableOpacity
+              style={[styles.fullBtn, { backgroundColor: Colors.success }]}
+              onPress={handleAddPenpal}
+              disabled={actionLoading}
+            >
+              {actionLoading ? (
+                <ActivityIndicator color={Colors.white} />
+              ) : (
+                <>
+                  <Icon name="person" size={18} color={Colors.white} />
+                  <Text style={styles.fullBtnText}>  Add Friend</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </StateBody>
+        )}
       </ScrollView>
 
-      {/* Physical-to-Physical consent alert */}
-      <AppAlert
-        visible={physicalConsentVisible}
-        title="Physical Mail Consent"
-        message="By accepting this connection, you agree that your physical mailing address may be shared with this penpal for letter delivery. Please confirm your consent below."
-        buttons={[
-          {
-            text: 'Cancel',
-            style: 'cancel',
-            onPress: () => {
-              setPhysicalConsentVisible(false);
-              setPendingAcceptConnectionId(null);
-            },
-          },
-          {
-            text: physicalConsentChecked ? 'Accept' : 'I Consent & Accept',
-            style: 'default',
-            onPress: confirmPhysicalAccept,
-          },
-        ]}
-        onClose={() => {
-          setPhysicalConsentVisible(false);
-          setPendingAcceptConnectionId(null);
-        }}
-      />
-
-      {/* Consent checkbox — rendered as an overlay row below the alert when it is shown */}
-      {physicalConsentVisible && (
-        <View style={styles.consentCheckboxOverlay}>
-          <TouchableOpacity
-            style={styles.consentRow}
-            onPress={() => setPhysicalConsentChecked((v) => !v)}
-            activeOpacity={0.7}
-          >
-            <View
-              style={[
-                styles.checkbox,
-                physicalConsentChecked && styles.checkboxChecked,
-              ]}
-            >
-              {physicalConsentChecked && (
-                <Text style={styles.checkmark}>✓</Text>
-              )}
+      {/* Accept-confirm modal (same design as PenpalConnections) */}
+      <Modal
+        visible={!!confirmModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setConfirmModal(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeaderRow}>
+              <Text style={styles.modalTitle}>Are You Sure?</Text>
+              <TouchableOpacity onPress={() => setConfirmModal(null)} hitSlop={8}>
+                <Text style={styles.modalClose}>✕</Text>
+              </TouchableOpacity>
             </View>
-            <Text style={styles.consentLabel}>
-              I understand and consent to sharing my address
-            </Text>
-          </TouchableOpacity>
+            {confirmModal?.physical ? (
+              <TouchableOpacity
+                style={styles.consentRow}
+                activeOpacity={0.7}
+                onPress={() => setConsentChecked(v => !v)}
+              >
+                <View
+                  style={[
+                    styles.checkbox,
+                    consentChecked && styles.checkboxChecked,
+                  ]}
+                >
+                  {consentChecked && <Text style={styles.checkmark}>✓</Text>}
+                </View>
+                <Text style={styles.consentText}>
+                  By accepting this request,{' '}
+                  <Text style={styles.modalName}>{pseudoName}</Text> will be
+                  able to see your physical mailing address. Are you sure you
+                  want to proceed?
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <Text style={styles.modalMessage}>
+                Are you sure you want to add{' '}
+                <Text style={styles.modalName}>{pseudoName}</Text> to your
+                friends list?
+              </Text>
+            )}
+            <View style={styles.modalBtns}>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalCancelBtn]}
+                onPress={() => setConfirmModal(null)}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.modalBtn,
+                  styles.modalConfirmBtn,
+                  confirmModal?.physical &&
+                    !consentChecked &&
+                    styles.modalConfirmDisabled,
+                ]}
+                disabled={!!confirmModal?.physical && !consentChecked}
+                onPress={() =>
+                  confirmModal && handleAccept(confirmModal.connectionId)
+                }
+              >
+                <Text style={styles.modalConfirmText}>Confirm</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
-      )}
+      </Modal>
 
       {/* General alert */}
       <AppAlert
@@ -460,215 +682,331 @@ export default function PenpalPublicProfileScreen({ route, navigation }: Props) 
         visible={reportVisible}
         reportedUserId={userId}
         module="Penpal"
+        reportedName={pseudoName}
         onClose={() => setReportVisible(false)}
       />
+
+      {/* Toast */}
+      {toast && (
+        <Animated.View
+          style={[
+            styles.toast,
+            { opacity: toastOpacity, bottom: insets.bottom + 28 },
+          ]}
+          pointerEvents="none"
+        >
+          <Text style={styles.toastText}>{toast}</Text>
+        </Animated.View>
+      )}
+    </View>
+  );
+}
+
+function StateBody({
+  image,
+  title,
+  desc,
+  children,
+}: {
+  image?: number;
+  title: string;
+  desc: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <View style={styles.stateBody}>
+      <Image
+        source={image ?? require('../../assets/penpalRequest.png')}
+        style={styles.illustrationImg}
+        resizeMode="contain"
+      />
+      <Text style={styles.stateTitle}>{title}</Text>
+      <Text style={styles.stateDesc}>{desc}</Text>
+      {children}
+    </View>
+  );
+}
+
+function AddressField({ label, value }: { label: string; value?: string }) {
+  return (
+    <View style={styles.addrField}>
+      <Text style={styles.addrLabel}>{label}</Text>
+      <Text style={styles.addrValue}>{value || '—'}</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },
-  scrollContent: { paddingBottom: 40 },
 
-  // Header card (navy)
-  headerCard: {
-    backgroundColor: Colors.navy,
-    alignItems: 'center',
-    paddingTop: 32,
-    paddingBottom: 28,
-    paddingHorizontal: 24,
+  header: { justifyContent: 'flex-end', backgroundColor: Colors.navy },
+  headerImg: {
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
   },
-  avatarWrap: {
-    marginBottom: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  avatarImage: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    borderWidth: 3,
-    borderColor: Colors.penpal,
-  },
-  avatarPlaceholder: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
+  headerFallback: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: Colors.penpal,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 3,
-    borderColor: Colors.penpalLight,
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
   },
-  avatarInitials: {
-    fontSize: 34,
-    fontWeight: '700',
-    color: Colors.white,
+  headerFallbackText: { fontSize: 96, fontWeight: '800', color: Colors.white, opacity: 0.85 },
+  headerScrim: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: '40%',
+    backgroundColor: 'rgba(0,0,0,0.32)',
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
   },
-  pseudoNameText: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: Colors.white,
-    marginBottom: 4,
-    textAlign: 'center',
-  },
-  realNameText: {
-    fontSize: 14,
-    color: 'rgba(255,255,255,0.65)',
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  badgeRow: {
+
+  topRow: {
+    position: 'absolute',
+    left: 18,
+    right: 18,
     flexDirection: 'row',
-    marginBottom: 10,
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  badge: {
-    backgroundColor: Colors.penpal,
-    paddingHorizontal: 14,
-    paddingVertical: 5,
-    borderRadius: 20,
-  },
-  badgeText: {
-    fontSize: 13,
+  backArrow: { fontSize: 26, color: Colors.white, fontWeight: '600' },
+  flagIcon: { width: 22, height: 22, tintColor: Colors.white },
+
+  nameOverlay: { position: 'absolute', left: 20, bottom: 26 },
+  nameText: {
+    fontSize: 20,
+    fontWeight: '800',
     color: Colors.white,
-    fontWeight: '600',
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
   locationRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 4,
     marginTop: 4,
   },
-  locationIcon: { fontSize: 13, marginRight: 4 },
   locationText: {
     fontSize: 13,
-    color: 'rgba(255,255,255,0.6)',
+    color: 'rgba(255,255,255,0.9)',
   },
 
-  // Sections
-  section: {
-    marginHorizontal: 20,
-    marginTop: 24,
-    backgroundColor: Colors.surface,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    overflow: 'hidden',
-    paddingBottom: 4,
-  },
-  sectionTitle: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: Colors.textMuted,
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  infoRow: {
+  actionsWrap: { position: 'absolute', right: 16, bottom: 20 },
+  actionRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  labelBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    gap: 6,
+    backgroundColor: Colors.white,
+    paddingHorizontal: 18,
+    height: 46,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
   },
-  infoIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: Colors.penpalLight,
+  labelBtnText: { fontSize: 15, fontWeight: '700' },
+  addGlyph: { fontSize: 18, fontWeight: '900', color: Colors.success },
+  penBtn: {
+    width: 46,
+    height: 46,
+    borderRadius: 12,
+    backgroundColor: Colors.white,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
   },
-  infoIcon: { fontSize: 16 },
-  infoContent: { flex: 1 },
-  infoLabel: { fontSize: 11, color: Colors.textMuted, marginBottom: 2, textTransform: 'uppercase', letterSpacing: 0.4 },
-  infoValue: { fontSize: 15, color: Colors.text, fontWeight: '500' },
-
-  // Actions
-  actionLoader: { paddingVertical: 20 },
-  actionArea: { padding: 16 },
-  respondRow: { flexDirection: 'row', gap: 12, marginBottom: 4 },
-  respondBtnWrap: { flex: 1 },
-  primaryActionBtn: { backgroundColor: Colors.penpal },
-  cancelActionBtn: {
-    backgroundColor: Colors.background,
-    borderWidth: 1.5,
-    borderColor: Colors.error,
-  },
-  acceptBtn: { backgroundColor: Colors.penpal },
-  declineBtn: {
-    backgroundColor: Colors.background,
-    borderWidth: 1.5,
-    borderColor: Colors.error,
-  },
-  connStatusText: {
-    textAlign: 'center',
-    fontSize: 12,
-    color: Colors.textMuted,
-    marginTop: 10,
-  },
-
-  // Report
-  reportBtn: {
-    marginHorizontal: 20,
-    marginTop: 20,
-    paddingVertical: 12,
+  btnIcon: { width: 22, height: 22 },
+  circleBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  reportBtnText: {
-    fontSize: 13,
-    color: Colors.error,
-    textDecorationLine: 'underline',
-  },
+  circleDecline: { backgroundColor: Colors.error },
+  circleAccept: { backgroundColor: Colors.success },
+  circleGlyph: { color: Colors.white, fontSize: 18, fontWeight: '800' },
 
-  // Physical consent overlay
-  consentCheckboxOverlay: {
-    position: 'absolute',
-    bottom: 80,
-    left: 0,
-    right: 0,
+  // Body
+  body: { paddingHorizontal: 20, paddingTop: 22, paddingBottom: 40 },
+  bodyLoader: { marginTop: 56 },
+  bodyTitle: { fontSize: 17, fontWeight: '800', color: Colors.text, marginBottom: 16 },
+  emptyThread: { fontSize: 14, color: Colors.textMuted, marginTop: 8 },
+
+  // Letter bubbles
+  bubbleRow: { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 18 },
+  bubbleRowLeft: { justifyContent: 'flex-start' },
+  bubbleRowRight: { justifyContent: 'flex-end' },
+  bubbleAvatar: { width: 32, height: 32, borderRadius: 16, marginRight: 8 },
+  bubbleAvatarFallback: {
+    backgroundColor: Colors.penpal,
     alignItems: 'center',
-    paddingHorizontal: 40,
-    zIndex: 1000,
+    justifyContent: 'center',
   },
-  consentRow: {
+  bubbleAvatarText: { fontSize: 13, fontWeight: '700', color: Colors.white },
+  bubble: { paddingHorizontal: 14, paddingVertical: 12, borderRadius: 14 },
+  bubbleTheirs: { backgroundColor: Colors.surface, borderTopLeftRadius: 4 },
+  bubbleMine: { backgroundColor: Colors.penpal, borderTopRightRadius: 4 },
+  bubbleTextTheirs: { fontSize: 13, color: Colors.text },
+  bubbleTextMine: { fontSize: 13, color: Colors.white },
+  bubbleTime: { fontSize: 11, color: Colors.textMuted, marginTop: 5 },
+  bubbleTimeLeft: { textAlign: 'left', marginLeft: 4 },
+  bubbleTimeRight: { textAlign: 'right', marginRight: 4 },
+
+  // Address
+  addrField: { marginBottom: 14 },
+  addrLabel: { fontSize: 14, fontWeight: '700', color: Colors.penpal, marginBottom: 2 },
+  addrValue: { fontSize: 14, color: Colors.text },
+
+  // Photo Remove button (red)
+  removePhotoBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.background,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    gap: 6,
+    backgroundColor: Colors.error,
+    paddingHorizontal: 18,
+    height: 46,
+    borderRadius: 12,
     shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 5,
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 4,
+    elevation: 3,
   },
+  removeIcon: { width: 20, height: 20, tintColor: Colors.white },
+  removeBtnText: { fontSize: 15, fontWeight: '700', color: Colors.white },
+
+  // State bodies (empty / pending / not-connected)
+  stateBody: {
+    paddingHorizontal: 24,
+    paddingTop: 36,
+    paddingBottom: 40,
+    alignItems: 'center',
+  },
+  illustrationImg: { width: 210, height: 170, marginBottom: 20 },
+  stateTitle: {
+    fontSize: 21,
+    fontWeight: '800',
+    color: Colors.text,
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  stateDesc: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 21,
+    marginBottom: 28,
+    paddingHorizontal: 6,
+  },
+  fullBtn: {
+    height: 54,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    alignSelf: 'stretch',
+  },
+  fullBtnText: { fontSize: 16, fontWeight: '700', color: Colors.white },
+  footerRow: { flexDirection: 'row', gap: 12, alignSelf: 'stretch' },
+  declineFullBtn: { flex: 1, backgroundColor: Colors.error },
+  acceptFullBtn: { flex: 1, backgroundColor: Colors.success },
+  cancelFullBtn: {
+    backgroundColor: Colors.white,
+    borderWidth: 1.5,
+    borderColor: Colors.error,
+  },
+
+  // Accept-confirm modal (mirrors PenpalConnectionsScreen)
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  modalCard: {
+    backgroundColor: Colors.white,
+    borderRadius: 20,
+    padding: 24,
+    width: '100%',
+    maxWidth: 360,
+  },
+  modalHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  modalTitle: { fontSize: 20, fontWeight: '800', color: Colors.text },
+  modalClose: { fontSize: 18, color: Colors.text },
+  modalMessage: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    lineHeight: 21,
+    marginBottom: 24,
+  },
+  modalName: { fontWeight: '700', color: Colors.text },
+  modalBtns: { flexDirection: 'row', gap: 12 },
+  modalBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  modalCancelBtn: { backgroundColor: Colors.navy },
+  modalCancelText: { fontSize: 14, fontWeight: '700', color: Colors.white },
+  modalConfirmBtn: { backgroundColor: Colors.penpal },
+  modalConfirmDisabled: { opacity: 0.4 },
+  modalConfirmText: { fontSize: 14, fontWeight: '700', color: Colors.white },
+  consentRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 24 },
   checkbox: {
     width: 22,
     height: 22,
     borderRadius: 6,
     borderWidth: 2,
     borderColor: Colors.border,
-    backgroundColor: Colors.surface,
+    backgroundColor: Colors.background,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 10,
+    marginRight: 12,
+    marginTop: 1,
+    flexShrink: 0,
   },
-  checkboxChecked: {
-    borderColor: Colors.penpal,
-    backgroundColor: Colors.penpal,
-  },
+  checkboxChecked: { borderColor: Colors.penpal, backgroundColor: Colors.penpal },
   checkmark: { fontSize: 13, color: Colors.white, fontWeight: '700' },
-  consentLabel: { flex: 1, fontSize: 13, color: Colors.text, lineHeight: 18 },
+  consentText: { flex: 1, fontSize: 14, color: Colors.textSecondary, lineHeight: 21 },
+
+  // Toast
+  toast: {
+    position: 'absolute',
+    left: 24,
+    right: 24,
+    backgroundColor: Colors.navy,
+    borderRadius: 12,
+    paddingVertical: 13,
+    paddingHorizontal: 18,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 6,
+  },
+  toastText: { color: Colors.white, fontSize: 14, fontWeight: '600', textAlign: 'center' },
 });

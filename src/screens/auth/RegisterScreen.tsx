@@ -2,8 +2,6 @@ import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Image, Platform, Modal, ScrollView,
 } from 'react-native';
-
-const LOGO = require('../../assets/fixit-app-logo.png');
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { launchImageLibrary } from 'react-native-image-picker';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -16,6 +14,7 @@ import AppAlert, { AlertButton } from '../../components/common/AppAlert';
 import CountryPicker from '../../components/common/CountryPicker';
 import KeyboardAwareScrollView from '../../components/common/KeyboardAwareScrollView';
 import api from '../../api/axios';
+import { usersApi } from '../../api/users';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Register'>;
 
@@ -66,6 +65,7 @@ export default function RegisterScreen({ navigation }: Props) {
   const [showCountryPicker, setShowCountryPicker] = useState(false);
   const [passwordTouched, setPasswordTouched] = useState(false);
   const [profileImageUri, setProfileImageUri] = useState<string | null>(null);
+  const [profileImageType, setProfileImageType] = useState('image/jpeg');
   const [tcAccepted, setTcAccepted] = useState(false);
   const [legalModal, setLegalModal] = useState<'tc' | 'privacy' | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -104,8 +104,10 @@ export default function RegisterScreen({ navigation }: Props) {
 
   const pickImage = () => {
     launchImageLibrary({ mediaType: 'photo', quality: 0.8, includeBase64: false }, (response) => {
-      if (response.assets?.[0]?.uri) {
-        setProfileImageUri(response.assets[0].uri);
+      const asset = response.assets?.[0];
+      if (asset?.uri) {
+        setProfileImageUri(asset.uri);
+        setProfileImageType(asset.type ?? 'image/jpeg');
       }
     });
   };
@@ -115,6 +117,24 @@ export default function RegisterScreen({ navigation }: Props) {
     setLoading(true);
     try {
       const [deviceId, pushToken] = await Promise.all([getDeviceId(), getPushToken()]);
+
+      // Sign-up photo is uploaded first (no auth needed); the returned URL is
+      // sent with the registration payload as `profilePictureUrl`.
+      let profilePictureUrl: string | undefined;
+      if (profileImageUri) {
+        try {
+          const res = await usersApi.uploadRegistrationImage(profileImageUri, profileImageType);
+          const returned = res.data?.data;
+          profilePictureUrl =
+            typeof returned === 'string'
+              ? returned
+              : returned?.profilePictureUrl ?? returned?.profileImageUrl ?? returned?.url;
+        } catch {
+          // A failed photo upload shouldn't block sign-up — the user can add
+          // a photo later from Edit Profile.
+        }
+      }
+
       await api.post('/auth/register', {
         firstName: form.firstName.trim(),
         lastName: form.lastName.trim(),
@@ -126,6 +146,7 @@ export default function RegisterScreen({ navigation }: Props) {
         state: form.state.trim(),
         gender: form.gender,
         role: 'User',
+        profilePictureUrl,
         deviceId,
         platform: getPlatform(),
         deviceName: 'Mobile App',
@@ -142,15 +163,11 @@ export default function RegisterScreen({ navigation }: Props) {
   return (
     <KeyboardAwareScrollView contentContainerStyle={styles.container}>
 
-        {/* Header */}
-        <View style={styles.header}>
-          <Image source={LOGO} style={styles.logo} resizeMode="contain" />
-          <Text style={styles.title}>Create Account</Text>
-          <Text style={styles.subtitle}>Join us today</Text>
-        </View>
+        {/* Title */}
+        <Text style={styles.title}>Sign Up</Text>
 
         {/* Profile Photo */}
-        <TouchableOpacity style={styles.avatarWrap} onPress={pickImage} activeOpacity={0.8}>
+        <TouchableOpacity style={styles.photoRow} onPress={pickImage} activeOpacity={0.8}>
           {profileImageUri ? (
             <Image source={{ uri: profileImageUri }} style={styles.avatar} />
           ) : (
@@ -158,31 +175,28 @@ export default function RegisterScreen({ navigation }: Props) {
               <Text style={styles.avatarIcon}>👤</Text>
             </View>
           )}
-          <View style={styles.avatarBadge}>
-            <Text style={styles.avatarBadgeText}>📷</Text>
-          </View>
+          <Text style={styles.uploadText}>Upload Photo</Text>
         </TouchableOpacity>
-        <Text style={styles.avatarHint}>Tap to add profile photo</Text>
 
         {/* Name */}
         <View style={styles.row}>
-          <AppInput label="First Name" placeholder="John" value={form.firstName}
+          <AppInput label="First Name" placeholder="Enter first name" value={form.firstName}
             onChangeText={(v) => set('firstName', v)} error={errors.firstName} maxLength={50}
             containerStyle={styles.rowField} />
-          <AppInput label="Last Name" placeholder="Doe" value={form.lastName}
+          <AppInput label="Last Name" placeholder="Enter last name" value={form.lastName}
             onChangeText={(v) => set('lastName', v)} error={errors.lastName} maxLength={50}
             containerStyle={styles.rowField} />
         </View>
 
         {/* Email */}
-        <AppInput label="Email" placeholder="you@example.com" value={form.email}
+        <AppInput label="Email Address" placeholder="Enter your email address" value={form.email}
           onChangeText={(v) => set('email', v)} keyboardType="email-address"
           autoCapitalize="none" error={errors.email} maxLength={100} />
 
         {/* Password */}
         <AppInput
           label="Password"
-          placeholder="Create a password"
+          placeholder="Enter your password"
           value={form.password}
           onChangeText={(v) => set('password', v)}
           secureToggle
@@ -207,7 +221,7 @@ export default function RegisterScreen({ navigation }: Props) {
           </View>
         )}
 
-        <AppInput label="Confirm Password" placeholder="Repeat password" value={form.confirmPassword}
+        <AppInput label="Confirm Password" placeholder="Repeat your password" value={form.confirmPassword}
           onChangeText={(v) => set('confirmPassword', v)} secureToggle error={errors.confirmPassword} />
 
         {/* Date of Birth */}
@@ -218,29 +232,55 @@ export default function RegisterScreen({ navigation }: Props) {
             onPress={() => setShowDatePicker(true)}
           >
             <Text style={dob ? styles.selectText : styles.selectPlaceholder}>
-              {dob ? formatDate(dob) : 'Select date of birth (must be 18+)'}
+              {dob ? formatDate(dob) : 'Select date of birth'}
             </Text>
-            <Text style={styles.selectChevron}>▾</Text>
+            <Image
+              source={require('../../assets/calendar.png')}
+              style={styles.calendarIcon}
+              resizeMode="contain"
+            />
           </TouchableOpacity>
           {!!errors.dob && <Text style={styles.errorText}>{errors.dob}</Text>}
+          <Text style={styles.dobHelper}>
+            Only individuals aged 18 and above are permitted to register on this App
+          </Text>
         </View>
 
         {showDatePicker && (
-          <DateTimePicker
-            value={dob ?? new Date(2000, 0, 1)}
-            mode="date"
-            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-            maximumDate={MAX_DOB}
-            onChange={(_, date) => {
-              setShowDatePicker(Platform.OS === 'ios');
-              if (date) { setDob(date); setErrors((e) => ({ ...e, dob: '' })); }
-            }}
-          />
+          Platform.OS === 'ios' ? (
+            <View style={styles.iosPicker}>
+              <View style={styles.iosPickerBar}>
+                <TouchableOpacity onPress={() => setShowDatePicker(false)}>
+                  <Text style={styles.iosPickerDone}>Done</Text>
+                </TouchableOpacity>
+              </View>
+              <DateTimePicker
+                value={dob ?? MAX_DOB}
+                mode="date"
+                display="spinner"
+                maximumDate={MAX_DOB}
+                onChange={(_, date) => {
+                  if (date) { setDob(date); setErrors((e) => ({ ...e, dob: '' })); }
+                }}
+              />
+            </View>
+          ) : (
+            <DateTimePicker
+              value={dob ?? MAX_DOB}
+              mode="date"
+              display="default"
+              maximumDate={MAX_DOB}
+              onChange={(_, date) => {
+                setShowDatePicker(false);
+                if (date) { setDob(date); setErrors((e) => ({ ...e, dob: '' })); }
+              }}
+            />
+          )
         )}
 
         {/* Country */}
         <View style={styles.fieldWrap}>
-          <Text style={styles.label}>Country</Text>
+          <Text style={styles.label}>Where do you live?</Text>
           <TouchableOpacity
             style={[styles.selectBox, !!errors.country && styles.selectBoxError]}
             onPress={() => setShowCountryPicker(true)}
@@ -254,27 +294,34 @@ export default function RegisterScreen({ navigation }: Props) {
         </View>
 
         <View style={styles.row}>
-          <AppInput label="City" placeholder="e.g. New York" value={form.city}
+          <AppInput label="City" placeholder="Enter your city" value={form.city}
             onChangeText={(v) => set('city', v)} error={errors.city} maxLength={50}
             containerStyle={styles.rowField} />
-          <AppInput label="State / Province" placeholder="e.g. NY" value={form.state}
+          <AppInput label="State" placeholder="Enter your state" value={form.state}
             onChangeText={(v) => set('state', v)} error={errors.state} maxLength={50}
             containerStyle={styles.rowField} />
         </View>
 
         {/* Gender */}
         <View style={styles.fieldWrap}>
-          <Text style={styles.label}>Gender</Text>
+          <Text style={styles.label}>Your Gender?</Text>
           <View style={styles.genderRow}>
-            {GENDERS.map((g) => (
-              <TouchableOpacity
-                key={g}
-                style={[styles.genderBtn, form.gender === g && styles.genderBtnActive]}
-                onPress={() => set('gender', g)}
-              >
-                <Text style={[styles.genderText, form.gender === g && styles.genderTextActive]}>{g}</Text>
-              </TouchableOpacity>
-            ))}
+            {GENDERS.map((g) => {
+              const active = form.gender === g;
+              return (
+                <TouchableOpacity
+                  key={g}
+                  style={styles.radioRow}
+                  onPress={() => set('gender', g)}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.radioOuter, active && styles.radioOuterActive]}>
+                    {active && <View style={styles.radioInner} />}
+                  </View>
+                  <Text style={styles.radioLabel}>{g}</Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
           {!!errors.gender && <Text style={styles.errorText}>{errors.gender}</Text>}
         </View>
@@ -289,10 +336,10 @@ export default function RegisterScreen({ navigation }: Props) {
             {tcAccepted && <Text style={styles.checkmark}>✓</Text>}
           </View>
           <Text style={styles.tcText}>
-            I agree to the{' '}
+            By continuing, you agree to our{' '}
             <Text style={styles.tcLink} onPress={() => setLegalModal('tc')}>Terms & Conditions</Text>
             {' '}and{' '}
-            <Text style={styles.tcLink} onPress={() => setLegalModal('privacy')}>Privacy Policy</Text>
+            <Text style={styles.tcLink} onPress={() => setLegalModal('privacy')}>Privacy Policy</Text>.
           </Text>
         </TouchableOpacity>
         {!!errors.tc && <Text style={styles.errorText}>{errors.tc}</Text>}
@@ -356,51 +403,28 @@ export default function RegisterScreen({ navigation }: Props) {
 
 const styles = StyleSheet.create({
   container: { flexGrow: 1, backgroundColor: Colors.background, padding: 24, paddingTop: 48 },
-  header: { marginBottom: 24 },
-  logo: { width: 130, height: 100, marginBottom: 16 },
-  title: { fontSize: 24, fontWeight: '700', color: Colors.text, marginBottom: 4 },
-  subtitle: { fontSize: 15, color: Colors.textSecondary },
+  title: { fontSize: 26, fontWeight: '800', color: Colors.text, marginBottom: 20 },
 
-  avatarWrap: {
-    alignSelf: 'center',
-    width: 88,
-    height: 88,
-    marginBottom: 6,
-    position: 'relative',
+  photoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 24,
   },
   avatar: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    borderWidth: 3,
-    borderColor: Colors.primary,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
   },
   avatarPlaceholder: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    backgroundColor: Colors.primaryLight,
-    borderWidth: 2,
-    borderColor: Colors.primaryMuted,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: Colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarIcon: { fontSize: 36 },
-  avatarBadge: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: Colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: Colors.background,
-  },
-  avatarBadgeText: { fontSize: 13 },
-  avatarHint: { textAlign: 'center', fontSize: 12, color: Colors.textMuted, marginBottom: 20 },
+  avatarIcon: { fontSize: 30 },
+  uploadText: { marginLeft: 16, fontSize: 15, fontWeight: '600', color: Colors.text },
 
   policyBox: {
     backgroundColor: Colors.surface,
@@ -422,7 +446,7 @@ const styles = StyleSheet.create({
   fieldWrap: { marginBottom: 16 },
   label: { fontSize: 14, fontWeight: '500', color: Colors.text, marginBottom: 6 },
   selectBox: {
-    height: 52, borderWidth: 1.5, borderColor: Colors.border, borderRadius: 12,
+    height: 52, borderWidth: 1.5, borderColor: 'transparent', borderRadius: 12,
     backgroundColor: Colors.surface, paddingHorizontal: 14,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
   },
@@ -430,14 +454,33 @@ const styles = StyleSheet.create({
   selectText: { fontSize: 15, color: Colors.text, flex: 1 },
   selectPlaceholder: { fontSize: 15, color: Colors.textMuted, flex: 1 },
   selectChevron: { fontSize: 13, color: Colors.textMuted },
-  genderRow: { flexDirection: 'row', gap: 12 },
-  genderBtn: {
-    flex: 1, height: 48, borderRadius: 12, borderWidth: 1.5, borderColor: Colors.border,
-    alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.surface,
+  calendarIcon: { width: 20, height: 20 },
+  dobHelper: { marginTop: 8, fontSize: 12, color: Colors.primary, lineHeight: 17 },
+  iosPicker: {
+    backgroundColor: Colors.surface,
+    borderRadius: 12,
+    marginTop: 8,
+    overflow: 'hidden',
   },
-  genderBtnActive: { borderColor: Colors.primary, backgroundColor: Colors.primaryLight },
-  genderText: { fontSize: 15, color: Colors.textSecondary, fontWeight: '500' },
-  genderTextActive: { color: Colors.primary },
+  iosPickerBar: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  iosPickerDone: { fontSize: 16, fontWeight: '700', color: Colors.primary },
+
+  genderRow: { flexDirection: 'row', gap: 40 },
+  radioRow: { flexDirection: 'row', alignItems: 'center' },
+  radioOuter: {
+    width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: Colors.textMuted,
+    alignItems: 'center', justifyContent: 'center', marginRight: 8,
+  },
+  radioOuterActive: { borderColor: Colors.primary },
+  radioInner: { width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.primary },
+  radioLabel: { fontSize: 15, color: Colors.text, fontWeight: '500' },
   errorText: { marginTop: 4, fontSize: 12, color: Colors.error },
   btn: { marginTop: 8, marginBottom: 24 },
   footer: { flexDirection: 'row', justifyContent: 'center', paddingBottom: 24 },

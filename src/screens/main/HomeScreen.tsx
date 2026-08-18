@@ -1,7 +1,8 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, StatusBar, ScrollView,
+  View, Text, StyleSheet, TouchableOpacity, StatusBar, ScrollView, Image, Alert,
 } from 'react-native';
+import Icon from 'react-native-vector-icons/Ionicons';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../types/navigation';
@@ -9,17 +10,17 @@ import { Colors } from '../../utils/colors';
 import { useAuth } from '../../store/AuthContext';
 import { useModuleStatus } from '../../store/ModuleStatusContext';
 import api from '../../api/axios';
-import { useState } from 'react';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
 
 export default function HomeScreen({ navigation }: Props) {
-  const { user } = useAuth();
-  const { hasDating, hasPenpal } = useModuleStatus();
+  const { logout } = useAuth();
+  const { hasDating, hasPenpal, isMentor } = useModuleStatus();
   const [unreadCount, setUnreadCount] = useState(0);
 
   const hasBothModules = hasDating && hasPenpal;
-  const hasNoModule = !hasDating && !hasPenpal;
+  // Hidden once a module is active, and for users who are already gurus
+  const hasNoModule = !hasDating && !hasPenpal && !isMentor;
 
   const fetchUnread = useCallback(() => {
     api.get('/notifications/unread-count')
@@ -29,33 +30,36 @@ export default function HomeScreen({ navigation }: Props) {
 
   useFocusEffect(fetchUnread);
 
+  const handleLogout = () => {
+    Alert.alert('Log Out', 'Are you sure you want to log out?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Log Out', style: 'destructive', onPress: logout },
+    ]);
+  };
+
   return (
     <View style={styles.root}>
       <StatusBar barStyle="dark-content" backgroundColor={Colors.background} />
 
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.logo}>Fixit</Text>
-        <View style={styles.headerRight}>
-          <View style={styles.welcomeWrap}>
-            <Text style={styles.welcomeLabel}>Welcome back,</Text>
-            <Text style={styles.welcomeName}>{user?.firstName ?? '...'} 👋</Text>
-          </View>
-          <TouchableOpacity
-            style={styles.bellWrap}
-            onPress={() => navigation.navigate('Notifications')}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.bellIcon}>🔔</Text>
-            {unreadCount > 0 && (
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>
-                  {unreadCount > 99 ? '99+' : String(unreadCount)}
-                </Text>
-              </View>
-            )}
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity
+          style={styles.iconBtn}
+          onPress={() => navigation.navigate('Notifications')}
+          activeOpacity={0.7}
+        >
+          <Icon name="notifications-outline" size={24} color={Colors.text} />
+          {unreadCount > 0 && (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>
+                {unreadCount > 99 ? '99+' : String(unreadCount)}
+              </Text>
+            </View>
+          )}
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.iconBtn} onPress={handleLogout} activeOpacity={0.7}>
+          <Icon name="log-out-outline" size={26} color={Colors.primary} />
+        </TouchableOpacity>
       </View>
 
       <ScrollView
@@ -73,40 +77,32 @@ export default function HomeScreen({ navigation }: Props) {
             : "Choose how you'd like to connect with others today."}
         </Text>
 
-        {/* Dating Card — always visible */}
+        {/* Dating Card */}
         <TouchableOpacity
           style={[styles.card, styles.datingCard]}
           onPress={() => navigation.navigate('Dating')}
-          activeOpacity={0.88}
+          activeOpacity={0.9}
         >
-          <View style={styles.cardLeft}>
-            <Text style={[styles.cardLabel, styles.datingLabel]}>Dating</Text>
-            <Text style={[styles.cardHint, styles.datingHint]}>Find your match</Text>
-          </View>
-          <View style={styles.cardIllustration}>
-            <Text style={styles.illTop}>💕</Text>
-            <Text style={styles.illMain}>👫</Text>
-            <Text style={styles.illBottomLeft}>🌸</Text>
-            <Text style={styles.illBottomRight}>🌷</Text>
-          </View>
+          <Text style={[styles.cardLabel, styles.datingLabel]}>Dating</Text>
+          <Image
+            source={require('../../assets/dating.png')}
+            style={styles.cardImage}
+            resizeMode="contain"
+          />
         </TouchableOpacity>
 
-        {/* Penpal Card — always visible */}
+        {/* Penpal Card */}
         <TouchableOpacity
           style={[styles.card, styles.penpalCard]}
           onPress={() => navigation.navigate('Penpal')}
-          activeOpacity={0.88}
+          activeOpacity={0.9}
         >
-          <View style={styles.cardLeft}>
-            <Text style={[styles.cardLabel, styles.penpalLabel]}>Penpal</Text>
-            <Text style={[styles.cardHint, styles.penpalHint]}>Write to the world</Text>
-          </View>
-          <View style={styles.cardIllustration}>
-            <Text style={styles.illTop}>✨</Text>
-            <Text style={styles.illMain}>✍️</Text>
-            <Text style={styles.illBottomLeft}>📬</Text>
-            <Text style={styles.illBottomRight}>🌍</Text>
-          </View>
+          <Text style={[styles.cardLabel, styles.penpalLabel]}>Penpal</Text>
+          <Image
+            source={require('../../assets/penpal.png')}
+            style={styles.cardImage}
+            resizeMode="contain"
+          />
         </TouchableOpacity>
       </ScrollView>
 
@@ -133,44 +129,23 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 24,
+    justifyContent: 'flex-end',
+    gap: 6,
+    paddingHorizontal: 20,
     paddingTop: 52,
-    paddingBottom: 16,
-    backgroundColor: Colors.background,
+    paddingBottom: 8,
   },
-  logo: {
-    fontSize: 28,
-    fontWeight: '800',
-    fontStyle: 'italic',
-    color: Colors.primary,
-    letterSpacing: -1,
-  },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  welcomeWrap: { alignItems: 'flex-end' },
-  welcomeLabel: { fontSize: 12, color: Colors.textSecondary },
-  welcomeName: { fontSize: 15, fontWeight: '700', color: Colors.text },
-
-  bellWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.border,
+  iconBtn: {
+    width: 40,
+    height: 40,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
   },
-  bellIcon: { fontSize: 20 },
   badge: {
     position: 'absolute',
-    top: 5,
-    right: 5,
+    top: 4,
+    right: 4,
     minWidth: 17,
     height: 17,
     borderRadius: 9,
@@ -213,29 +188,17 @@ const styles = StyleSheet.create({
   datingCard: { backgroundColor: '#FDEEF1' },
   penpalCard: { backgroundColor: '#EEEEFF' },
 
-  cardLeft: { flex: 1, justifyContent: 'center' },
   cardLabel: {
-    fontSize: 32,
+    flex: 1,
+    fontSize: 34,
     fontWeight: '800',
     fontStyle: 'italic',
     letterSpacing: -0.5,
-    marginBottom: 4,
   },
   datingLabel: { color: Colors.dating },
   penpalLabel: { color: Colors.spiritual },
-  cardHint: { fontSize: 13, fontWeight: '500' },
-  datingHint: { color: Colors.dating },
-  penpalHint: { color: Colors.spiritual },
 
-  cardIllustration: {
-    width: 130,
-    height: '100%',
-    position: 'relative',
-  },
-  illTop: { position: 'absolute', top: 12, right: 28, fontSize: 22 },
-  illMain: { position: 'absolute', top: 36, right: 16, fontSize: 56 },
-  illBottomLeft: { position: 'absolute', bottom: 14, right: 52, fontSize: 22 },
-  illBottomRight: { position: 'absolute', bottom: 10, right: 14, fontSize: 20 },
+  cardImage: { width: 160, height: '100%' },
 
   guruRow: {
     alignItems: 'center',
@@ -244,5 +207,5 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
   },
   guruText: { fontSize: 14, color: Colors.text },
-  guruLink: { fontSize: 14, fontWeight: '700', color: Colors.primary, textDecorationLine: 'underline' },
+  guruLink: { fontSize: 14, fontWeight: '700', color: Colors.primary },
 });

@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import Icon from 'react-native-vector-icons/Ionicons';
 import type { DatingStackParamList } from '../../types/navigation';
 import { datingApi, IceBreakerQuestion } from '../../api/dating';
 import AppAlert from '../../components/common/AppAlert';
@@ -22,7 +23,6 @@ const MAX_SELECTIONS = 3;
 export default function DatingIceBreakerSelectionScreen({ navigation, route }: Props) {
   const { datingType, editMode } = route.params;
   const accentColor = datingType === 'Spiritual' ? Colors.spiritual : Colors.dating;
-  const accentLight = datingType === 'Spiritual' ? Colors.spiritualLight : Colors.datingLight;
 
   const [questions, setQuestions] = useState<IceBreakerQuestion[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -97,10 +97,24 @@ export default function DatingIceBreakerSelectionScreen({ navigation, route }: P
 
   return (
     <SafeAreaView style={styles.root}>
+      {/* Header (Figma: back arrow + "Configure Ice Breaker") */}
+      <View style={styles.headerBar}>
+        <TouchableOpacity
+          onPress={() => (navigation.canGoBack() ? navigation.goBack() : handleSkip())}
+          hitSlop={8}
+        >
+          <Icon name="arrow-back" size={24} color={Colors.text} />
+        </TouchableOpacity>
+      </View>
+
       <View style={styles.header}>
-        <Text style={[styles.headerTitle, { color: accentColor }]}>Ice Breakers</Text>
+        <Text style={styles.headerTitle}>Configure Ice Breaker</Text>
         <Text style={styles.headerSub}>
-          Pick up to {MAX_SELECTIONS} questions to show on your profile and start conversations.
+          Pick the questions that will start your conversations — matches can
+          answer them as your Opening Move.
+        </Text>
+        <Text style={styles.headerCount}>
+          You can select up to {MAX_SELECTIONS} question
         </Text>
       </View>
 
@@ -115,23 +129,15 @@ export default function DatingIceBreakerSelectionScreen({ navigation, route }: P
           const disabled = !isSelected && atLimit;
           return (
             <TouchableOpacity
-              style={[
-                styles.questionCard,
-                isSelected && { borderColor: accentColor, backgroundColor: accentLight },
-                disabled && { opacity: 0.4 },
-              ]}
+              style={[styles.questionRow, disabled && { opacity: 0.4 }]}
               onPress={() => toggle(item.id)}
               activeOpacity={0.75}
               disabled={disabled}
             >
-              {isSelected && (
-                <View style={[styles.checkBadge, { backgroundColor: accentColor }]}>
-                  <Text style={styles.checkText}>✓</Text>
-                </View>
-              )}
-              <Text style={[styles.questionText, isSelected && { color: accentColor }]}>
-                {item.question}
-              </Text>
+              <View style={[styles.checkbox, isSelected && { borderColor: accentColor }]}>
+                {isSelected && <Icon name="checkmark" size={14} color={accentColor} />}
+              </View>
+              <Text style={styles.questionText}>{item.question}</Text>
             </TouchableOpacity>
           );
         }}
@@ -144,7 +150,7 @@ export default function DatingIceBreakerSelectionScreen({ navigation, route }: P
             : `${selected.size}/${MAX_SELECTIONS} selected`}
         </Text>
         <AppButton
-          title={editMode ? 'Save' : 'Continue'}
+          title={editMode ? 'Submit' : 'Submit'}
           onPress={handleSave}
           loading={saving}
           disabled={selected.size === 0}
@@ -169,31 +175,39 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.background },
 
-  header: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12 },
-  headerTitle: { fontSize: 26, fontWeight: '700', marginBottom: 6 },
-  headerSub: { fontSize: 14, color: Colors.textSecondary, lineHeight: 20 },
+  headerBar: { paddingHorizontal: 20, paddingTop: 8 },
 
-  listContent: { paddingHorizontal: 16, paddingBottom: 8 },
+  header: { paddingHorizontal: 20, paddingTop: 14, paddingBottom: 12 },
+  headerTitle: { fontSize: 26, fontWeight: '800', color: Colors.text, marginBottom: 8 },
+  headerSub: { fontSize: 14, color: Colors.textSecondary, lineHeight: 20, marginBottom: 14 },
+  headerCount: { fontSize: 16, fontWeight: '700', color: Colors.text },
 
-  questionCard: {
+  listContent: { paddingHorizontal: 20, paddingBottom: 8, paddingTop: 4 },
+
+  questionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: Colors.surface,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: Colors.border,
-    padding: 16,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 16,
     marginBottom: 10,
+    gap: 12,
   },
-  checkBadge: {
-    position: 'absolute', top: 12, right: 12,
-    width: 22, height: 22, borderRadius: 11,
-    justifyContent: 'center', alignItems: 'center',
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 5,
+    borderWidth: 1.5,
+    borderColor: Colors.textMuted,
+    backgroundColor: Colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  checkText: { fontSize: 12, color: Colors.white, fontWeight: '700' },
-  questionText: { fontSize: 14, color: Colors.text, lineHeight: 20, paddingRight: 28 },
+  questionText: { flex: 1, fontSize: 14, color: Colors.text, lineHeight: 20 },
 
   footer: {
     paddingHorizontal: 20, paddingBottom: 24, paddingTop: 12,
-    borderTopWidth: 1, borderTopColor: Colors.border,
     backgroundColor: Colors.background,
   },
   selectionHint: {

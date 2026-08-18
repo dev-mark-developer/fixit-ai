@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, Image,
+  View, Text, StyleSheet, ActivityIndicator, TouchableOpacity,
 } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { MentorStackParamList } from '../../types/navigation';
 import { Colors } from '../../utils/colors';
+import RemoteImage from '../../components/common/RemoteImage';
 import { mentorApi } from '../../api/mentor';
 import { usersApi } from '../../api/users';
 import AppInput from '../../components/common/AppInput';
@@ -37,13 +38,15 @@ export default function MentorEditProfileScreen({ navigation }: Props) {
         mentorApi.getProfile(),
         usersApi.getProfile(),
       ]);
+      let mentorImg: string | null = null;
+      let userImg: string | null = null;
       if (mentorRes.status === 'fulfilled') {
         const d = mentorRes.value.data?.data;
         if (d) {
           setDisplayName(d.displayName ?? '');
           setTagline(d.tagline ?? '');
           setBio(d.bio ?? '');
-          setRemoteImageUrl(d.profileImageUrl ?? null);
+          mentorImg = d.profileImageUrl ?? null;
         }
       }
       if (userRes.status === 'fulfilled') {
@@ -51,11 +54,10 @@ export default function MentorEditProfileScreen({ navigation }: Props) {
         if (d) {
           setFirstName(d.firstName ?? '');
           setLastName(d.lastName ?? '');
-          if (!remoteImageUrl && d.profileImageUrl) {
-            setRemoteImageUrl(d.profileImageUrl);
-          }
+          userImg = d.profileImageUrl ?? null;
         }
       }
+      setRemoteImageUrl(mentorImg ?? userImg ?? null);
     } catch {
       setAlert({ title: 'Error', message: 'Could not load profile. Please try again.' });
     } finally {
@@ -72,7 +74,15 @@ export default function MentorEditProfileScreen({ navigation }: Props) {
       setLocalImageUri(uri);
       setUploadingImage(true);
       try {
-        await usersApi.uploadProfileImage(uri);
+        const res = await usersApi.uploadProfileImage(uri);
+        // Keep the server's URL so the avatar survives refetches; cache-bust
+        // in case the backend reuses the same file path for every upload.
+        const returned = res.data?.data;
+        const newUrl =
+          typeof returned === 'string' ? returned : returned?.profileImageUrl;
+        if (newUrl) {
+          setRemoteImageUrl(`${newUrl}${newUrl.includes('?') ? '&' : '?'}t=${Date.now()}`);
+        }
       } catch {
         setAlert({ title: 'Upload Failed', message: 'Could not upload the image. Please try again.' });
         setLocalImageUri(null);
@@ -101,6 +111,9 @@ export default function MentorEditProfileScreen({ navigation }: Props) {
           displayName: displayName.trim(),
           bio: bio.trim(),
           tagline: tagline.trim() || undefined,
+          // Name now also persisted on the mentor profile (gap #4 resolved)
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
         }),
         usersApi.updateProfile({
           firstName: firstName.trim(),
@@ -141,7 +154,11 @@ export default function MentorEditProfileScreen({ navigation }: Props) {
         disabled={uploadingImage}
       >
         {displayImageUri ? (
-          <Image source={{ uri: displayImageUri }} style={styles.avatar} />
+          <RemoteImage
+            uri={displayImageUri}
+            style={styles.avatar}
+            indicatorColor={Colors.mentor}
+          />
         ) : (
           <View style={styles.avatarPlaceholder}>
             <Text style={styles.avatarInitials}>{initials}</Text>

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import {
   View, TextInput, Text, TouchableOpacity, StyleSheet, TextInputProps, ViewStyle,
 } from 'react-native';
+import Icon from 'react-native-vector-icons/Ionicons';
 import { Colors } from '../../utils/colors';
 
 interface Props extends TextInputProps {
@@ -46,7 +47,11 @@ export default function AppInput({
         />
         {secureToggle && (
           <TouchableOpacity onPress={() => setVisible((v) => !v)} style={styles.toggle}>
-            <Text style={styles.toggleText}>{visible ? 'Hide' : 'Show'}</Text>
+            <Icon
+              name={visible ? 'eye-outline' : 'eye-off-outline'}
+              size={20}
+              color={visible ? Colors.primary : Colors.textMuted}
+            />
           </TouchableOpacity>
         )}
       </View>
@@ -87,7 +92,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1.5,
-    borderColor: Colors.border,
+    borderColor: 'transparent',
     borderRadius: 12,
     backgroundColor: Colors.surface,
     paddingHorizontal: 14,
@@ -103,11 +108,6 @@ const styles = StyleSheet.create({
   },
   toggle: {
     paddingLeft: 8,
-  },
-  toggleText: {
-    fontSize: 13,
-    color: Colors.primary,
-    fontWeight: '500',
   },
   errorText: {
     marginTop: 4,

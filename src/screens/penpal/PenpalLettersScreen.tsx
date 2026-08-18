@@ -80,7 +80,7 @@ export default function PenpalLettersScreen({ navigation }: Props) {
 
       {loading ? (
         <View style={styles.center}>
-          <ActivityIndicator color={Colors.primary} size="large" />
+          <ActivityIndicator color={Colors.penpal} size="large" />
         </View>
       ) : (
         <FlatList
@@ -107,9 +107,9 @@ const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   tabs: { flexDirection: 'row', borderBottomWidth: 1, borderColor: Colors.border },
   tab: { flex: 1, paddingVertical: 14, alignItems: 'center' },
-  tabActive: { borderBottomWidth: 2.5, borderColor: Colors.primary },
+  tabActive: { borderBottomWidth: 2.5, borderColor: Colors.penpal },
   tabText: { fontSize: 15, color: Colors.textSecondary },
-  tabTextActive: { color: Colors.primary, fontWeight: '700' },
+  tabTextActive: { color: Colors.penpal, fontWeight: '700' },
   list: { padding: 16 },
   card: {
     flexDirection: 'row', backgroundColor: Colors.surface,
@@ -117,7 +117,7 @@ const styles = StyleSheet.create({
   },
   avatar: {
     width: 46, height: 46, borderRadius: 23,
-    backgroundColor: Colors.primaryMuted, justifyContent: 'center', alignItems: 'center',
+    backgroundColor: Colors.penpalMuted, justifyContent: 'center', alignItems: 'center',
     marginRight: 12, flexShrink: 0,
   },
   avatarText: { fontSize: 18, fontWeight: '700', color: Colors.white },

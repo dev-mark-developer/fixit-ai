@@ -2,12 +2,13 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
-  SafeAreaView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import Icon from 'react-native-vector-icons/Ionicons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { DatingStackParamList } from '../../types/navigation';
 import { datingApi, InterestCategory } from '../../api/dating';
@@ -19,10 +20,28 @@ type Props = NativeStackScreenProps<DatingStackParamList, 'DatingInterestSelecti
 
 const MAX_INTERESTS = 5;
 
+// Decorative emoji for known interest names (Figma shows one per chip).
+// Unknown interests simply render without an emoji.
+const INTEREST_EMOJI: Record<string, string> = {
+  meditation: '🧘', manifestation: '✨', 'tarot & oracle': '🔮', astrology: '🪐',
+  yoga: '🧘', breathwork: '🌬️', 'energy healing': '🙌', 'shadow work': '📖',
+  'forest bathing': '🌲', 'conscious living': '🌱', 'radical honesty': '🤍',
+  'inner peace': '🌀', transformation: '🔥', balance: '⚖️', integrity: '💎',
+  'higher purpose': '🌟', gratitude: '🙏', 'sacred union': '💍',
+  'divine friendship': '🕊️', 'twin flame search': '❤️‍🔥', 'spiritual growth': '🌿',
+  'creative flow': '🎨', 'deep soul-talk': '💬',
+  nature: '🌿', language: '🗣️', writing: '✍️', fashion: '👗', travel: '🏝️',
+  people: '🙂', music: '🎵', movies: '🎬', sports: '⚽', cooking: '🍳',
+  art: '🎨', reading: '📚', gaming: '🎮', photography: '📷', fitness: '💪',
+};
+
+const emojiFor = (name: string) => INTEREST_EMOJI[name.toLowerCase()] ?? '';
+
 export default function DatingInterestSelectionScreen({ navigation, route }: Props) {
   const { datingType } = route.params;
-  const accentColor = datingType === 'Spiritual' ? Colors.spiritual : Colors.dating;
-  const accentLight = datingType === 'Spiritual' ? Colors.spiritualLight : Colors.datingLight;
+  const isSpiritual = datingType === 'Spiritual';
+  const accentColor = isSpiritual ? Colors.spiritual : Colors.dating;
+  const lime = isSpiritual ? Colors.spiritualLime : Colors.datingSecondary;
 
   const [categories, setCategories] = useState<InterestCategory[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -80,12 +99,22 @@ export default function DatingInterestSelectionScreen({ navigation, route }: Pro
   }
 
   return (
-    <SafeAreaView style={styles.root}>
-      {/* Header */}
+    <SafeAreaView style={styles.root} edges={['top']}>
+      {/* Plain back arrow header (Figma) */}
+      <View style={styles.headerBar}>
+        <TouchableOpacity
+          onPress={() => navigation.canGoBack() && navigation.goBack()}
+          hitSlop={8}
+        >
+          <Icon name="arrow-back" size={24} color={Colors.text} />
+        </TouchableOpacity>
+      </View>
+
+      {/* Header — "Discover Your Resonance" (Figma) */}
       <View style={styles.header}>
-        <Text style={[styles.headerTitle, { color: accentColor }]}>Your Interests</Text>
-        <Text style={styles.headerSub}>
-          Choose the things you love (up to {MAX_INTERESTS}). We'll use these to find your best matches.
+        <Text style={styles.headerTitle}>
+          Discover{' '}
+          <Text style={{ color: accentColor }}>Your Resonance</Text>
         </Text>
       </View>
 
@@ -103,13 +132,13 @@ export default function DatingInterestSelectionScreen({ navigation, route }: Pro
                 const isSelected = selected.has(interest.id);
                 const atLimit = selected.size >= MAX_INTERESTS;
                 const disabled = !isSelected && atLimit;
+                const emoji = emojiFor(interest.name);
                 return (
                   <TouchableOpacity
                     key={interest.id}
                     style={[
                       styles.chip,
-                      isSelected && { backgroundColor: accentColor, borderColor: accentColor },
-                      !isSelected && { backgroundColor: accentLight, borderColor: accentColor },
+                      isSelected && { backgroundColor: lime, borderColor: lime },
                       disabled && { opacity: 0.35 },
                     ]}
                     onPress={() => toggleInterest(interest.id)}
@@ -119,10 +148,10 @@ export default function DatingInterestSelectionScreen({ navigation, route }: Pro
                     <Text
                       style={[
                         styles.chipText,
-                        isSelected ? { color: Colors.white } : { color: accentColor },
+                        isSelected ? styles.chipTextSelected : { color: accentColor },
                       ]}
                     >
-                      {interest.name}
+                      {emoji ? `${emoji} ` : ''}{interest.name}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -162,20 +191,16 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.background },
 
+  headerBar: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 4 },
   header: {
     paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 12,
+    paddingTop: 10,
+    paddingBottom: 14,
   },
   headerTitle: {
     fontSize: 26,
-    fontWeight: '700',
-    marginBottom: 6,
-  },
-  headerSub: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    lineHeight: 20,
+    fontWeight: '800',
+    color: Colors.text,
   },
 
   listContent: {
@@ -183,38 +208,37 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
   categoryBlock: {
-    marginBottom: 20,
+    marginBottom: 22,
   },
   categoryName: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: Colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginBottom: 10,
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.text,
+    marginBottom: 12,
   },
   chipsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 10,
   },
   chip: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 20,
-    borderWidth: 1.5,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.white,
   },
   chipText: {
-    fontSize: 13,
-    fontWeight: '600',
+    fontSize: 14,
+    fontWeight: '500',
   },
+  chipTextSelected: { color: Colors.text, fontWeight: '600' },
 
   footer: {
     paddingHorizontal: 20,
     paddingBottom: 24,
     paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
     backgroundColor: Colors.background,
   },
   selectionHint: {

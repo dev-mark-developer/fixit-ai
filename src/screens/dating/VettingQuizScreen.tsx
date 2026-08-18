@@ -6,7 +6,9 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Linking,
+  SafeAreaView,
   StyleSheet,
+  Image,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { DatingStackParamList } from '../../types/navigation';
@@ -14,6 +16,7 @@ import { datingApi, VettingQuestion } from '../../api/dating';
 import { mentorApi, ExternalMentor } from '../../api/mentor';
 import AppButton from '../../components/common/AppButton';
 import { Colors } from '../../utils/colors';
+import RemoteImage from '../../components/common/RemoteImage';
 
 type Props = NativeStackScreenProps<DatingStackParamList, 'VettingQuiz'>;
 
@@ -49,7 +52,6 @@ export default function VettingQuizScreen({ navigation }: Props) {
 
   const currentQuestion = questions[currentIndex];
   const total = questions.length;
-  const progress = total > 0 ? (currentIndex + 1) / total : 0;
   const selectedOption = currentQuestion ? answers[currentQuestion.id] : undefined;
 
   const handleSelect = (optionId: number) => {
@@ -88,7 +90,7 @@ export default function VettingQuizScreen({ navigation }: Props) {
       // use empty list
     }
     // 2-second "reviewing" delay
-    await new Promise((r) => setTimeout(r, 2000));
+    await new Promise<void>((r) => setTimeout(r, 2000));
     setPhase('result');
   };
 
@@ -109,20 +111,11 @@ export default function VettingQuizScreen({ navigation }: Props) {
     return (
       <View style={styles.confirmedRoot}>
         {/* Illustration */}
-        <View style={styles.browserWrap}>
-          <View style={styles.browserBar}>
-            <View style={styles.browserDot} />
-            <View style={styles.browserDot} />
-            <View style={styles.browserDot} />
-          </View>
-          <View style={styles.browserBody}>
-            <Text style={styles.browserHourglass}>⏳</Text>
-            <View style={styles.dotTopLeft} />
-            <View style={styles.dotTopRight} />
-            <View style={styles.dotBottomLeft} />
-            <View style={styles.dotBottomRight} />
-          </View>
-        </View>
+        <Image
+          source={require('../../assets/load-time.png')}
+          style={styles.browserImg}
+          resizeMode="contain"
+        />
 
         {/* Title */}
         <Text style={styles.confirmedTitle}>Please Wait!</Text>
@@ -159,9 +152,11 @@ export default function VettingQuizScreen({ navigation }: Props) {
     return (
       <View style={styles.reviewingRoot}>
         {/* Hourglass illustration */}
-        <View style={styles.hourglassWrap}>
-          <Text style={styles.hourglassEmoji}>⏳</Text>
-        </View>
+        <Image
+          source={require('../../assets/hourglass.png')}
+          style={styles.hourglassImg}
+          resizeMode="contain"
+        />
 
         {/* Please Wait label */}
         <Text style={styles.pleaseWait}>Please Wait!</Text>
@@ -185,15 +180,15 @@ export default function VettingQuizScreen({ navigation }: Props) {
   if (phase === 'result') {
     const displayMentors = mentors.length > 0 ? mentors : PLACEHOLDER_MENTORS;
     return (
-      <View style={styles.root}>
+      <SafeAreaView style={styles.root}>
         <ScrollView contentContainerStyle={styles.resultContent} showsVerticalScrollIndicator={false}>
 
           {/* Warning diamond */}
-          <View style={styles.diamondWrap}>
-            <View style={styles.diamond}>
-              <Text style={styles.diamondText}>!</Text>
-            </View>
-          </View>
+          <Image
+            source={require('../../assets/warning.png')}
+            style={styles.warningImg}
+            resizeMode="contain"
+          />
 
           {/* Sorry label */}
           <Text style={styles.sorryLabel}>Sorry!</Text>
@@ -217,16 +212,21 @@ export default function VettingQuizScreen({ navigation }: Props) {
                 .split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase();
               const bgColors = ['#C7B8EA', '#E8B4A0', '#A8D8C8', '#F4C3A0', '#B8D4EA'];
               const isReal = mentors.length > 0;
+              const photo = 'profileImageUrl' in m ? (m as ExternalMentor).profileImageUrl : undefined;
               return (
                 <TouchableOpacity
                   key={i}
                   style={styles.mentorGridItem}
                   activeOpacity={isReal ? 0.75 : 1}
-                  onPress={() => isReal && 'webPageUrl' in m ? Linking.openURL(m.webPageUrl).catch(() => {}) : undefined}
+                  onPress={() => isReal && 'webPageUrl' in m ? Linking.openURL((m as ExternalMentor).webPageUrl).catch(() => {}) : undefined}
                 >
-                  <View style={[styles.mentorAvatar, { backgroundColor: bgColors[i % bgColors.length] }]}>
-                    <Text style={styles.mentorAvatarText}>{initials || '🧘'}</Text>
-                  </View>
+                  {photo ? (
+                    <RemoteImage uri={photo} style={styles.mentorAvatarImg} />
+                  ) : (
+                    <View style={[styles.mentorAvatar, { backgroundColor: bgColors[i % bgColors.length] }]}>
+                      <Text style={styles.mentorAvatarText}>{initials || '🧘'}</Text>
+                    </View>
+                  )}
                   <Text style={styles.mentorAvatarName} numberOfLines={1}>
                     {'name' in m ? m.name : ''}
                   </Text>
@@ -251,7 +251,7 @@ export default function VettingQuizScreen({ navigation }: Props) {
           />
           <Text style={styles.assignNote}>We will assign you a mentor</Text>
         </ScrollView>
-      </View>
+      </SafeAreaView>
     );
   }
 
@@ -271,14 +271,43 @@ export default function VettingQuizScreen({ navigation }: Props) {
   const canProceed = selectedOption !== undefined;
 
   return (
-    <View style={styles.root}>
-      {/* Progress bar */}
-      <View style={styles.progressBarBg}>
-        <View style={[styles.progressBarFill, { width: `${progress * 100}%` }]} />
+    <SafeAreaView style={styles.root}>
+      {/* Back arrow (steps back through questions, then exits) */}
+      <TouchableOpacity
+        style={styles.topBackBtn}
+        onPress={() => (currentIndex > 0 ? handleBack() : navigation.goBack())}
+        hitSlop={8}
+      >
+        <Text style={styles.topBackIcon}>←</Text>
+      </TouchableOpacity>
+
+      {/* Lotus step indicator (Figma) */}
+      <View style={styles.stepsRow}>
+        {Array.from({ length: total }).map((_, i) => {
+          const reached = i <= currentIndex;
+          return (
+            <React.Fragment key={i}>
+              {i > 0 && (
+                <View
+                  style={[
+                    styles.stepLine,
+                    i <= currentIndex && styles.stepLineDone,
+                  ]}
+                />
+              )}
+              <View style={[styles.stepDot, reached && styles.stepDotDone]}>
+                {reached && (
+                  <Image
+                    source={require('../../assets/flower.png')}
+                    style={styles.stepLotus}
+                    resizeMode="contain"
+                  />
+                )}
+              </View>
+            </React.Fragment>
+          );
+        })}
       </View>
-      <Text style={styles.progressLabel}>
-        Question {currentIndex + 1} of {total}
-      </Text>
 
       <ScrollView contentContainerStyle={styles.quizContent}>
         <Text style={styles.questionText}>{currentQuestion.question}</Text>
@@ -295,9 +324,6 @@ export default function VettingQuizScreen({ navigation }: Props) {
                 activeOpacity={0.75}
                 onPress={() => handleSelect(opt.id)}
               >
-                <View style={[styles.radioOuter, selected && styles.radioOuterSelected]}>
-                  {selected && <View style={styles.radioInner} />}
-                </View>
                 <Text style={[styles.optionText, selected && styles.optionTextSelected]}>
                   {opt.optionText}
                 </Text>
@@ -307,31 +333,14 @@ export default function VettingQuizScreen({ navigation }: Props) {
       </ScrollView>
 
       <View style={styles.navRow}>
-        <TouchableOpacity
-          style={[styles.backBtn, currentIndex === 0 && styles.navBtnHidden]}
-          onPress={handleBack}
-          disabled={currentIndex === 0}
-        >
-          <Text style={styles.backBtnText}>← Back</Text>
-        </TouchableOpacity>
-
-        {isLast ? (
-          <AppButton
-            title="Submit"
-            onPress={handleSubmit}
-            disabled={!canProceed}
-            style={styles.nextBtn}
-          />
-        ) : (
-          <AppButton
-            title="Next →"
-            onPress={handleNext}
-            disabled={!canProceed}
-            style={styles.nextBtn}
-          />
-        )}
+        <AppButton
+          title={isLast ? 'Submit Assessment' : 'Next'}
+          onPress={isLast ? handleSubmit : handleNext}
+          disabled={!canProceed}
+          style={styles.nextBtn}
+        />
       </View>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -356,16 +365,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 36,
   },
-  hourglassWrap: {
-    width: 130,
-    height: 130,
-    borderRadius: 65,
-    backgroundColor: Colors.spiritualLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 28,
-  },
-  hourglassEmoji: { fontSize: 72 },
+  hourglassImg: { width: 170, height: 170, marginBottom: 28 },
   pleaseWait: {
     fontSize: 14,
     fontWeight: '700',
@@ -389,122 +389,117 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
 
-  // Progress
-  progressBarBg: { height: 6, backgroundColor: Colors.spiritualLight, marginHorizontal: 20, marginTop: 16, borderRadius: 3, overflow: 'hidden' },
-  progressBarFill: { height: 6, backgroundColor: Colors.spiritual, borderRadius: 3 },
-  progressLabel: { textAlign: 'right', marginHorizontal: 20, marginTop: 6, fontSize: 12, color: Colors.textMuted },
-
-  // Quiz
-  quizContent: { paddingHorizontal: 20, paddingTop: 24, paddingBottom: 20 },
-  questionText: { fontSize: 19, fontWeight: '700', color: Colors.text, lineHeight: 28, marginBottom: 28 },
-
-  optionRow: {
+  // Back arrow + lotus step indicator
+  topBackBtn: { paddingHorizontal: 20, paddingTop: 12, alignSelf: 'flex-start' },
+  topBackIcon: { fontSize: 24, color: Colors.text, fontWeight: '700' },
+  stepsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: Colors.border,
-    marginBottom: 12,
-    backgroundColor: Colors.background,
+    paddingHorizontal: 24,
+    marginTop: 20,
   },
-  optionRowSelected: { borderColor: Colors.spiritual, backgroundColor: Colors.spiritualLight },
-  radioOuter: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    borderWidth: 2,
-    borderColor: Colors.border,
-    justifyContent: 'center',
+  stepDot: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: Colors.border,
     alignItems: 'center',
-    marginRight: 14,
+    justifyContent: 'center',
   },
-  radioOuterSelected: { borderColor: Colors.spiritual },
-  radioInner: { width: 12, height: 12, borderRadius: 6, backgroundColor: Colors.spiritual },
-  optionText: { flex: 1, fontSize: 15, color: Colors.text, lineHeight: 22 },
-  optionTextSelected: { color: Colors.spiritual, fontWeight: '600' },
+  stepDotDone: { backgroundColor: Colors.spiritualLime },
+  stepLotus: { width: 18, height: 18 },
+  stepLine: { flex: 1, height: 2, backgroundColor: Colors.border },
+  stepLineDone: { backgroundColor: Colors.spiritualLime },
 
-  navRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingBottom: 28, paddingTop: 8 },
-  backBtn: { paddingVertical: 10, paddingHorizontal: 4 },
-  navBtnHidden: { opacity: 0 },
-  backBtnText: { fontSize: 15, color: Colors.spiritual, fontWeight: '600' },
-  nextBtn: { flex: 1, maxWidth: 200, marginLeft: 16, backgroundColor: Colors.spiritual },
+  // Quiz
+  quizContent: { paddingHorizontal: 20, paddingTop: 30, paddingBottom: 20 },
+  questionText: { fontSize: 20, fontWeight: '800', color: Colors.text, lineHeight: 29, marginBottom: 26 },
+
+  optionRow: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderRadius: 26,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    marginBottom: 14,
+    backgroundColor: Colors.background,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  optionRowSelected: { backgroundColor: Colors.spiritualLime, borderColor: Colors.spiritualLime },
+  optionText: { fontSize: 15, color: Colors.spiritual, lineHeight: 22 },
+  optionTextSelected: { color: '#4B164C', fontWeight: '600' },
+
+  navRow: { paddingHorizontal: 20, paddingBottom: 28, paddingTop: 8 },
+  nextBtn: { backgroundColor: Colors.spiritual },
 
   // Result
   resultContent: { padding: 24, paddingBottom: 40, alignItems: 'center' },
 
-  diamondWrap: { marginBottom: 20, marginTop: 8 },
-  diamond: {
-    width: 100,
-    height: 100,
-    backgroundColor: '#F5A623',
-    borderRadius: 18,
-    transform: [{ rotate: '45deg' }],
-    borderWidth: 5,
-    borderColor: '#5B3FD9',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  diamondText: {
-    fontSize: 48,
-    fontWeight: '900',
-    color: '#5B3FD9',
-    transform: [{ rotate: '-45deg' }],
-    lineHeight: 56,
-  },
+  warningImg: { width: 170, height: 170, marginBottom: 16, marginTop: 8 },
 
   sorryLabel: {
-    fontSize: 18,
-    fontWeight: '700',
-    fontStyle: 'italic',
+    fontSize: 26,
+    fontWeight: '800',
     color: Colors.spiritual,
-    marginBottom: 10,
+    marginBottom: 8,
   },
   resultTitle: {
-    fontSize: 22,
+    fontSize: 26,
     fontWeight: '800',
     color: Colors.text,
     textAlign: 'center',
-    lineHeight: 30,
+    lineHeight: 36,
     marginBottom: 14,
   },
   resultDesc: {
-    fontSize: 14,
-    color: Colors.textSecondary,
+    fontSize: 16,
+    color: Colors.text,
     textAlign: 'center',
-    lineHeight: 22,
-    marginBottom: 24,
+    lineHeight: 25,
+    marginBottom: 26,
   },
 
   chooseMentorLabel: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '700',
     color: Colors.text,
-    alignSelf: 'flex-start',
-    marginBottom: 16,
+    textAlign: 'center',
+    marginBottom: 22,
   },
   mentorGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    justifyContent: 'center',
     width: '100%',
     marginBottom: 20,
   },
   mentorGridItem: {
     width: '33.33%',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 22,
     paddingHorizontal: 4,
   },
   mentorAvatar: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 6,
+    marginBottom: 10,
   },
-  mentorAvatarText: { fontSize: 20, fontWeight: '700', color: Colors.white },
-  mentorAvatarName: { fontSize: 12, color: Colors.text, fontWeight: '500', textAlign: 'center' },
+  mentorAvatarImg: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    marginBottom: 10,
+  },
+  mentorAvatarText: { fontSize: 22, fontWeight: '700', color: Colors.white },
+  mentorAvatarName: { fontSize: 14, color: Colors.text, fontWeight: '600', textAlign: 'center' },
 
   orRow: {
     flexDirection: 'row',
@@ -533,44 +528,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 36,
   },
-  browserWrap: {
-    width: 200,
-    borderRadius: 16,
-    backgroundColor: '#F3F0FF',
-    overflow: 'hidden',
-    marginBottom: 32,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 4,
-  },
-  browserBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#E8E2FF',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    gap: 6,
-  },
-  browserDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: Colors.spiritual,
-    opacity: 0.5,
-  },
-  browserBody: {
-    height: 130,
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
-  },
-  browserHourglass: { fontSize: 64 },
-  dotTopLeft:    { position: 'absolute', top: 14, left: 16,  width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.spiritual, opacity: 0.3 },
-  dotTopRight:   { position: 'absolute', top: 14, right: 16, width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.spiritual, opacity: 0.3 },
-  dotBottomLeft: { position: 'absolute', bottom: 14, left: 16,  width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.spiritual, opacity: 0.3 },
-  dotBottomRight:{ position: 'absolute', bottom: 14, right: 16, width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.spiritual, opacity: 0.3 },
+  browserImg: { width: 200, height: 190, marginBottom: 32 },
 
   confirmedTitle: {
     fontSize: 28,

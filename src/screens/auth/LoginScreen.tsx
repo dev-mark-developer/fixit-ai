@@ -17,8 +17,8 @@ type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
 
 export default function LoginScreen({ navigation }: Props) {
   const { login } = useAuth();
-  const [email, setEmail] = useState('americao@world.com');
-  const [password, setPassword] = useState('User@123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [errors, setErrors] = useState<{ email?: string; password?: string }>(
     {},
   );
@@ -88,8 +88,8 @@ export default function LoginScreen({ navigation }: Props) {
       </View>
 
       <AppInput
-        label="Email"
-        placeholder="you@example.com"
+        label="Email Address"
+        placeholder="Enter your email address"
         value={email}
         onChangeText={v => {
           setEmail(v);
@@ -103,7 +103,7 @@ export default function LoginScreen({ navigation }: Props) {
       />
       <AppInput
         label="Password"
-        placeholder="Your password"
+        placeholder="Enter your password"
         value={password}
         onChangeText={v => {
           setPassword(v);

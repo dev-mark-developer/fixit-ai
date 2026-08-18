@@ -67,8 +67,20 @@ export const mentorApi = {
 
   // Mentor-side: profile
   getProfile: () => api.get('/mentor/profile'),
-  saveProfile: (data: { displayName: string; bio: string; tagline?: string }) =>
-    api.post('/mentor/profile', data),
+  // NOTE: firstName..state fields added by the backend (gap #4)
+  saveProfile: (data: {
+    displayName: string;
+    bio: string;
+    tagline?: string;
+    // Added by the backend (gap #4)
+    firstName?: string;
+    lastName?: string;
+    phone?: string;
+    dateOfBirth?: string; // YYYY-MM-DD
+    country?: string;
+    city?: string;
+    state?: string;
+  }) => api.post('/mentor/profile', data),
 
   // Mentor-side: subscription
   getSubscription: () => api.get('/mentor/subscription'),

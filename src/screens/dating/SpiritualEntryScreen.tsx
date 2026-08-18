@@ -1,10 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity,
+  View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Image, Alert,
+  BackHandler,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import Icon from 'react-native-vector-icons/Ionicons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { DatingStackParamList } from '../../types/navigation';
 import { Colors } from '../../utils/colors';
+import { useAuth } from '../../store/AuthContext';
 import { datingApi, SpiritualRequest } from '../../api/dating';
 import { mentorApi, MentorRequest } from '../../api/mentor';
 import AppButton from '../../components/common/AppButton';
@@ -15,6 +19,7 @@ type Props = NativeStackScreenProps<DatingStackParamList, 'SpiritualEntry'>;
 type Phase = 'info' | 'loading' | 'gateway' | 'pending' | 'approved';
 
 export default function SpiritualEntryScreen({ navigation }: Props) {
+  const { logout } = useAuth();
   const [phase, setPhase] = useState<Phase>('info');
   const [request, setRequest] = useState<SpiritualRequest | null>(null);
   const [resolvedPhase, setResolvedPhase] = useState<Phase | null>(null);
@@ -24,6 +29,9 @@ export default function SpiritualEntryScreen({ navigation }: Props) {
   // Mentor request state (gateway phase)
   const [mentorRequest, setMentorRequest] = useState<MentorRequest | null>(null);
   const [requestingMentor, setRequestingMentor] = useState(false);
+  // Hold the first paint until we know whether a pending request pins the
+  // user here — otherwise the intro flashes before jumping to the gateway.
+  const [booting, setBooting] = useState(true);
 
   // Preload spiritual status + mentor request in background while user reads the info screen
   useEffect(() => {
@@ -42,15 +50,47 @@ export default function SpiritualEntryScreen({ navigation }: Props) {
     })();
 
     mentorApi.getMyRequest()
-      .then((res) => setMentorRequest(res.data?.data ?? null))
-      .catch(() => {});
+      .then((res) => {
+        const req: MentorRequest | null = res.data?.data ?? null;
+        setMentorRequest(req);
+        // A pending mentor request pins the user here: skip the intro and
+        // land straight on the gateway showing the request status.
+        if (req?.status?.toLowerCase() === 'pending') {
+          setResolvedPhase('gateway');
+          setPhase('gateway');
+        }
+      })
+      .catch(() => {})
+      .finally(() => setBooting(false));
   }, []);
+
+  // While a mentor request is pending the user can't go back — the only way
+  // out of this screen is to log out.
+  const mentorPending = mentorRequest?.status?.toLowerCase() === 'pending';
+
+  const handleLogout = () => {
+    Alert.alert('Log Out', 'Are you sure you want to log out?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Log Out', style: 'destructive', onPress: logout },
+    ]);
+  };
+
+  // Android hardware back / swipe-back must not escape a pending request
+  useEffect(() => {
+    if (!mentorPending) return;
+    navigation.setOptions({ gestureEnabled: false });
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => true);
+    return () => sub.remove();
+  }, [mentorPending, navigation]);
 
   const handleRequestMentor = async () => {
     setRequestingMentor(true);
     try {
       const res = await mentorApi.submitRequest();
       setMentorRequest(res.data?.data ?? { id: 0, userId: 0, status: 'Pending', createdAt: new Date().toISOString() });
+      // Stay on this screen from now on (see mentorPending below)
+      setPhase('gateway');
+      setResolvedPhase('gateway');
     } catch {
       setAlert({ title: 'Error', message: 'Could not submit your mentor request. Please try again.' });
     } finally {
@@ -102,10 +142,44 @@ export default function SpiritualEntryScreen({ navigation }: Props) {
     }
   }, [resolvedPhase, phase]);
 
+  // Plain back arrow header (Figma) — swapped for Logout while a mentor
+  // request is pending, since the user is pinned to this screen.
+  const backHeader = (
+    <View style={[styles.headerBar, mentorPending && styles.headerBarPending]}>
+      {mentorPending ? (
+        <TouchableOpacity
+          style={styles.logoutBtn}
+          onPress={handleLogout}
+          activeOpacity={0.85}
+        >
+          <Icon name="log-out-outline" size={18} color={Colors.white} />
+          <Text style={styles.logoutText}>Logout</Text>
+        </TouchableOpacity>
+      ) : (
+        <TouchableOpacity
+          onPress={() => navigation.canGoBack() && navigation.goBack()}
+          hitSlop={8}
+        >
+          <Icon name="arrow-back" size={24} color={Colors.text} />
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+
+  // ── Booting — decide the entry state before the first paint ──
+  if (booting) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color={Colors.spiritual} />
+      </View>
+    );
+  }
+
   // ── Info (static informative screen) ─────────────────
   if (phase === 'info') {
     return (
-      <View style={styles.root}>
+      <SafeAreaView style={styles.root} edges={['top']}>
+        {backHeader}
         <ScrollView
           contentContainerStyle={styles.infoContent}
           showsVerticalScrollIndicator={false}
@@ -116,27 +190,28 @@ export default function SpiritualEntryScreen({ navigation }: Props) {
             <Text style={styles.infoTitleHighlight}>Spiritual Dating</Text>
           </Text>
 
-          {/* Intro */}
-          <Text style={styles.introText}>
-            Our spiritual dating section is a gated sanctuary designed for members who value
-            resonance, growth, and deep soul-connection.
-          </Text>
-
-          {/* Block 1 — icon LEFT */}
+          {/* Block 1 — icon LEFT (yin-yang) */}
           <View style={styles.infoBlock}>
-            <View style={styles.infoIconWrap}>
-              <Text style={styles.infoBlockIcon}>🙏</Text>
-            </View>
+            <Image source={require('../../assets/chinaHand.png')} style={styles.infoBlockIcon} resizeMode="contain" />
             <Text style={styles.infoBlockText}>
-              We believe authentic connection begins within. Before matching, every member
-              completes a brief spiritual values assessment to ensure genuine alignment.
+              Our spiritual dating section is a gated sanctuary designed for members who
+              value resonance, growth, and deep soul-connection.
             </Text>
           </View>
           <Text style={styles.infoBullet}>
-            • Only members who complete vetting or provide credentials gain access.
+            •  Only members who complete vetting or provide credentials gain access.
           </Text>
 
-          {/* Highlight 1 — yellow */}
+          {/* Block 2 — text LEFT, icon RIGHT (praying hands) */}
+          <View style={[styles.infoBlock, styles.infoBlockReverse]}>
+            <Image source={require('../../assets/heartHand.png')} style={styles.infoBlockIcon} resizeMode="contain" />
+            <Text style={styles.infoBlockText}>
+              We believe authentic connection begins within. Before matching, every member
+              completes a brief spiritual values assessment.
+            </Text>
+          </View>
+
+          {/* Highlight 1 — lime */}
           <View style={[styles.highlightBlock, styles.highlightYellow]}>
             <Text style={styles.highlightText}>
               Your spiritual journey matters. We've created a space where every interaction
@@ -144,18 +219,16 @@ export default function SpiritualEntryScreen({ navigation }: Props) {
             </Text>
           </View>
 
-          {/* Block 2 — icon RIGHT */}
-          <View style={[styles.infoBlock, styles.infoBlockReverse]}>
-            <View style={styles.infoIconWrap}>
-              <Text style={styles.infoBlockIcon}>💝</Text>
-            </View>
-            <Text style={[styles.infoBlockText, styles.infoBlockText]}>
+          {/* Block 3 — icon LEFT (lotus) */}
+          <View style={styles.infoBlock}>
+            <Image source={require('../../assets/faceFlower.png')} style={styles.infoBlockIcon} resizeMode="contain" />
+            <Text style={styles.infoBlockText}>
               Our community is built on trust and mindfulness. Profiles are reviewed to
               maintain a high-quality, authentic spiritual environment.
             </Text>
           </View>
           <Text style={styles.infoBullet}>
-            • No casual browsing — every member here is serious about meaningful connection.
+            •  No casual browsing — every member here is serious about meaningful connection.
           </Text>
 
           {/* Highlight 2 — purple */}
@@ -166,45 +239,27 @@ export default function SpiritualEntryScreen({ navigation }: Props) {
             </Text>
           </View>
 
-          {/* Block 3 — icon LEFT */}
+          {/* Block 4 — icon LEFT (guided session) */}
           <View style={styles.infoBlock}>
-            <View style={styles.infoIconWrap}>
-              <Text style={styles.infoBlockIcon}>🌿</Text>
-            </View>
+            <Image source={require('../../assets/screen.png')} style={styles.infoBlockIcon} resizeMode="contain" />
             <Text style={styles.infoBlockText}>
               When you're ready, verify through a short quiz or by uploading a spiritual
               credential or certificate for manual review.
             </Text>
           </View>
           <Text style={styles.infoBullet}>
-            • All submissions are reviewed by our team within 1–3 business days.
+            •  All submissions are reviewed by our team within 1–3 business days.
           </Text>
 
-          {/* Block 4 — icon RIGHT */}
-          <View style={[styles.infoBlock, styles.infoBlockReverse]}>
-            <View style={styles.infoIconWrap}>
-              <Text style={styles.infoBlockIcon}>🕊️</Text>
-            </View>
-            <Text style={[styles.infoBlockText, styles.infoBlockText]}>
-              Once approved, you'll gain full access to the spiritual dating community
-              and be able to connect with like-minded souls.
-            </Text>
-          </View>
-          <Text style={styles.infoBullet}>
-            • Approved members enjoy a mindful, vetted space for meaningful relationships.
-          </Text>
-        </ScrollView>
-
-        {/* Proceed button pinned to bottom */}
-        <View style={styles.infoFooter}>
+          {/* Proceed button scrolls with the content */}
           <AppButton
             title="Let's Proceed"
             onPress={handleProceed}
-            loading={phase === 'loading'}
+            loading={(phase as Phase) === 'loading'}
             style={styles.proceedBtn}
           />
-        </View>
-      </View>
+        </ScrollView>
+      </SafeAreaView>
     );
   }
 
@@ -220,7 +275,8 @@ export default function SpiritualEntryScreen({ navigation }: Props) {
   // ── Approved → go directly to Dating ─────────────────
   if (phase === 'approved') {
     return (
-      <>
+      <SafeAreaView style={styles.root} edges={['top']}>
+        {backHeader}
         <ScrollView contentContainerStyle={styles.centeredContent}>
           <View style={styles.card}>
             <View style={[styles.iconCircle, { backgroundColor: '#D1FAE5' }]}>
@@ -249,14 +305,16 @@ export default function SpiritualEntryScreen({ navigation }: Props) {
           message={alert?.message}
           onClose={() => setAlert(null)}
         />
-      </>
+      </SafeAreaView>
     );
   }
 
   // ── Pending ───────────────────────────────────────────
   if (phase === 'pending') {
     return (
-      <ScrollView contentContainerStyle={styles.centeredContent}>
+      <SafeAreaView style={styles.root} edges={['top']}>
+        {backHeader}
+        <ScrollView contentContainerStyle={styles.centeredContent}>
         <View style={styles.card}>
           <View style={[styles.iconCircle, { backgroundColor: Colors.spiritualLight }]}>
             <Text style={styles.iconEmoji}>🔍</Text>
@@ -275,25 +333,25 @@ export default function SpiritualEntryScreen({ navigation }: Props) {
             <Text style={styles.statusText}>Pending Review</Text>
           </View>
         </View>
-      </ScrollView>
+        </ScrollView>
+      </SafeAreaView>
     );
   }
 
   // ── Gateway — choose entry path ───────────────────────
   return (
-    <View style={styles.root}>
+    <SafeAreaView style={styles.root} edges={['top']}>
+      {backHeader}
       <ScrollView
         contentContainerStyle={styles.gatewayContent}
         showsVerticalScrollIndicator={false}
       >
         {/* Illustration */}
-        <View style={styles.illustration}>
-          <Text style={styles.illLeafLeft}>🌿</Text>
-          <Text style={styles.illLeafRight}>🌿</Text>
-          <Text style={styles.illClipboard}>📋</Text>
-          <Text style={styles.illPencil}>✏️</Text>
-          <Text style={styles.illPerson}>🧘‍♀️</Text>
-        </View>
+        <Image
+          source={require('../../assets/pathAlighnment.png')}
+          style={styles.illustration}
+          resizeMode="contain"
+        />
 
         {/* Title */}
         <Text style={styles.gatewayTitle}>
@@ -411,36 +469,39 @@ export default function SpiritualEntryScreen({ navigation }: Props) {
           onPress={() => navigation.navigate('UploadCertificate')}
           activeOpacity={0.85}
         >
-          <Text style={styles.certBtnIcon}>📄</Text>
+          <Image source={require('../../assets/document-upload.png')} style={styles.certBtnIcon} resizeMode="contain" />
           <Text style={styles.certBtnText}>Upload Certificate</Text>
         </TouchableOpacity>
       </View>
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.background },
   centeredContent: { flexGrow: 1, justifyContent: 'center', padding: 24, backgroundColor: Colors.background },
+  headerBar: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 4 },
+  headerBarPending: { alignItems: 'flex-end' },
+  logoutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: Colors.spiritual,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  logoutText: { fontSize: 14, fontWeight: '700', color: Colors.white },
 
   // ── Gateway ───────────────────────────────────────────
   gatewayContent: { padding: 24, paddingBottom: 16 },
 
   illustration: {
-    height: 200,
-    backgroundColor: Colors.spiritualLight,
-    borderRadius: 24,
-    marginBottom: 28,
-    position: 'relative',
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
+    width: '100%',
+    height: 230,
+    marginBottom: 24,
+    alignSelf: 'center',
   },
-  illLeafLeft:  { position: 'absolute', bottom: 10, left: 12,  fontSize: 48, opacity: 0.5 },
-  illLeafRight: { position: 'absolute', top: 10,   right: 12,  fontSize: 40, opacity: 0.5 },
-  illClipboard: { position: 'absolute', top: 20,   right: 60,  fontSize: 72 },
-  illPencil:    { position: 'absolute', top: 10,   right: 30,  fontSize: 52 },
-  illPerson:    { position: 'absolute', bottom: 8, left: 40,   fontSize: 80 },
 
   gatewayTitle: {
     fontSize: 26,
@@ -549,7 +610,7 @@ const styles = StyleSheet.create({
     height: 56,
     gap: 10,
   },
-  certBtnIcon: { fontSize: 20 },
+  certBtnIcon: { width: 22, height: 22 },
   certBtnText: { fontSize: 16, fontWeight: '700', color: Colors.text },
 
   // Card (approved/pending states)
@@ -586,7 +647,7 @@ const styles = StyleSheet.create({
 
   // ── Info screen ───────────────────────────────────────
   root: { flex: 1, backgroundColor: Colors.background },
-  infoContent: { padding: 24, paddingBottom: 16 },
+  infoContent: { padding: 24, paddingBottom: 40 },
 
   infoTitle: {
     fontSize: 26,
@@ -597,67 +658,43 @@ const styles = StyleSheet.create({
   },
   infoTitleHighlight: { color: Colors.spiritual, fontStyle: 'italic' },
 
-  introText: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    lineHeight: 22,
-    marginBottom: 24,
-  },
-
   infoBlock: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 10,
-    gap: 14,
+    alignItems: 'center',
+    marginBottom: 16,
+    gap: 18,
   },
   infoBlockReverse: { flexDirection: 'row-reverse' },
-  infoIconWrap: {
-    width: 60,
-    height: 60,
-    borderRadius: 14,
-    backgroundColor: Colors.spiritualLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
-  infoBlockIcon: { fontSize: 30 },
+  infoBlockIcon: { width: 76, height: 76, flexShrink: 0 },
   infoBlockText: {
     flex: 1,
     fontSize: 14,
-    color: Colors.text,
+    color: Colors.textSecondary,
     lineHeight: 22,
-    paddingTop: 4,
-    textAlign: 'justify',
   },
   infoBullet: {
-    fontSize: 13,
+    fontSize: 14,
     color: Colors.textSecondary,
-    lineHeight: 20,
+    lineHeight: 22,
     marginBottom: 20,
     paddingLeft: 4,
-    textAlign: 'justify',
   },
 
   highlightBlock: {
-    borderRadius: 14,
-    padding: 16,
-    marginBottom: 20,
+    borderRadius: 20,
+    paddingVertical: 24,
+    paddingHorizontal: 22,
+    marginBottom: 24,
   },
-  highlightYellow: { backgroundColor: '#F0F7A1' },
+  highlightYellow: { backgroundColor: Colors.spiritualLime },
   highlightPurple: { backgroundColor: Colors.spiritual },
   highlightText: {
     fontSize: 14,
-    fontStyle: 'italic',
-    fontWeight: '600',
     color: Colors.text,
     lineHeight: 22,
+    textAlign: 'center',
   },
   highlightTextLight: { color: Colors.white },
 
-  infoFooter: {
-    padding: 20,
-    paddingBottom: 32,
-    backgroundColor: Colors.background,
-  },
-  proceedBtn: { backgroundColor: Colors.spiritual },
+  proceedBtn: { backgroundColor: Colors.spiritual, marginTop: 10 },
 });

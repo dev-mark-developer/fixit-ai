@@ -1,17 +1,23 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, Image, TouchableOpacity,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity,
   Dimensions, ActivityIndicator, Alert,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import Icon from 'react-native-vector-icons/Ionicons';
 import type { DatingStackParamList } from '../../types/navigation';
 import { Colors } from '../../utils/colors';
+import RemoteImage from '../../components/common/RemoteImage';
 import { datingApi } from '../../api/dating';
 import ReportModal from '../../components/common/ReportModal';
+import { useModuleStatus } from '../../store/ModuleStatusContext';
 
 type Props = NativeStackScreenProps<DatingStackParamList, 'DatingProfileDetail'>;
 
-const { width: SCREEN_W } = Dimensions.get('window');
+const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
+const HEADER_H = SCREEN_H * 0.48;
+const GRID_GAP = 10;
+const TILE_W = (SCREEN_W - 40 - GRID_GAP * 2) / 3;
 
 export default function DatingProfileDetailScreen({ route, navigation }: Props) {
   const {
@@ -19,15 +25,18 @@ export default function DatingProfileDetailScreen({ route, navigation }: Props) 
     displayImageUrl, profileImageUrl, interests, images, iceBreakerQuestions,
   } = route.params;
 
+  const { datingType } = useModuleStatus();
+  const isSpiritual = datingType === 'Spiritual';
+  const accent = isSpiritual ? Colors.spiritual : Colors.dating;
+  const lime = isSpiritual ? Colors.spiritualLime : Colors.datingSecondary;
+  const limeLight = isSpiritual ? Colors.spiritualLimeLight : Colors.datingLight;
+
   const [swiping, setSwiping] = useState<'Like' | 'SuperLike' | 'Ignore' | null>(null);
   const [reportVisible, setReportVisible] = useState(false);
-  const [imgIndex, setImgIndex] = useState(0);
+  const [flagMenuVisible, setFlagMenuVisible] = useState(false);
 
-  // Build image list: displayImage first, then extras, then profileImage fallback
-  const allImages: string[] = [];
-  if (displayImageUrl) allImages.push(displayImageUrl);
-  images.forEach((img) => { if (img !== displayImageUrl) allImages.push(img); });
-  if (allImages.length === 0 && profileImageUrl) allImages.push(profileImageUrl);
+  const headerUri = displayImageUrl ?? profileImageUrl ?? images[0];
+  const galleryImages = images.filter((img) => img !== headerUri);
 
   const handleAction = async (action: 'Like' | 'SuperLike' | 'Ignore') => {
     if (swiping) return;
@@ -51,7 +60,28 @@ export default function DatingProfileDetailScreen({ route, navigation }: Props) 
     }
   };
 
-  const fullName = `${firstName} ${lastName}${age ? `, ${age}` : ''}`;
+  const handleBlock = () => {
+    setFlagMenuVisible(false);
+    Alert.alert(
+      'Block User',
+      `Are you sure you want to block ${firstName}? They will no longer be able to see or contact you.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Block', style: 'destructive',
+          onPress: async () => {
+            try {
+              await datingApi.block(userId);
+              navigation.goBack();
+            } catch {
+              Alert.alert('Error', 'Could not block this user. Please try again.');
+            }
+          },
+        },
+      ],
+    );
+  };
+
   const location = [city, country].filter(Boolean).join(', ');
 
   return (
@@ -59,51 +89,79 @@ export default function DatingProfileDetailScreen({ route, navigation }: Props) 
       <ReportModal
         visible={reportVisible}
         reportedUserId={userId}
+        reportedName={firstName}
         module="Dating"
         onClose={() => setReportVisible(false)}
       />
 
       <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
-        {/* Image gallery */}
-        <View style={styles.galleryWrap}>
-          <ScrollView
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            onMomentumScrollEnd={(e) => {
-              const idx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_W);
-              setImgIndex(idx);
-            }}
-          >
-            {allImages.length > 0 ? allImages.map((uri, i) => (
-              <Image key={i} source={{ uri }} style={styles.galleryImage} resizeMode="cover" />
-            )) : (
-              <View style={[styles.galleryImage, styles.galleryFallback]}>
-                <Text style={styles.galleryInitial}>{firstName.charAt(0).toUpperCase()}</Text>
-              </View>
-            )}
-          </ScrollView>
-
-          {/* Dots */}
-          {allImages.length > 1 && (
-            <View style={styles.dots}>
-              {allImages.map((_, i) => (
-                <View key={i} style={[styles.dot, i === imgIndex && styles.dotActive]} />
-              ))}
+        {/* Full-bleed photo header */}
+        <View style={styles.headerWrap}>
+          {headerUri ? (
+            <RemoteImage
+              uri={headerUri}
+              style={styles.headerImage}
+              resizeMode="cover"
+              indicatorSize="large"
+              indicatorColor={accent}
+            />
+          ) : (
+            <View style={[styles.headerImage, { backgroundColor: limeLight, justifyContent: 'center', alignItems: 'center' }]}>
+              <Text style={[styles.headerInitial, { color: accent }]}>
+                {firstName.charAt(0).toUpperCase()}
+              </Text>
             </View>
           )}
 
-          {/* Report button */}
-          <TouchableOpacity style={styles.reportBtn} onPress={() => setReportVisible(true)}>
-            <Text style={styles.reportBtnText}>🚩</Text>
+          {/* Back + flag */}
+          <TouchableOpacity
+            style={[styles.overlayBtn, styles.backBtn]}
+            onPress={() => navigation.goBack()}
+            hitSlop={8}
+          >
+            <Icon name="arrow-back" size={22} color={Colors.white} />
           </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.overlayBtn, styles.flagBtn]}
+            onPress={() => setFlagMenuVisible((v) => !v)}
+            hitSlop={8}
+          >
+            <Icon name="flag" size={20} color={Colors.white} />
+          </TouchableOpacity>
+
+          {/* Block / Report popup (Figma) */}
+          {flagMenuVisible && (
+            <View style={styles.flagMenu}>
+              <TouchableOpacity style={styles.flagMenuItem} onPress={handleBlock}>
+                <Icon name="trash" size={16} color={Colors.error} />
+                <Text style={styles.flagMenuText}>Block</Text>
+              </TouchableOpacity>
+              <View style={styles.flagMenuDivider} />
+              <TouchableOpacity
+                style={styles.flagMenuItem}
+                onPress={() => { setFlagMenuVisible(false); setReportVisible(true); }}
+              >
+                <Icon name="flag" size={16} color={Colors.error} />
+                <Text style={styles.flagMenuText}>Report</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Name + location */}
+          <View style={styles.nameBlock}>
+            <Text style={styles.name}>
+              {firstName}{age ? `, ${age}` : ''}
+            </Text>
+            {!!location && (
+              <View style={styles.locationRow}>
+                <Icon name="location-outline" size={14} color={Colors.white} />
+                <Text style={styles.location}>{location}</Text>
+              </View>
+            )}
+          </View>
         </View>
 
         <View style={styles.body}>
-          {/* Name & location */}
-          <Text style={styles.name}>{fullName}</Text>
-          {!!location && <Text style={styles.location}>📍 {location}</Text>}
-
           {/* About */}
           {!!about && (
             <View style={styles.section}>
@@ -115,7 +173,7 @@ export default function DatingProfileDetailScreen({ route, navigation }: Props) 
           {/* Interests */}
           {interests.length > 0 && (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Interests</Text>
+              <Text style={styles.sectionTitle}>Interest</Text>
               <View style={styles.chips}>
                 {interests.map((interest, i) => (
                   <View key={i} style={styles.chip}>
@@ -131,50 +189,62 @@ export default function DatingProfileDetailScreen({ route, navigation }: Props) 
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Ice Breakers</Text>
               {iceBreakerQuestions.map((q, i) => (
-                <View key={i} style={styles.iceCard}>
+                <View key={i} style={[styles.iceCard, { backgroundColor: limeLight }]}>
                   <Text style={styles.iceText}>{q}</Text>
                 </View>
               ))}
             </View>
           )}
 
-          <View style={{ height: 100 }} />
+          {/* Gallery */}
+          {galleryImages.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Gallery</Text>
+              <View style={styles.galleryGrid}>
+                {galleryImages.map((uri, i) => (
+                  <RemoteImage key={i} uri={uri} style={styles.galleryTile} />
+                ))}
+              </View>
+            </View>
+          )}
+
+          <View style={{ height: 110 }} />
         </View>
       </ScrollView>
 
-      {/* Action buttons */}
-      <View style={styles.actions}>
+      {/* Action pill */}
+      <View style={styles.actionPill}>
         <TouchableOpacity
-          style={[styles.actionBtn, styles.actionIgnore]}
+          style={[styles.actionBtn, { backgroundColor: Colors.white }]}
           onPress={() => handleAction('Ignore')}
           disabled={!!swiping}
           activeOpacity={0.8}
         >
           {swiping === 'Ignore'
-            ? <ActivityIndicator color={Colors.error} size="small" />
-            : <Text style={styles.actionIgnoreIcon}>✕</Text>}
+            ? <ActivityIndicator color={lime} size="small" />
+            : <Icon name="close" size={26} color={lime} />}
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.actionBtn, styles.actionSuperLike]}
+          style={[styles.actionBtn, { backgroundColor: limeLight }]}
           onPress={() => handleAction('SuperLike')}
           disabled={!!swiping}
           activeOpacity={0.8}
         >
           {swiping === 'SuperLike'
-            ? <ActivityIndicator color="#F5A623" size="small" />
-            : <Text style={styles.actionSuperLikeIcon}>★</Text>}
+            ? <ActivityIndicator color={lime} size="small" />
+            : <Icon name="star" size={24} color={lime} />}
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.actionBtn, styles.actionLike]}
+          style={[styles.actionBtn, { backgroundColor: accent }]}
           onPress={() => handleAction('Like')}
           disabled={!!swiping}
           activeOpacity={0.8}
         >
           {swiping === 'Like'
-            ? <ActivityIndicator color={Colors.dating} size="small" />
-            : <Text style={styles.actionLikeIcon}>♥</Text>}
+            ? <ActivityIndicator color={Colors.white} size="small" />
+            : <Icon name="heart" size={26} color={isSpiritual ? Colors.spiritualLime : Colors.white} />}
         </TouchableOpacity>
       </View>
     </View>
@@ -184,70 +254,76 @@ export default function DatingProfileDetailScreen({ route, navigation }: Props) 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },
 
-  galleryWrap: { width: SCREEN_W, height: SCREEN_W * 1.15 },
-  galleryImage: { width: SCREEN_W, height: SCREEN_W * 1.15 },
-  galleryFallback: {
-    backgroundColor: Colors.datingLight, justifyContent: 'center', alignItems: 'center',
+  headerWrap: { width: SCREEN_W, height: HEADER_H },
+  headerImage: {
+    width: '100%', height: '100%',
+    borderBottomLeftRadius: 32, borderBottomRightRadius: 32,
   },
-  galleryInitial: { fontSize: 80, fontWeight: '700', color: Colors.dating, opacity: 0.6 },
+  headerInitial: { fontSize: 80, fontWeight: '700', opacity: 0.6 },
 
-  dots: {
-    position: 'absolute', bottom: 12, alignSelf: 'center',
-    flexDirection: 'row', gap: 6,
+  overlayBtn: { position: 'absolute', top: 54 },
+  backBtn: { left: 20 },
+  flagBtn: { right: 20 },
+
+  flagMenu: {
+    position: 'absolute', top: 88, right: 20,
+    backgroundColor: Colors.white, borderRadius: 10,
+    paddingVertical: 4, width: 150,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18, shadowRadius: 10, elevation: 8,
   },
-  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.5)' },
-  dotActive: { backgroundColor: Colors.white, width: 18 },
-
-  reportBtn: {
-    position: 'absolute', top: 12, right: 12,
-    backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 20,
-    width: 36, height: 36, justifyContent: 'center', alignItems: 'center',
+  flagMenuItem: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingHorizontal: 14, paddingVertical: 11,
   },
-  reportBtnText: { fontSize: 16 },
+  flagMenuDivider: { height: 1, backgroundColor: Colors.border, marginHorizontal: 10 },
+  flagMenuText: { fontSize: 14, fontWeight: '500', color: Colors.text },
 
-  body: { paddingHorizontal: 20, paddingTop: 16 },
-
-  name: { fontSize: 26, fontWeight: '800', color: Colors.text, marginBottom: 4 },
-  location: { fontSize: 14, color: Colors.textSecondary, marginBottom: 16 },
-
-  section: { marginBottom: 20 },
-  sectionTitle: {
-    fontSize: 12, fontWeight: '700', color: Colors.textMuted,
-    textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10,
+  nameBlock: { position: 'absolute', left: 24, bottom: 26 },
+  name: {
+    fontSize: 24, fontWeight: '800', color: Colors.white,
+    textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 6,
   },
-  aboutText: { fontSize: 15, color: Colors.text, lineHeight: 22 },
+  locationRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
+  location: {
+    fontSize: 13, color: Colors.white,
+    textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 6,
+  },
 
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  body: { paddingHorizontal: 20, paddingTop: 22 },
+
+  section: { marginBottom: 22 },
+  sectionTitle: { fontSize: 17, fontWeight: '700', color: Colors.text, marginBottom: 10 },
+  aboutText: { fontSize: 14, color: Colors.textSecondary, lineHeight: 21 },
+
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   chip: {
-    paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20,
-    backgroundColor: Colors.datingLight, borderWidth: 1.5, borderColor: Colors.dating,
+    paddingHorizontal: 16, paddingVertical: 10, borderRadius: 22,
+    backgroundColor: Colors.white, borderWidth: 1, borderColor: Colors.border,
   },
-  chipText: { fontSize: 13, fontWeight: '600', color: Colors.dating },
+  chipText: { fontSize: 13, fontWeight: '600', color: Colors.text },
 
   iceCard: {
-    backgroundColor: Colors.surface, borderRadius: 12, padding: 14,
-    marginBottom: 8, borderWidth: 1, borderColor: Colors.border,
+    borderRadius: 12, padding: 14, marginBottom: 8,
   },
   iceText: { fontSize: 14, color: Colors.text, lineHeight: 20 },
 
-  actions: {
-    position: 'absolute', bottom: 24, left: 0, right: 0,
-    flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 20,
+  galleryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: GRID_GAP },
+  galleryTile: {
+    width: TILE_W, height: TILE_W * 1.25, borderRadius: 12,
+    backgroundColor: Colors.surface,
   },
-  actionBtn: { justifyContent: 'center', alignItems: 'center', elevation: 4 },
-  actionIgnore: {
+
+  actionPill: {
+    position: 'absolute', bottom: 28, alignSelf: 'center',
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    backgroundColor: Colors.white, borderRadius: 44,
+    paddingHorizontal: 14, paddingVertical: 10,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.14, shadowRadius: 12, elevation: 9,
+  },
+  actionBtn: {
     width: 58, height: 58, borderRadius: 29,
-    backgroundColor: Colors.white, borderWidth: 2, borderColor: Colors.error,
+    justifyContent: 'center', alignItems: 'center',
   },
-  actionIgnoreIcon: { fontSize: 22, color: Colors.error, fontWeight: '700' },
-  actionSuperLike: {
-    width: 52, height: 52, borderRadius: 26,
-    backgroundColor: Colors.white, borderWidth: 2, borderColor: '#F5A623',
-  },
-  actionSuperLikeIcon: { fontSize: 22, color: '#F5A623' },
-  actionLike: {
-    width: 58, height: 58, borderRadius: 29,
-    backgroundColor: Colors.white, borderWidth: 2, borderColor: Colors.dating,
-  },
-  actionLikeIcon: { fontSize: 24, color: Colors.dating },
 });

@@ -1,21 +1,27 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
   FlatList,
+  TextInput,
   TouchableOpacity,
-  Image,
   RefreshControl,
   ActivityIndicator,
+  SafeAreaView,
   StyleSheet,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import type { CompositeScreenProps } from '@react-navigation/native';
 import type { DrawerScreenProps } from '@react-navigation/drawer';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import Icon from 'react-native-vector-icons/Ionicons';
 import type { DatingDrawerParamList, DatingStackParamList } from '../../types/navigation';
 import { datingApi, DatingMatch } from '../../api/dating';
+import DatingTopBar from '../../components/dating/DatingTopBar';
+import DatingBottomBar from '../../components/dating/DatingBottomBar';
 import { Colors } from '../../utils/colors';
+import RemoteImage from '../../components/common/RemoteImage';
+import { useModuleStatus } from '../../store/ModuleStatusContext';
 
 type Props = CompositeScreenProps<
   DrawerScreenProps<DatingDrawerParamList, 'DatingChats'>,
@@ -25,19 +31,25 @@ type Props = CompositeScreenProps<
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'Just now';
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 1) return 'Just Now';
+  if (mins < 60) return `${mins} mins ago`;
   const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
+  if (hrs < 24) return `${hrs} Hour${hrs > 1 ? 's' : ''} ago`;
   const days = Math.floor(hrs / 24);
-  if (days < 7) return `${days}d ago`;
+  if (days < 7) return `${days} Day${days > 1 ? 's' : ''} ago`;
   return new Date(dateStr).toLocaleDateString();
 }
 
 export default function DatingChatsScreen({ navigation }: Props) {
+  const { datingType } = useModuleStatus();
+  const isSpiritual = datingType === 'Spiritual';
+  const accent = isSpiritual ? Colors.spiritual : Colors.dating;
+  const lime = isSpiritual ? Colors.spiritualLime : Colors.datingSecondary;
+
   const [matches, setMatches] = useState<DatingMatch[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [search, setSearch] = useState('');
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -59,6 +71,14 @@ export default function DatingChatsScreen({ navigation }: Props) {
     }, [load]),
   );
 
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return matches;
+    return matches.filter((m) =>
+      `${m.otherFirstName} ${m.otherLastName}`.toLowerCase().includes(q),
+    );
+  }, [matches, search]);
+
   const openChat = (match: DatingMatch) => {
     navigation.navigate('DatingChatDetail', {
       matchId: match.id,
@@ -71,134 +91,152 @@ export default function DatingChatsScreen({ navigation }: Props) {
     const initials = item.otherFirstName.charAt(0).toUpperCase();
     const imageUri = item.otherDisplayImageUrl ?? item.otherProfileImageUrl;
     const timeLabel = item.lastMessageAt ? timeAgo(item.lastMessageAt) : timeAgo(item.matchedAt);
+    const hasUnread = item.unreadCount > 0;
 
     return (
       <TouchableOpacity style={styles.row} activeOpacity={0.7} onPress={() => openChat(item)}>
-        <View style={styles.avatarWrap}>
-          {imageUri ? (
-            <Image source={{ uri: imageUri }} style={styles.avatar} />
+        {imageUri ? (
+          <RemoteImage uri={imageUri} style={styles.avatar} indicatorColor={accent} />
+        ) : (
+          <View style={[styles.avatar, styles.avatarFallback]}>
+            <Text style={[styles.avatarInitial, { color: accent }]}>{initials}</Text>
+          </View>
+        )}
+
+        <View style={styles.rowContent}>
+          <Text style={styles.name} numberOfLines={1}>
+            {item.otherFirstName} {item.otherLastName}
+          </Text>
+          {hasUnread ? (
+            <Text style={[styles.newMessages, { color: lime }]} numberOfLines={1}>
+              {item.unreadCount} new message{item.unreadCount > 1 ? 's' : ''}
+            </Text>
           ) : (
-            <View style={styles.avatarFallback}>
-              <Text style={styles.avatarInitial}>{initials}</Text>
-            </View>
-          )}
-          {item.unreadCount > 0 && (
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>
-                {item.unreadCount > 99 ? '99+' : item.unreadCount}
-              </Text>
-            </View>
+            <Text style={styles.preview} numberOfLines={1}>
+              {item.lastMessage ?? 'You matched! Say hello'}
+            </Text>
           )}
         </View>
 
-        <View style={styles.rowContent}>
-          <View style={styles.rowTop}>
-            <Text style={styles.name} numberOfLines={1}>
-              {item.otherFirstName} {item.otherLastName}
-            </Text>
-            <Text style={styles.time}>{timeLabel}</Text>
-          </View>
-          <Text
-            style={[styles.preview, item.unreadCount > 0 && styles.previewUnread]}
-            numberOfLines={1}
-          >
-            {item.lastMessage ?? 'You matched! Say hello 👋'}
-          </Text>
-        </View>
+        <Text style={styles.time}>{timeLabel}</Text>
       </TouchableOpacity>
     );
   };
 
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={Colors.dating} />
-      </View>
-    );
-  }
-
   return (
-    <View style={styles.root}>
-      <FlatList
-        data={matches}
-        keyExtractor={(m) => String(m.id)}
-        renderItem={renderItem}
-        ItemSeparatorComponent={() => <View style={styles.separator} />}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => load(true)}
-            tintColor={Colors.dating}
-            colors={[Colors.dating]}
-          />
-        }
-        ListHeaderComponent={
-          <View style={styles.header}>
-            <Text style={styles.headerTitle}>Conversations</Text>
-          </View>
-        }
-        ListEmptyComponent={
-          <View style={styles.empty}>
-            <Text style={styles.emptyIcon}>💬</Text>
-            <Text style={styles.emptyTitle}>No conversations yet</Text>
-            <Text style={styles.emptySub}>
-              Start by matching with someone!
-            </Text>
-          </View>
-        }
-        contentContainerStyle={matches.length === 0 ? styles.emptyContainer : undefined}
-      />
-    </View>
+    <SafeAreaView style={styles.root}>
+      <DatingTopBar />
+
+      <Text style={styles.heading}>My Chats</Text>
+
+      {/* Search bar */}
+      <View style={styles.searchBar}>
+        <TextInput
+          style={styles.searchInput}
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search your chats"
+          placeholderTextColor={Colors.textMuted}
+        />
+        <Icon name="search" size={20} color={accent} />
+      </View>
+
+      {loading ? (
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={accent} />
+        </View>
+      ) : (
+        <FlatList
+          data={filtered}
+          keyExtractor={(m) => String(m.id)}
+          renderItem={renderItem}
+          ItemSeparatorComponent={() => <View style={styles.separator} />}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => load(true)}
+              tintColor={accent}
+              colors={[accent]}
+            />
+          }
+          ListEmptyComponent={
+            <View style={styles.empty}>
+              <Icon name="chatbubbles-outline" size={54} color={Colors.textMuted} />
+              <Text style={styles.emptyTitle}>No conversations yet</Text>
+              <Text style={styles.emptySub}>
+                Start by matching with someone!
+              </Text>
+            </View>
+          }
+          contentContainerStyle={
+            filtered.length === 0 ? styles.emptyContainer : styles.listContent
+          }
+        />
+      )}
+
+      <DatingBottomBar active="DatingChats" />
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.background },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 
-  header: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 12 },
-  headerTitle: { fontSize: 24, fontWeight: '700', color: Colors.text },
+  heading: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: Colors.text,
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 14,
+  },
 
-  row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 14 },
-  avatarWrap: { position: 'relative', marginRight: 14 },
-  avatar: { width: 56, height: 56, borderRadius: 28 },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 20,
+    marginBottom: 8,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    backgroundColor: Colors.white,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    height: 52,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  searchInput: { flex: 1, fontSize: 15, color: Colors.text, paddingVertical: 0 },
+
+  listContent: { paddingBottom: 120 },
+
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+  },
+  avatar: { width: 54, height: 54, borderRadius: 27, marginRight: 14 },
   avatarFallback: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: Colors.datingLight,
+    backgroundColor: Colors.surface,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  avatarInitial: { fontSize: 22, fontWeight: '700', color: Colors.dating },
-  badge: {
-    position: 'absolute',
-    top: -2,
-    right: -2,
-    minWidth: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: Colors.dating,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 4,
-    borderWidth: 2,
-    borderColor: Colors.background,
-  },
-  badgeText: { fontSize: 10, fontWeight: '700', color: Colors.white },
+  avatarInitial: { fontSize: 20, fontWeight: '700' },
 
-  rowContent: { flex: 1 },
-  rowTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-  name: { fontSize: 16, fontWeight: '600', color: Colors.text, flex: 1, marginRight: 8 },
+  rowContent: { flex: 1, marginRight: 8 },
+  name: { fontSize: 16, fontWeight: '700', color: Colors.text, marginBottom: 3 },
+  newMessages: { fontSize: 13, fontWeight: '700' },
+  preview: { fontSize: 13, color: Colors.textSecondary },
   time: { fontSize: 12, color: Colors.textMuted },
-  preview: { fontSize: 14, color: Colors.textSecondary },
-  previewUnread: { color: Colors.text, fontWeight: '600' },
 
-  separator: { height: 1, backgroundColor: Colors.border, marginLeft: 90 },
+  separator: { height: 1, backgroundColor: Colors.border, marginLeft: 88 },
 
-  emptyContainer: { flex: 1 },
-  empty: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 40, paddingTop: 80 },
-  emptyIcon: { fontSize: 56, marginBottom: 20 },
-  emptyTitle: { fontSize: 18, fontWeight: '700', color: Colors.text, marginBottom: 10 },
-  emptySub: { fontSize: 15, color: Colors.textSecondary, textAlign: 'center', lineHeight: 22 },
+  emptyContainer: { flexGrow: 1 },
+  empty: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 40 },
+  emptyTitle: { fontSize: 18, fontWeight: '700', color: Colors.text, marginTop: 16, marginBottom: 8 },
+  emptySub: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center', lineHeight: 20 },
 });

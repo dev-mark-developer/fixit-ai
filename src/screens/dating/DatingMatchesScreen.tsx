@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Dimensions,
   FlatList,
   Image,
   RefreshControl,
@@ -13,11 +14,16 @@ import {
 import type { CompositeScreenProps } from '@react-navigation/native';
 import type { DrawerScreenProps } from '@react-navigation/drawer';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import Icon from 'react-native-vector-icons/Ionicons';
 import type { DatingDrawerParamList, DatingStackParamList } from '../../types/navigation';
-import { datingApi, DatingMatch } from '../../api/dating';
+import { datingApi, DatingLike, DatingMatch } from '../../api/dating';
 import AppAlert from '../../components/common/AppAlert';
-import AppButton from '../../components/common/AppButton';
+import ReportModal from '../../components/common/ReportModal';
+import DatingTopBar from '../../components/dating/DatingTopBar';
+import DatingBottomBar from '../../components/dating/DatingBottomBar';
 import { Colors } from '../../utils/colors';
+import RemoteImage from '../../components/common/RemoteImage';
+import { useModuleStatus } from '../../store/ModuleStatusContext';
 
 type Props = CompositeScreenProps<
   DrawerScreenProps<DatingDrawerParamList, 'DatingMatches'>,
@@ -32,146 +38,166 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: 'my_likes', label: 'My Likes' },
 ];
 
-// ──────────────────────────────────────────────────────────────
-// Helpers
-// ──────────────────────────────────────────────────────────────
-function formatTime(iso?: string): string {
-  if (!iso) return '';
-  const date = new Date(iso);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffDays = Math.floor(diffMs / 86400000);
-  if (diffDays === 0) {
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  }
-  if (diffDays === 1) return 'Yesterday';
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
-}
+// The likes endpoints aren't typed in Swagger — read the common field spellings
+const likeUserId = (l: DatingLike) => l.userId ?? l.otherUserId;
+const likeName = (l: DatingLike) =>
+  l.pseudoName ||
+  [l.firstName ?? l.otherFirstName, l.lastName ?? l.otherLastName]
+    .filter(Boolean)
+    .join(' ') ||
+  'Someone';
+const likeImage = (l: DatingLike) =>
+  l.displayImageUrl ?? l.profileImageUrl ?? l.otherDisplayImageUrl ?? l.otherProfileImageUrl;
+
+const GRID_GAP = 14;
+const CARD_W = (Dimensions.get('window').width - 40 - GRID_GAP) / 2;
+const CARD_H = CARD_W * 1.35;
 
 // ──────────────────────────────────────────────────────────────
-// Match list item
+// Photo-grid match card (Figma): flag top-left, chat top-right,
+// name + location bottom-left
 // ──────────────────────────────────────────────────────────────
-interface MatchItemProps {
+interface MatchCardProps {
   match: DatingMatch;
-  onPress: () => void;
+  accent: string;
+  onChat: () => void;
+  onReport: () => void;
 }
 
-function MatchItem({ match, onPress }: MatchItemProps) {
-  const avatarUri = match.otherDisplayImageUrl ?? match.otherProfileImageUrl ?? undefined;
-  const displayName = `${match.otherFirstName} ${match.otherLastName}`;
-  const timeStr = formatTime(match.lastMessageAt ?? match.matchedAt);
+function MatchCard({ match, accent, onChat, onReport }: MatchCardProps) {
+  const imageUri = match.otherDisplayImageUrl ?? match.otherProfileImageUrl;
 
   return (
-    <TouchableOpacity style={matchItemStyles.row} onPress={onPress} activeOpacity={0.8}>
-      <View style={matchItemStyles.avatarWrap}>
-        {avatarUri ? (
-          <Image source={{ uri: avatarUri }} style={matchItemStyles.avatar} />
-        ) : (
-          <View style={[matchItemStyles.avatar, matchItemStyles.avatarFallback]}>
-            <Text style={matchItemStyles.avatarInitial}>
+    <TouchableOpacity style={cardStyles.card} onPress={onChat} activeOpacity={0.85}>
+      <RemoteImage
+        uri={imageUri}
+        style={cardStyles.photo}
+        resizeMode="cover"
+        indicatorColor={accent}
+        fallback={
+          <View style={[cardStyles.photo, cardStyles.photoFallback]}>
+            <Text style={cardStyles.photoInitial}>
               {match.otherFirstName.charAt(0).toUpperCase()}
             </Text>
           </View>
-        )}
-        {match.unreadCount > 0 && (
-          <View style={matchItemStyles.badge}>
-            <Text style={matchItemStyles.badgeText}>
-              {match.unreadCount > 9 ? '9+' : match.unreadCount}
-            </Text>
-          </View>
-        )}
-      </View>
+        }
+      />
 
-      <View style={matchItemStyles.textBlock}>
-        <View style={matchItemStyles.topRow}>
-          <Text style={matchItemStyles.name} numberOfLines={1}>
-            {displayName}
-          </Text>
-          <Text style={matchItemStyles.time}>{timeStr}</Text>
-        </View>
-        <Text
-          style={[
-            matchItemStyles.lastMessage,
-            match.unreadCount > 0 && matchItemStyles.lastMessageUnread,
-          ]}
-          numberOfLines={1}
-        >
-          {match.lastMessage ?? 'Matched! Say hello'}
+      {/* Flag (report) — top-left */}
+      <TouchableOpacity
+        style={[cardStyles.iconBtn, cardStyles.iconBtnTL]}
+        onPress={onReport}
+        hitSlop={6}
+      >
+        <Icon name="flag" size={16} color={accent} />
+      </TouchableOpacity>
+
+      {/* Chat — top-right */}
+      <TouchableOpacity
+        style={[cardStyles.iconBtn, cardStyles.iconBtnTR]}
+        onPress={onChat}
+        hitSlop={6}
+      >
+        <Icon name="chatbox" size={16} color={accent} />
+        {match.unreadCount > 0 && <View style={cardStyles.unreadDot} />}
+      </TouchableOpacity>
+
+      {/* Name + location */}
+      <View style={cardStyles.nameBlock}>
+        <Text style={cardStyles.name} numberOfLines={1}>
+          {match.otherFirstName} {match.otherLastName}
         </Text>
+        <View style={cardStyles.locationRow}>
+          <Icon name="location-outline" size={12} color={Colors.white} />
+          <Text style={cardStyles.location} numberOfLines={1}>
+            Matched {new Date(match.matchedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+          </Text>
+        </View>
       </View>
     </TouchableOpacity>
   );
 }
 
-const matchItemStyles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-    backgroundColor: Colors.background,
+const cardStyles = StyleSheet.create({
+  card: {
+    width: CARD_W,
+    height: CARD_H,
+    borderRadius: 18,
+    overflow: 'hidden',
+    backgroundColor: Colors.surface,
+    marginBottom: GRID_GAP,
   },
-  avatarWrap: { position: 'relative', marginRight: 14 },
-  avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-  },
-  avatarFallback: {
-    backgroundColor: Colors.datingLight,
+  photo: { width: '100%', height: '100%', position: 'absolute' },
+  photoFallback: {
+    backgroundColor: Colors.spiritualLight,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  avatarInitial: { fontSize: 22, fontWeight: '700', color: Colors.dating },
-  badge: {
+  photoInitial: { fontSize: 44, fontWeight: '700', color: Colors.spiritual, opacity: 0.6 },
+
+  iconBtn: {
     position: 'absolute',
-    bottom: 0,
-    right: 0,
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: Colors.dating,
+    top: 10,
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    backgroundColor: Colors.white,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 3,
-    borderWidth: 2,
-    borderColor: Colors.background,
   },
-  badgeText: { fontSize: 10, fontWeight: '700', color: Colors.white },
-  textBlock: { flex: 1 },
-  topRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
+  iconBtnTL: { left: 10 },
+  iconBtnTR: { right: 10 },
+  unreadDot: {
+    position: 'absolute', top: -3, right: -3,
+    width: 10, height: 10, borderRadius: 5,
+    backgroundColor: Colors.error,
+    borderWidth: 1.5, borderColor: Colors.white,
+  },
+
+  nameBlock: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    bottom: 10,
   },
   name: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: Colors.text,
-    flex: 1,
-    marginRight: 8,
+    fontSize: 16,
+    fontWeight: '800',
+    color: Colors.white,
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 5,
   },
-  time: { fontSize: 12, color: Colors.textMuted },
-  lastMessage: { fontSize: 14, color: Colors.textSecondary },
-  lastMessageUnread: { color: Colors.text, fontWeight: '600' },
+  locationRow: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 2 },
+  location: {
+    fontSize: 11,
+    color: Colors.white,
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 5,
+  },
 });
 
 // ──────────────────────────────────────────────────────────────
-// Tab panels
+// Main screen
 // ──────────────────────────────────────────────────────────────
-interface MatchesTabProps {
-  navigation: Props['navigation'];
-}
+export default function DatingMatchesScreen({ navigation }: Props) {
+  const { datingType } = useModuleStatus();
+  const accent = datingType === 'Spiritual' ? Colors.spiritual : Colors.dating;
 
-function MatchesTab({ navigation }: MatchesTabProps) {
+  const [activeTab, setActiveTab] = useState<TabKey>('matches');
   const [matches, setMatches] = useState<DatingMatch[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
+  const [reportUserId, setReportUserId] = useState<number | null>(null);
+  const [reportName, setReportName] = useState('');
+
+  // Likes tabs (gap #7)
+  const [likesReceived, setLikesReceived] = useState<DatingLike[]>([]);
+  const [likesSent, setLikesSent] = useState<DatingLike[]>([]);
+  const [likesLoading, setLikesLoading] = useState(false);
+  const [likesLocked, setLikesLocked] = useState(false);
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true); else setLoading(true);
@@ -188,274 +214,339 @@ function MatchesTab({ navigation }: MatchesTabProps) {
 
   useEffect(() => { load(); }, [load]);
 
-  if (loading) {
-    return (
-      <View style={tabStyles.centered}>
-        <ActivityIndicator color={Colors.dating} size="large" />
-      </View>
-    );
-  }
+  // Fetch the likes list when its tab is opened
+  useEffect(() => {
+    if (activeTab === 'matches') return;
+    let active = true;
+    setLikesLoading(true);
+    const req =
+      activeTab === 'likes_received'
+        ? datingApi.getLikesReceived()
+        : datingApi.getLikesSent();
+    req
+      .then((res) => {
+        if (!active) return;
+        const rows: DatingLike[] = res.data?.data ?? [];
+        if (activeTab === 'likes_received') {
+          setLikesLocked(false);
+          setLikesReceived(rows);
+        } else {
+          setLikesSent(rows);
+        }
+      })
+      .catch((err) => {
+        if (!active) return;
+        // 402/403 → premium required, show the locked preview instead
+        const status = err?.response?.status;
+        if (activeTab === 'likes_received' && (status === 402 || status === 403)) {
+          setLikesLocked(true);
+        } else if (activeTab === 'likes_received') {
+          setLikesReceived([]);
+        } else {
+          setLikesSent([]);
+        }
+      })
+      .finally(() => active && setLikesLoading(false));
+    return () => { active = false; };
+  }, [activeTab]);
 
-  return (
-    <>
+  const openChat = (match: DatingMatch) => {
+    navigation.navigate('DatingChatDetail', {
+      matchId: match.id,
+      matchedUserId: match.otherUserId,
+      matchedUserName: `${match.otherFirstName} ${match.otherLastName}`,
+    });
+  };
+
+  const goPremium = () =>
+    navigation.navigate('DatingPremium', { datingType: datingType ?? 'NonSpiritual' });
+
+  // Likes rows carry only the summary fields — about/interests/gallery aren't
+  // in the likes response, so the detail screen just hides those sections.
+  const openLikeProfile = (like: DatingLike) => {
+    const userId = likeUserId(like);
+    if (!userId) return;
+    navigation.navigate('DatingProfileDetail', {
+      userId,
+      firstName: like.pseudoName || like.firstName || like.otherFirstName || '',
+      lastName: like.pseudoName ? '' : (like.lastName ?? like.otherLastName ?? ''),
+      age: like.age,
+      city: like.city,
+      country: like.country,
+      displayImageUrl: like.displayImageUrl ?? undefined,
+      profileImageUrl: like.profileImageUrl ?? undefined,
+      interests: [],
+      images: [],
+      iceBreakerQuestions: [],
+    });
+  };
+
+  // ── Tab bodies ────────────────────────────────────────
+  const renderMatches = () => {
+    if (loading) {
+      return (
+        <View style={styles.centered}>
+          <ActivityIndicator color={accent} size="large" />
+        </View>
+      );
+    }
+    return (
       <FlatList
         data={matches}
         keyExtractor={(item) => String(item.id)}
+        numColumns={2}
+        columnWrapperStyle={styles.gridRow}
+        contentContainerStyle={styles.gridContent}
+        showsVerticalScrollIndicator={false}
         renderItem={({ item }) => (
-          <MatchItem
+          <MatchCard
             match={item}
-            onPress={() =>
-              navigation.navigate('DatingChatDetail', {
-                matchId: item.id,
-                matchedUserId: item.otherUserId,
-                matchedUserName: `${item.otherFirstName} ${item.otherLastName}`,
-              })
-            }
+            accent={accent}
+            onChat={() => openChat(item)}
+            onReport={() => {
+              setReportUserId(item.otherUserId);
+              setReportName(item.otherFirstName);
+            }}
           />
         )}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={() => load(true)}
-            colors={[Colors.dating]}
-            tintColor={Colors.dating}
+            colors={[accent]}
+            tintColor={accent}
           />
         }
         ListEmptyComponent={
-          <View style={tabStyles.emptyState}>
-            <Text style={tabStyles.emptyEmoji}>💞</Text>
-            <Text style={tabStyles.emptyTitle}>No matches yet</Text>
-            <Text style={tabStyles.emptySub}>Keep swiping to find your match!</Text>
+          <View style={styles.emptyState}>
+            <Image
+              source={require('../../assets/noActiveUser.png')}
+              style={styles.emptyImage}
+              resizeMode="contain"
+            />
+            <Text style={styles.emptyTitle}>You have No Matches</Text>
+            <Text style={styles.emptySub}>
+              Keep discovering — when you and someone else like each other,
+              they will show up here.
+            </Text>
           </View>
         }
       />
+    );
+  };
+
+  // Likes Received — endpoint exists (gap #7 resolved). Premium-gated: a 402/403
+  // from the API means the user isn't subscribed, so show the locked preview.
+  const renderLikesReceived = () => {
+    if (likesLoading) {
+      return (
+        <View style={styles.centered}>
+          <ActivityIndicator color={accent} size="large" />
+        </View>
+      );
+    }
+    if (likesLocked) {
+      return (
+        <View style={styles.lockedWrap}>
+          <View style={styles.gridRow}>
+            {[0, 1].map((i) => (
+              <View key={i} style={styles.lockedCard}>
+                <Icon name="lock-closed" size={40} color={Colors.white} />
+              </View>
+            ))}
+          </View>
+          <TouchableOpacity
+            style={[styles.premiumBtn, { backgroundColor: accent }]}
+            onPress={goPremium}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.premiumBtnText}>Get a Premium Access</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    return renderLikeGrid(likesReceived, 'No Likes Received', 'People who like your profile will show up here.');
+  };
+
+  // My Likes — endpoint exists (gap #7 resolved)
+  const renderMyLikes = () => {
+    if (likesLoading) {
+      return (
+        <View style={styles.centered}>
+          <ActivityIndicator color={accent} size="large" />
+        </View>
+      );
+    }
+    return renderLikeGrid(likesSent, 'No Likes Yet', 'Profiles you have liked will show up here.');
+  };
+
+  const renderLikeGrid = (data: DatingLike[], emptyTitle: string, emptySub: string) => (
+    <FlatList
+      data={data}
+      keyExtractor={(item, i) => String(likeUserId(item) ?? item.id ?? i)}
+      numColumns={2}
+      columnWrapperStyle={styles.gridRow}
+      contentContainerStyle={styles.gridContent}
+      showsVerticalScrollIndicator={false}
+      renderItem={({ item }) => {
+        const initialsFallback = (
+          <View style={[cardStyles.photo, cardStyles.photoFallback]}>
+            <Text style={cardStyles.photoInitial}>
+              {likeName(item).charAt(0).toUpperCase()}
+            </Text>
+          </View>
+        );
+        return (
+          <TouchableOpacity
+            style={cardStyles.card}
+            activeOpacity={0.85}
+            onPress={() => openLikeProfile(item)}
+          >
+            <RemoteImage
+              uri={likeImage(item)}
+              style={cardStyles.photo}
+              resizeMode="cover"
+              indicatorColor={accent}
+              fallback={initialsFallback}
+            />
+            <View style={cardStyles.nameBlock}>
+              <Text style={cardStyles.name} numberOfLines={1}>
+                {likeName(item)}
+                {item.age ? `, ${item.age}` : ''}
+              </Text>
+              {!!(item.city || item.country) && (
+                <View style={cardStyles.locationRow}>
+                  <Icon name="location-outline" size={12} color={Colors.white} />
+                  <Text style={cardStyles.location} numberOfLines={1}>
+                    {[item.city, item.country].filter(Boolean).join(', ')}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </TouchableOpacity>
+        );
+      }}
+      ListEmptyComponent={
+        <View style={styles.emptyState}>
+          <Image
+            source={require('../../assets/noActiveUser.png')}
+            style={styles.emptyImage}
+            resizeMode="contain"
+          />
+          <Text style={styles.emptyTitle}>{emptyTitle}</Text>
+          <Text style={styles.emptySub}>{emptySub}</Text>
+        </View>
+      }
+    />
+  );
+
+  return (
+    <SafeAreaView style={styles.root}>
+      <DatingTopBar />
+
+      <Text style={styles.heading}>My Matches</Text>
+
+      {/* Pill tabs */}
+      <View style={styles.tabRow}>
+        {TABS.map((tab) => {
+          const isActive = activeTab === tab.key;
+          return (
+            <TouchableOpacity
+              key={tab.key}
+              style={[
+                styles.tabPill,
+                isActive ? { backgroundColor: accent } : styles.tabPillInactive,
+              ]}
+              onPress={() => setActiveTab(tab.key)}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.tabLabel, !isActive && styles.tabLabelInactive]}>
+                {tab.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      <View style={styles.body}>
+        {activeTab === 'matches' && renderMatches()}
+        {activeTab === 'likes_received' && renderLikesReceived()}
+        {activeTab === 'my_likes' && renderMyLikes()}
+      </View>
+
+      <DatingBottomBar active="DatingMatches" />
+
+      <ReportModal
+        visible={reportUserId !== null}
+        reportedUserId={reportUserId ?? 0}
+        reportedName={reportName}
+        module="Dating"
+        onClose={() => setReportUserId(null)}
+      />
+
       <AppAlert
         visible={!!alert}
         title={alert?.title ?? ''}
         message={alert?.message}
         onClose={() => setAlert(null)}
       />
-    </>
-  );
-}
-
-interface LikesReceivedTabProps {
-  navigation: Props['navigation'];
-}
-
-function LikesReceivedTab({ navigation }: LikesReceivedTabProps) {
-  // Blurred example card + premium CTA
-  return (
-    <View style={tabStyles.premiumContainer}>
-      {/* Example blurred card(s) */}
-      <View style={tabStyles.blurredCardStack}>
-        {[0, 1, 2].map((i) => (
-          <View
-            key={i}
-            style={[
-              tabStyles.blurredCard,
-              { marginTop: i * 10, opacity: 1 - i * 0.25, zIndex: 3 - i },
-            ]}
-          >
-            <View style={tabStyles.blurredAvatar} />
-            <View style={tabStyles.blurredLines}>
-              <View style={[tabStyles.blurredLine, { width: '60%' }]} />
-              <View style={[tabStyles.blurredLine, { width: '40%', marginTop: 6 }]} />
-            </View>
-          </View>
-        ))}
-        {/* Lock overlay */}
-        <View style={tabStyles.lockOverlay}>
-          <Text style={tabStyles.lockEmoji}>🔒</Text>
-        </View>
-      </View>
-
-      <Text style={tabStyles.premiumTitle}>See Who Likes You</Text>
-      <Text style={tabStyles.premiumSub}>
-        Upgrade to Premium to see everyone who has already liked your profile and match instantly.
-      </Text>
-
-      <AppButton
-        title="Upgrade to Premium"
-        onPress={() => navigation.navigate('DatingPremium', { datingType: 'NonSpiritual' })}
-        style={tabStyles.premiumBtn}
-      />
-    </View>
-  );
-}
-
-function MyLikesTab() {
-  return (
-    <View style={tabStyles.centered}>
-      <Text style={tabStyles.emptyEmoji}>🕐</Text>
-      <Text style={tabStyles.emptyTitle}>Coming Soon</Text>
-      <Text style={tabStyles.emptySub}>
-        You'll be able to see profiles you've liked here.
-      </Text>
-    </View>
-  );
-}
-
-const tabStyles = StyleSheet.create({
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 32,
-  },
-  emptyState: {
-    alignItems: 'center',
-    paddingTop: 80,
-    paddingHorizontal: 32,
-  },
-  emptyEmoji: { fontSize: 56, marginBottom: 16 },
-  emptyTitle: { fontSize: 20, fontWeight: '700', color: Colors.text, marginBottom: 8, textAlign: 'center' },
-  emptySub: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center', lineHeight: 20 },
-
-  // Premium tab
-  premiumContainer: {
-    flex: 1,
-    alignItems: 'center',
-    paddingHorizontal: 32,
-    paddingTop: 40,
-  },
-  blurredCardStack: {
-    width: '100%',
-    height: 160,
-    marginBottom: 36,
-    position: 'relative',
-    alignItems: 'center',
-  },
-  blurredCard: {
-    position: 'absolute',
-    flexDirection: 'row',
-    alignItems: 'center',
-    width: '100%',
-    backgroundColor: Colors.surface,
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  blurredAvatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: Colors.border,
-    marginRight: 14,
-  },
-  blurredLines: { flex: 1 },
-  blurredLine: {
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: Colors.border,
-  },
-  lockOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.55)',
-    borderRadius: 14,
-  },
-  lockEmoji: { fontSize: 40 },
-
-  premiumTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: Colors.text,
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  premiumSub: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-    lineHeight: 20,
-    marginBottom: 28,
-  },
-  premiumBtn: {
-    width: '100%',
-    borderRadius: 14,
-    backgroundColor: Colors.dating,
-  },
-});
-
-// ──────────────────────────────────────────────────────────────
-// Main screen
-// ──────────────────────────────────────────────────────────────
-export default function DatingMatchesScreen({ navigation }: Props) {
-  const [activeTab, setActiveTab] = useState<TabKey>('matches');
-
-  return (
-    <SafeAreaView style={styles.root}>
-      {/* Tabs */}
-      <View style={styles.tabBar}>
-        {TABS.map((tab) => {
-          const isActive = activeTab === tab.key;
-          return (
-            <TouchableOpacity
-              key={tab.key}
-              style={[styles.tabItem, isActive && styles.tabItemActive]}
-              onPress={() => setActiveTab(tab.key)}
-              activeOpacity={0.75}
-            >
-              <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>
-                {tab.label}
-              </Text>
-              {isActive && <View style={styles.tabIndicator} />}
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-
-      {/* Tab content */}
-      <View style={styles.tabContent}>
-        {activeTab === 'matches' && <MatchesTab navigation={navigation} />}
-        {activeTab === 'likes_received' && <LikesReceivedTab navigation={navigation} />}
-        {activeTab === 'my_likes' && <MyLikesTab />}
-      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 
-  tabBar: {
+  heading: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: Colors.text,
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 14,
+  },
+
+  tabRow: {
     flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-    backgroundColor: Colors.background,
+    gap: 10,
+    paddingHorizontal: 20,
+    marginBottom: 16,
   },
-  tabItem: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 13,
-    position: 'relative',
+  tabPill: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
   },
-  tabItemActive: {},
-  tabLabel: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: Colors.textSecondary,
-  },
-  tabLabelActive: {
-    color: Colors.dating,
-    fontWeight: '700',
-  },
-  tabIndicator: {
-    position: 'absolute',
-    bottom: 0,
-    left: '15%',
-    right: '15%',
-    height: 2.5,
-    borderRadius: 2,
-    backgroundColor: Colors.dating,
-  },
+  tabPillInactive: { backgroundColor: '#BDBDBD' },
+  tabLabel: { fontSize: 14, fontWeight: '700', color: Colors.white },
+  tabLabelInactive: { color: Colors.white },
 
-  tabContent: { flex: 1 },
+  body: { flex: 1 },
+
+  gridRow: { justifyContent: 'space-between', paddingHorizontal: 20 },
+  gridContent: { paddingBottom: 120 },
+
+  emptyState: { alignItems: 'center', paddingHorizontal: 36, paddingTop: 30 },
+  emptyImage: { width: 180, height: 160, marginBottom: 16 },
+  emptyTitle: { fontSize: 22, fontWeight: '800', color: Colors.text, marginBottom: 10, textAlign: 'center' },
+  emptySub: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center', lineHeight: 21 },
+
+  lockedWrap: { paddingTop: 4 },
+  lockedCard: {
+    width: CARD_W,
+    height: CARD_H,
+    borderRadius: 18,
+    backgroundColor: '#1F1B24',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  premiumBtn: {
+    marginHorizontal: 20,
+    marginTop: 22,
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  premiumBtnText: { fontSize: 15, fontWeight: '700', color: Colors.white },
 });

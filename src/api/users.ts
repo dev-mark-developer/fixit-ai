@@ -37,4 +37,16 @@ export const usersApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
+
+  /**
+   * Sign-up photo — uploaded before the account exists (no auth), then the
+   * returned URL is sent as `profilePictureUrl` on POST /auth/register.
+   */
+  uploadRegistrationImage: (uri: string, mimeType = 'image/jpeg') => {
+    const form = new FormData();
+    form.append('file', { uri, name: 'profile.jpg', type: mimeType } as any);
+    return api.post('/auth/register/profile-image', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
 };

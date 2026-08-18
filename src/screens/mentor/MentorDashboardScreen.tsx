@@ -1,27 +1,34 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  ActivityIndicator, RefreshControl,
+  ActivityIndicator, RefreshControl, Image, Modal,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import Icon from 'react-native-vector-icons/Ionicons';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { MentorStackParamList } from '../../types/navigation';
 import { Colors } from '../../utils/colors';
+import RemoteImage from '../../components/common/RemoteImage';
 import { mentorApi, AssignedUser } from '../../api/mentor';
-import AppAlert, { AlertButton } from '../../components/common/AppAlert';
+import AppAlert from '../../components/common/AppAlert';
 
-type AssignedTab = 'Active' | 'Completed';
+type AssignedTab = 'All' | 'Active' | 'Completed';
+const TABS: AssignedTab[] = ['All', 'Active', 'Completed'];
+
+const formatDate = (d: string) =>
+  new Date(d).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
 
 export default function MentorDashboardScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<MentorStackParamList>>();
-  const [tab, setTab] = useState<AssignedTab>('Active');
+  const [tab, setTab] = useState<AssignedTab>('All');
   const [users, setUsers] = useState<AssignedUser[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeAction, setActiveAction] = useState<{ id: number; status: 'Completed' | 'Removed' } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [hasSubscription, setHasSubscription] = useState<boolean | null>(null);
-  const [alert, setAlert] = useState<{ title: string; message: string; buttons?: AlertButton[] } | null>(null);
-  const pendingAction = useRef<(() => Promise<void>) | null>(null);
+  const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
+  const [confirmModal, setConfirmModal] = useState<{ user: AssignedUser; status: 'Completed' | 'Removed' } | null>(null);
 
   useFocusEffect(useCallback(() => {
     mentorApi.getSubscription()
@@ -32,10 +39,10 @@ export default function MentorDashboardScreen() {
       .catch(() => setHasSubscription(false));
   }, []));
 
-  const loadUsers = async (status: AssignedTab, silent = false) => {
+  const loadUsers = async (which: AssignedTab, silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const res = await mentorApi.getAssignedUsers({ status });
+      const res = await mentorApi.getAssignedUsers(which === 'All' ? {} : { status: which });
       setUsers(res.data?.data ?? []);
     } catch {
       setUsers([]);
@@ -47,81 +54,68 @@ export default function MentorDashboardScreen() {
 
   useEffect(() => { loadUsers(tab); }, [tab]);
 
-  const handleUpdateStatus = (user: AssignedUser, status: 'Completed' | 'Removed') => {
-    const action = status === 'Completed' ? 'mark as completed' : 'remove';
+  const requestUpdate = (user: AssignedUser, status: 'Completed' | 'Removed') =>
+    setConfirmModal({ user, status });
 
-    pendingAction.current = async () => {
-      setActiveAction({ id: user.assignmentId, status });
-      try {
-        await mentorApi.updateAssignmentStatus(user.assignmentId, status);
-        setUsers((prev) => prev.filter((u) => u.assignmentId !== user.assignmentId));
-      } catch (err: any) {
-        setAlert({ title: 'Error', message: err.response?.data?.message ?? 'Action failed. Please try again.' });
-      } finally {
-        setActiveAction(null);
-      }
-    };
-
-    setAlert({
-      title: status === 'Removed' ? 'Remove User' : 'Mark as Completed',
-      message: `Are you sure you want to ${action} ${user.firstName} ${user.lastName}?`,
-      buttons: [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: status === 'Removed' ? 'Remove' : 'Confirm',
-          style: status === 'Removed' ? 'destructive' : 'default',
-          onPress: () => pendingAction.current?.(),
-        },
-      ],
-    });
+  const performUpdate = async (user: AssignedUser, status: 'Completed' | 'Removed') => {
+    setConfirmModal(null);
+    setActiveAction({ id: user.assignmentId, status });
+    try {
+      await mentorApi.updateAssignmentStatus(user.assignmentId, status);
+      setUsers((prev) => prev.filter((u) => u.assignmentId !== user.assignmentId));
+    } catch (err: any) {
+      setAlert({ title: 'Error', message: err.response?.data?.message ?? 'Action failed. Please try again.' });
+    } finally {
+      setActiveAction(null);
+    }
   };
 
   const renderUser = ({ item }: { item: AssignedUser }) => {
-    const isThisCard = activeAction?.id === item.assignmentId;
-    const completingThis = isThisCard && activeAction?.status === 'Completed';
-    const removingThis = isThisCard && activeAction?.status === 'Removed';
-    const anyActionOnThis = completingThis || removingThis;
+    const busy = activeAction?.id === item.assignmentId;
+    const isCompleted = item.status === 'Completed' || tab === 'Completed';
     return (
       <View style={styles.userCard}>
-        <View style={styles.userAvatar}>
-          <Text style={styles.userAvatarText}>{item.firstName.charAt(0).toUpperCase()}</Text>
-        </View>
+        {item.profileImageUrl ? (
+          <RemoteImage
+            uri={item.profileImageUrl}
+            style={styles.userAvatar}
+            indicatorColor={Colors.mentor}
+          />
+        ) : (
+          <View style={[styles.userAvatar, styles.userAvatarFallback]}>
+            <Text style={styles.userAvatarText}>{item.firstName.charAt(0).toUpperCase()}</Text>
+          </View>
+        )}
         <View style={styles.userInfo}>
           <Text style={styles.userName}>{item.firstName} {item.lastName}</Text>
-          <Text style={styles.userDate}>
-            Assigned {new Date(item.assignedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-          </Text>
+          <Text style={styles.userDate}>Assigned: {formatDate(item.assignedAt)}</Text>
+          {!isCompleted && (
+            <TouchableOpacity onPress={() => requestUpdate(item, 'Removed')} disabled={busy}>
+              <Text style={styles.removeLink}>Remove</Text>
+            </TouchableOpacity>
+          )}
         </View>
-        {tab === 'Active' && (
-          <View style={styles.userActions}>
-            <TouchableOpacity
-              style={[styles.userActionBtn, styles.completeBtn]}
-              onPress={() => handleUpdateStatus(item, 'Completed')}
-              disabled={anyActionOnThis}
-            >
-              {completingThis
-                ? <ActivityIndicator color={Colors.white} size="small" />
-                : <Text style={styles.completeBtnText}>Done</Text>}
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.userActionBtn, styles.removeBtn]}
-              onPress={() => handleUpdateStatus(item, 'Removed')}
-              disabled={anyActionOnThis}
-            >
-              {removingThis
-                ? <ActivityIndicator color={Colors.error} size="small" />
-                : <Text style={styles.removeBtnText}>Remove</Text>}
-            </TouchableOpacity>
-          </View>
+
+        {busy ? (
+          <ActivityIndicator color={Colors.mentor} size="small" />
+        ) : (
+          <TouchableOpacity
+            style={[styles.checkBtn, isCompleted && styles.checkBtnDone]}
+            onPress={() => !isCompleted && requestUpdate(item, 'Completed')}
+            disabled={isCompleted}
+          >
+            <Icon name="checkmark" size={20} color={Colors.white} />
+          </TouchableOpacity>
         )}
       </View>
     );
   };
 
+  // ── No subscription gate ───────────────────────────────────
   if (hasSubscription === false) {
     return (
       <View style={styles.noSubRoot}>
-        <Text style={styles.noSubIcon}>👑</Text>
+        <Image source={require('../../assets/crown.png')} style={styles.noSubImage} resizeMode="contain" />
         <Text style={styles.noSubTitle}>Subscription Required</Text>
         <Text style={styles.noSubMessage}>
           Activate your Mentor Plan to start receiving seeker assignments.
@@ -138,103 +132,196 @@ export default function MentorDashboardScreen() {
   }
 
   return (
-    <>
-      <View style={styles.root}>
-        <View style={styles.tabs}>
-          {(['Active', 'Completed'] as AssignedTab[]).map((t) => (
-            <TouchableOpacity
-              key={t}
-              style={[styles.tab, tab === t && styles.tabActive]}
-              onPress={() => setTab(t)}
-            >
-              <Text style={[styles.tabText, tab === t && styles.tabTextActive]}>{t}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-        {loading ? (
-          <View style={styles.center}>
-            <ActivityIndicator color={Colors.mentor} size="large" />
-          </View>
-        ) : (
-          <FlatList
-            data={users}
-            keyExtractor={(item) => item.assignmentId.toString()}
-            extraData={activeAction}
-            renderItem={renderUser}
-            contentContainerStyle={styles.list}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={() => { setRefreshing(true); loadUsers(tab, true); }}
-                tintColor={Colors.mentor}
-              />
-            }
-            ListEmptyComponent={
-              <View style={styles.emptyList}>
-                <Text style={styles.emptyIcon}>{tab === 'Active' ? '👥' : '✅'}</Text>
-                <Text style={styles.emptyListText}>
-                  {tab === 'Active' ? 'No active assignments' : 'No completed assignments yet'}
-                </Text>
-              </View>
-            }
-          />
-        )}
+    <SafeAreaView style={styles.root} edges={['top']}>
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => (navigation as any).openDrawer?.()} hitSlop={8}>
+          <Icon name="menu" size={26} color={Colors.mentor} />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.navigate('Notifications')} hitSlop={8}>
+          <Icon name="notifications-outline" size={24} color={Colors.mentor} />
+        </TouchableOpacity>
       </View>
+
+      {/* Tabs */}
+      <View style={styles.tabs}>
+        {TABS.map((t) => (
+          <TouchableOpacity
+            key={t}
+            style={[styles.tab, tab === t && styles.tabActive]}
+            onPress={() => setTab(t)}
+          >
+            <Text style={[styles.tabText, tab === t && styles.tabTextActive]}>{t}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {loading ? (
+        <View style={styles.center}>
+          <ActivityIndicator color={Colors.mentor} size="large" />
+        </View>
+      ) : (
+        <FlatList
+          data={users}
+          keyExtractor={(item) => item.assignmentId.toString()}
+          extraData={activeAction}
+          renderItem={renderUser}
+          contentContainerStyle={styles.list}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => { setRefreshing(true); loadUsers(tab, true); }}
+              tintColor={Colors.mentor}
+            />
+          }
+          ListEmptyComponent={
+            <View style={styles.emptyList}>
+              <Image source={require('../../assets/noActiveUser.png')} style={styles.emptyImage} resizeMode="contain" />
+              <Text style={styles.emptyTitle}>No Active Users</Text>
+              <Text style={styles.emptyText}>
+                You don't have any assigned seekers yet. New assignments will
+                appear here.
+              </Text>
+            </View>
+          }
+        />
+      )}
+
+      {/* Are You Sure confirm modal */}
+      <Modal
+        visible={!!confirmModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setConfirmModal(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeaderRow}>
+              <Text style={styles.modalTitle}>Are You Sure?</Text>
+              <TouchableOpacity onPress={() => setConfirmModal(null)} hitSlop={8}>
+                <Text style={styles.modalClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.modalMessage}>
+              {confirmModal?.status === 'Removed'
+                ? `Remove ${confirmModal?.user.firstName} ${confirmModal?.user.lastName} from your seekers? This can't be undone.`
+                : `Mark ${confirmModal?.user.firstName} ${confirmModal?.user.lastName} as completed? They'll move to your Completed list.`}
+            </Text>
+            <View style={styles.modalBtns}>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalCancelBtn]}
+                onPress={() => setConfirmModal(null)}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalConfirmBtn]}
+                onPress={() => confirmModal && performUpdate(confirmModal.user, confirmModal.status)}
+              >
+                <Text style={styles.modalConfirmText}>Confirm</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <AppAlert
         visible={!!alert}
         title={alert?.title ?? ''}
         message={alert?.message}
-        buttons={alert?.buttons}
         onClose={() => setAlert(null)}
       />
-    </>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 12,
+  },
+
+  tabs: { flexDirection: 'row', gap: 12, paddingHorizontal: 16, marginBottom: 8 },
+  tab: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+    backgroundColor: Colors.textMuted,
+  },
+  tabActive: { backgroundColor: Colors.mentor },
+  tabText: { fontSize: 14, fontWeight: '600', color: Colors.white },
+  tabTextActive: { color: Colors.white, fontWeight: '700' },
+
+  list: { padding: 16, paddingTop: 8 },
+
+  userCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  userAvatar: { width: 46, height: 46, borderRadius: 23 },
+  userAvatarFallback: { backgroundColor: Colors.mentor, justifyContent: 'center', alignItems: 'center' },
+  userAvatarText: { fontSize: 18, fontWeight: '700', color: Colors.white },
+  userInfo: { flex: 1, marginLeft: 12 },
+  userName: { fontSize: 15, fontWeight: '700', color: Colors.text },
+  userDate: { fontSize: 12, color: Colors.textMuted, marginTop: 2 },
+  removeLink: { fontSize: 12, fontWeight: '600', color: Colors.error, marginTop: 4 },
+
+  checkBtn: {
+    width: 38, height: 38, borderRadius: 10,
+    backgroundColor: Colors.success,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  checkBtnDone: { opacity: 0.55 },
+
+  emptyList: { alignItems: 'center', paddingTop: 40, paddingHorizontal: 24 },
+  emptyImage: { width: 220, height: 160, marginBottom: 8 },
+  emptyTitle: { fontSize: 20, fontWeight: '800', color: Colors.text, marginBottom: 10 },
+  emptyText: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center', lineHeight: 21 },
+
   noSubRoot: {
     flex: 1, backgroundColor: Colors.background,
     alignItems: 'center', justifyContent: 'center', padding: 32,
   },
-  noSubIcon: { fontSize: 56, marginBottom: 16 },
+  noSubImage: { width: 90, height: 90, marginBottom: 16 },
   noSubTitle: { fontSize: 20, fontWeight: '800', color: Colors.text, marginBottom: 10 },
   noSubMessage: {
     fontSize: 14, color: Colors.textSecondary, textAlign: 'center',
     lineHeight: 20, marginBottom: 28,
   },
-  noSubBtn: {
-    backgroundColor: Colors.mentor, borderRadius: 14,
-    paddingVertical: 14, paddingHorizontal: 32,
-  },
+  noSubBtn: { backgroundColor: Colors.mentor, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 32 },
   noSubBtnText: { fontSize: 15, fontWeight: '700', color: Colors.white },
-  tabs: { flexDirection: 'row', borderBottomWidth: 1, borderColor: Colors.border },
-  tab: { flex: 1, paddingVertical: 13, alignItems: 'center' },
-  tabActive: { borderBottomWidth: 2.5, borderColor: Colors.mentor },
-  tabText: { fontSize: 15, color: Colors.textSecondary },
-  tabTextActive: { color: Colors.mentor, fontWeight: '700' },
-  list: { padding: 16 },
-  emptyList: { alignItems: 'center', paddingTop: 60 },
-  emptyIcon: { fontSize: 48, marginBottom: 12 },
-  emptyListText: { fontSize: 15, color: Colors.textSecondary },
-  userCard: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surface,
-    borderRadius: 14, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: Colors.border,
+
+  // Confirm modal
+  modalOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center', alignItems: 'center', padding: 24,
   },
-  userAvatar: {
-    width: 46, height: 46, borderRadius: 23,
-    backgroundColor: Colors.mentor, justifyContent: 'center', alignItems: 'center',
+  modalCard: {
+    backgroundColor: Colors.white, borderRadius: 20, padding: 22,
+    width: '100%', maxWidth: 360,
   },
-  userAvatarText: { fontSize: 18, fontWeight: '700', color: Colors.white },
-  userInfo: { flex: 1, marginLeft: 12 },
-  userName: { fontSize: 15, fontWeight: '700', color: Colors.text },
-  userDate: { fontSize: 12, color: Colors.textSecondary, marginTop: 2 },
-  userActions: { flexDirection: 'column', gap: 6 },
-  userActionBtn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 7, alignItems: 'center', minWidth: 62 },
-  completeBtn: { backgroundColor: Colors.mentor },
-  completeBtnText: { color: Colors.white, fontSize: 12, fontWeight: '600' },
-  removeBtn: { borderWidth: 1, borderColor: Colors.error, backgroundColor: Colors.background },
-  removeBtnText: { color: Colors.error, fontSize: 12, fontWeight: '600' },
+  modalHeaderRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  modalTitle: { fontSize: 20, fontWeight: '800', color: Colors.text },
+  modalClose: { fontSize: 18, color: Colors.text },
+  modalMessage: { fontSize: 14, color: Colors.textSecondary, lineHeight: 21, marginBottom: 24 },
+  modalBtns: { flexDirection: 'row', gap: 12 },
+  modalBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
+  modalCancelBtn: { backgroundColor: '#C6D63C' },
+  modalCancelText: { fontSize: 14, fontWeight: '700', color: Colors.white },
+  modalConfirmBtn: { backgroundColor: Colors.mentor },
+  modalConfirmText: { fontSize: 14, fontWeight: '700', color: Colors.white },
 });

@@ -32,17 +32,17 @@ export default function DatingNavigator() {
         headerShadowVisible: false,
       }}
     >
-      <Stack.Screen name="DatingLobby" component={DatingLobbyScreen} options={{ title: 'Dating' }} />
-      <Stack.Screen name="NonSpiritualEntry" component={NonSpiritualEntryScreen} options={{ title: 'Dating' }} />
-      <Stack.Screen name="DatingInterestSelection" component={DatingInterestSelectionScreen} options={{ title: 'Your Interests' }} />
-      <Stack.Screen name="DatingIceBreakerSelection" component={DatingIceBreakerSelectionScreen} options={{ title: 'Ice Breakers' }} />
+      <Stack.Screen name="DatingLobby" component={DatingLobbyScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="NonSpiritualEntry" component={NonSpiritualEntryScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="DatingInterestSelection" component={DatingInterestSelectionScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="DatingIceBreakerSelection" component={DatingIceBreakerSelectionScreen} options={{ headerShown: false }} />
       <Stack.Screen name="DatingMain" component={DatingDrawerNavigator} options={{ headerShown: false }} />
-      <Stack.Screen name="DatingProfileDetail" component={DatingProfileDetailScreen} options={{ title: 'Profile' }} />
-      <Stack.Screen name="DatingChatDetail" component={DatingChatDetailScreen} options={{ title: 'Chat' }} />
-      <Stack.Screen name="DatingPremium" component={DatingPremiumScreen} options={{ title: 'Go Premium' }} />
-      <Stack.Screen name="SpiritualEntry" component={SpiritualEntryScreen} options={{ title: 'Spiritual Dating' }} />
-      <Stack.Screen name="VettingQuiz" component={VettingQuizScreen} options={{ title: 'Vetting Quiz' }} />
-      <Stack.Screen name="UploadCertificate" component={UploadCertificateScreen} options={{ title: 'Upload Certificate' }} />
+      <Stack.Screen name="DatingProfileDetail" component={DatingProfileDetailScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="DatingChatDetail" component={DatingChatDetailScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="DatingPremium" component={DatingPremiumScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="SpiritualEntry" component={SpiritualEntryScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="VettingQuiz" component={VettingQuizScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="UploadCertificate" component={UploadCertificateScreen} options={{ title: '' }} />
       <Stack.Screen name="SpiritualMentors" component={SpiritualMentorsScreen} options={{ title: 'External Mentors' }} />
     </Stack.Navigator>
   );

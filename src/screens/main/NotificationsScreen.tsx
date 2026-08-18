@@ -3,7 +3,11 @@ import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
   ActivityIndicator, RefreshControl,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
+import Icon from 'react-native-vector-icons/Ionicons';
 import { Colors } from '../../utils/colors';
+import { useModuleStatus } from '../../store/ModuleStatusContext';
 import api from '../../api/axios';
 
 type Module = 'Dating' | 'Penpal' | 'Mentor';
@@ -19,27 +23,31 @@ interface Notification {
 
 const TABS: Module[] = ['Dating', 'Penpal', 'Mentor'];
 
-const TAB_COLOR: Record<Module, string> = {
-  Dating: Colors.dating,
-  Penpal: Colors.penpal,
-  Mentor: Colors.mentor,
-};
-
 const formatTime = (iso: string) => {
   const d = new Date(iso);
   const now = new Date();
   const diffMs = now.getTime() - d.getTime();
   const diffMins = Math.floor(diffMs / 60000);
-  if (diffMins < 1) return 'Just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffMins < 1) return 'Just Now';
+  if (diffMins < 60) return `${diffMins} Mins Ago`;
   const diffHrs = Math.floor(diffMins / 60);
-  if (diffHrs < 24) return `${diffHrs}h ago`;
+  if (diffHrs < 24) return `${diffHrs} Hour${diffHrs > 1 ? 's' : ''} Ago`;
   const diffDays = Math.floor(diffHrs / 24);
-  if (diffDays < 7) return `${diffDays}d ago`;
+  if (diffDays < 7) return `${diffDays} Day${diffDays > 1 ? 's' : ''} Ago`;
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };
 
 export default function NotificationsScreen() {
+  const navigation = useNavigation<any>();
+  const { datingType } = useModuleStatus();
+
+  // Active-pill / dot accent per module (dating follows the chosen path)
+  const TAB_COLOR: Record<Module, string> = {
+    Dating: datingType === 'Spiritual' ? Colors.spiritual : Colors.dating,
+    Penpal: Colors.penpal,
+    Mentor: Colors.mentor,
+  };
+
   const [activeTab, setActiveTab] = useState<Module>('Dating');
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
@@ -78,38 +86,58 @@ export default function NotificationsScreen() {
 
   const accentColor = TAB_COLOR[activeTab];
 
+  // Card (Figma): white rounded card with unread dot + message,
+  // timestamp below the card aligned right
   const renderItem = ({ item }: { item: Notification }) => (
-    <TouchableOpacity
-      style={[styles.notifCard, item.isRead && styles.notifCardRead]}
-      onPress={() => handleToggleRead(item.id, item.isRead)}
-      activeOpacity={0.75}
-    >
-      <View style={[styles.unreadDot, { backgroundColor: item.isRead ? 'transparent' : accentColor }]} />
-      <View style={styles.notifBody}>
-        <Text style={[styles.notifTitle, item.isRead && styles.notifTitleRead]}>
-          {item.title}
+    <View style={styles.notifBlock}>
+      <TouchableOpacity
+        style={styles.notifCard}
+        onPress={() => handleToggleRead(item.id, item.isRead)}
+        activeOpacity={0.75}
+      >
+        {!item.isRead && (
+          <View style={[styles.unreadDot, { backgroundColor: accentColor }]} />
+        )}
+        <Text style={styles.notifText}>
+          {item.title ? `${item.title}${item.body ? ' — ' : ''}` : ''}
+          {item.body}
         </Text>
-        <Text style={styles.notifMessage} numberOfLines={2}>{item.body}</Text>
-        <Text style={styles.notifTime}>{formatTime(item.createdAt)}</Text>
-      </View>
-    </TouchableOpacity>
+      </TouchableOpacity>
+      <Text style={styles.notifTime}>{formatTime(item.createdAt)}</Text>
+    </View>
   );
 
   return (
-    <View style={styles.root}>
-      {/* Tabs */}
+    <SafeAreaView style={styles.root} edges={['top']}>
+      {/* Back arrow + title (Figma) */}
+      <View style={styles.headerBar}>
+        <TouchableOpacity
+          onPress={() => navigation.canGoBack() && navigation.goBack()}
+          hitSlop={8}
+        >
+          <Icon name="arrow-back" size={24} color={Colors.text} />
+        </TouchableOpacity>
+      </View>
+      <Text style={styles.heading}>Notifications</Text>
+
+      {/* Pill tabs */}
       <View style={styles.tabRow}>
-        {TABS.map((tab) => (
-          <TouchableOpacity
-            key={tab}
-            style={[styles.tab, activeTab === tab && { borderBottomColor: TAB_COLOR[tab], borderBottomWidth: 2.5 }]}
-            onPress={() => setActiveTab(tab)}
-          >
-            <Text style={[styles.tabText, activeTab === tab && { color: TAB_COLOR[tab], fontWeight: '700' }]}>
-              {tab}
-            </Text>
-          </TouchableOpacity>
-        ))}
+        {TABS.map((tab) => {
+          const isActive = activeTab === tab;
+          return (
+            <TouchableOpacity
+              key={tab}
+              style={[
+                styles.tabPill,
+                isActive ? { backgroundColor: TAB_COLOR[tab] } : styles.tabPillInactive,
+              ]}
+              onPress={() => setActiveTab(tab)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.tabPillText}>{tab}</Text>
+            </TouchableOpacity>
+          );
+        })}
       </View>
 
       {loading ? (
@@ -132,65 +160,79 @@ export default function NotificationsScreen() {
           contentContainerStyle={notifications.length === 0 ? styles.emptyContainer : styles.listContent}
           ListEmptyComponent={
             <View style={styles.emptyWrap}>
-              <Text style={styles.emptyIcon}>🔔</Text>
+              <Icon name="notifications-outline" size={48} color={Colors.textMuted} />
               <Text style={styles.emptyTitle}>No notifications</Text>
               <Text style={styles.emptySubtitle}>You're all caught up on {activeTab} notifications.</Text>
             </View>
           }
         />
       )}
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },
 
+  headerBar: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 4 },
+  heading: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: Colors.text,
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 16,
+  },
+
   tabRow: {
     flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-    backgroundColor: Colors.background,
+    gap: 12,
+    paddingHorizontal: 20,
+    marginBottom: 20,
   },
-  tab: {
-    flex: 1,
-    alignItems: 'center',
+  tabPill: {
+    paddingHorizontal: 22,
     paddingVertical: 14,
-    borderBottomWidth: 2.5,
-    borderBottomColor: 'transparent',
+    borderRadius: 18,
   },
-  tabText: { fontSize: 14, color: Colors.textSecondary, fontWeight: '500' },
+  tabPillInactive: { backgroundColor: '#BDBDBD' },
+  tabPillText: { fontSize: 15, fontWeight: '700', color: Colors.white },
 
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 
-  listContent: { paddingVertical: 8 },
+  listContent: { paddingHorizontal: 16, paddingBottom: 30 },
   emptyContainer: { flexGrow: 1 },
 
+  notifBlock: { marginBottom: 14 },
   notifCard: {
     flexDirection: 'row',
-    backgroundColor: Colors.background,
-    paddingVertical: 14,
+    alignItems: 'center',
+    backgroundColor: Colors.white,
+    borderRadius: 16,
+    paddingVertical: 20,
     paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 4,
   },
-  notifCardRead: { backgroundColor: Colors.surface },
-
   unreadDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginTop: 6,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
     marginRight: 12,
   },
-  notifBody: { flex: 1 },
-  notifTitle: { fontSize: 14, fontWeight: '700', color: Colors.text, marginBottom: 3 },
-  notifTitleRead: { fontWeight: '500', color: Colors.textSecondary },
-  notifMessage: { fontSize: 13, color: Colors.textSecondary, lineHeight: 18, marginBottom: 4 },
-  notifTime: { fontSize: 11, color: Colors.textMuted },
+  notifText: { flex: 1, fontSize: 15, color: Colors.text, lineHeight: 22 },
+  notifTime: {
+    fontSize: 13,
+    color: Colors.textMuted,
+    textAlign: 'right',
+    marginTop: 8,
+    marginRight: 4,
+  },
 
   emptyWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 80 },
-  emptyIcon: { fontSize: 48, marginBottom: 16 },
-  emptyTitle: { fontSize: 18, fontWeight: '700', color: Colors.text, marginBottom: 6 },
+  emptyTitle: { fontSize: 18, fontWeight: '700', color: Colors.text, marginBottom: 6, marginTop: 14 },
   emptySubtitle: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center', paddingHorizontal: 40 },
 });

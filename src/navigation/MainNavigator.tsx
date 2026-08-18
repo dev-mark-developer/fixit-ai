@@ -10,6 +10,7 @@ import PenpalNavigator from './PenpalNavigator';
 import MentorNavigator from './MentorNavigator';
 import NotificationsScreen from '../screens/main/NotificationsScreen';
 import MentorSetupScreen from '../screens/mentor/MentorSetupScreen';
+import MentorProfileSetupScreen from '../screens/mentor/MentorProfileSetupScreen';
 import ProfileNavigator from './ProfileNavigator';
 
 const Root = createNativeStackNavigator<RootStackParamList>();
@@ -57,9 +58,14 @@ export default function MainNavigator() {
         options={{ headerShown: true, title: 'Spiritual Guru', ...SHARED_HEADER }}
       />
       <Root.Screen
+        name="MentorProfileSetup"
+        component={MentorProfileSetupScreen as any}
+        options={{ headerShown: false }}
+      />
+      <Root.Screen
         name="Notifications"
         component={NotificationsScreen}
-        options={{ headerShown: true, title: 'Notifications', ...SHARED_HEADER }}
+        options={{ headerShown: false }}
       />
       <Root.Screen
         name="Profile"

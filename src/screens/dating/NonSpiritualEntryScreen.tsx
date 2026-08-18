@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator,
+  Image,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import Icon from 'react-native-vector-icons/Ionicons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { DatingStackParamList } from '../../types/navigation';
 import { Colors } from '../../utils/colors';
@@ -11,7 +14,7 @@ import AppAlert from '../../components/common/AppAlert';
 
 type Props = NativeStackScreenProps<DatingStackParamList, 'NonSpiritualEntry'>;
 
-const GENDER_OPTIONS = ['Male', 'Female', 'Any'];
+const GENDER_OPTIONS = ['Male', 'Female'];
 
 const extractError = (err: any): string => {
   const data = err?.response?.data;
@@ -23,7 +26,7 @@ const extractError = (err: any): string => {
 
 export default function NonSpiritualEntryScreen({ navigation }: Props) {
   const [phase, setPhase] = useState<'loading' | 'welcome' | 'setup'>('loading');
-  const [interestedIn, setInterestedIn] = useState('Any');
+  const [interestedIn, setInterestedIn] = useState('Male');
   const [saving, setSaving] = useState(false);
   const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
 
@@ -66,6 +69,18 @@ export default function NonSpiritualEntryScreen({ navigation }: Props) {
     }
   };
 
+  // Plain back arrow header (Figma)
+  const backHeader = (
+    <View style={styles.headerBar}>
+      <TouchableOpacity
+        onPress={() => navigation.canGoBack() && navigation.goBack()}
+        hitSlop={8}
+      >
+        <Icon name="arrow-back" size={24} color={Colors.text} />
+      </TouchableOpacity>
+    </View>
+  );
+
   if (phase === 'loading') {
     return (
       <View style={styles.center}>
@@ -77,26 +92,41 @@ export default function NonSpiritualEntryScreen({ navigation }: Props) {
   // Welcome screen (fallback / error loading profile)
   if (phase === 'welcome') {
     return (
-      <View style={styles.center}>
-        <Text style={styles.heroIcon}>❤️</Text>
-        <Text style={styles.heroTitle}>Non-Spiritual Dating</Text>
-        <Text style={styles.heroSub}>
-          Meet people who share your interests and values.
-        </Text>
-        <AppButton
-          title="Get Started"
-          onPress={() => setPhase('setup')}
-          style={styles.primaryBtn}
-        />
-      </View>
+      <SafeAreaView style={styles.root} edges={['top']}>
+        {backHeader}
+        <View style={styles.center}>
+          <Image
+            source={require('../../assets/exploreDating.png')}
+            style={styles.heroIcon}
+            tintColor={Colors.dating}
+            resizeMode="contain"
+          />
+          <Text style={styles.heroTitle}>Non-Spiritual Dating</Text>
+          <Text style={styles.heroSub}>
+            Meet people who share your interests and values.
+          </Text>
+          <AppButton
+            title="Get Started"
+            onPress={() => setPhase('setup')}
+            style={styles.primaryBtn}
+          />
+        </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <SafeAreaView style={styles.root} edges={['top']}>
+      {backHeader}
+      <ScrollView contentContainerStyle={styles.container}>
       {/* Hero */}
       <View style={styles.hero}>
-        <Text style={styles.heroIcon}>❤️</Text>
+        <Image
+          source={require('../../assets/exploreDating.png')}
+          style={styles.heroIcon}
+          tintColor={Colors.dating}
+          resizeMode="contain"
+        />
         <Text style={styles.heroTitle}>Set Up Your Profile</Text>
         <Text style={styles.heroSub}>
           Tell us a little about who you're looking for. You can update this anytime.
@@ -148,33 +178,34 @@ export default function NonSpiritualEntryScreen({ navigation }: Props) {
         message={alert?.message}
         onClose={() => setAlert(null)}
       />
-    </ScrollView>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: Colors.background },
+  headerBar: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 4 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.background, padding: 32 },
   container: { flexGrow: 1, backgroundColor: Colors.background, padding: 24, paddingBottom: 40 },
 
   hero: { alignItems: 'center', marginBottom: 32 },
-  heroIcon: { fontSize: 56, marginBottom: 14 },
+  heroIcon: { width: 64, height: 64, marginBottom: 14, tintColor: Colors.dating },
   heroTitle: { fontSize: 24, fontWeight: '800', color: Colors.dating, marginBottom: 10, textAlign: 'center' },
   heroSub: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center', lineHeight: 21 },
 
   label: { fontSize: 15, fontWeight: '700', color: Colors.text, marginBottom: 12 },
-  genderRow: { flexDirection: 'row', gap: 10, marginBottom: 28 },
+  genderRow: { flexDirection: 'row', gap: 12, marginBottom: 28 },
   genderBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: Colors.border,
+    paddingHorizontal: 28,
+    paddingVertical: 14,
+    borderRadius: 28,
     alignItems: 'center',
-    backgroundColor: Colors.surface,
+    backgroundColor: '#BDBDBD',
   },
-  genderBtnActive: { borderColor: Colors.dating, backgroundColor: Colors.datingLight },
-  genderBtnText: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary },
-  genderBtnTextActive: { color: Colors.dating },
+  genderBtnActive: { backgroundColor: Colors.dating },
+  genderBtnText: { fontSize: 15, fontWeight: '700', color: Colors.white },
+  genderBtnTextActive: { color: Colors.white },
 
   featuresCard: {
     backgroundColor: Colors.datingLight,

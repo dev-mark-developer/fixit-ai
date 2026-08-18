@@ -15,6 +15,9 @@ export type RootStackParamList = {
   Dating: NavigatorScreenParams<DatingStackParamList> | undefined;
   Penpal: NavigatorScreenParams<PenpalStackParamList> | undefined;
   MentorSetup: undefined;
+  // Guru profile form, reached from MentorSetup *before* the account is
+  // upgraded — the upgrade only happens when the form is saved.
+  MentorProfileSetup: undefined;
   // Shared screens accessible from drawers and notification bell
   Notifications: undefined;
   Profile: NavigatorScreenParams<ProfileStackParamList> | undefined;
@@ -28,6 +31,8 @@ export type MentorStackParamList = {
   MentorProfileSetup: undefined;
   MentorSubscription: undefined;
   MentorEditProfile: undefined;
+  // Mentors can still use the dating module (drawer → Explore Dating)
+  MentorDating: NavigatorScreenParams<DatingStackParamList> | undefined;
   MentorMain: NavigatorScreenParams<MentorDrawerParamList> | undefined;
   // Shared utility screens accessible from the mentor drawer
   Notifications: undefined;
@@ -48,12 +53,12 @@ export type PenpalPublicProfileParams = {
   firstName?: string;
   lastName?: string;
   profileImageUrl?: string;
+  age?: number;
 };
 
 // ── Penpal drawer (main area) ───────────────────────────────────
 export type PenpalDrawerParamList = {
   PenpalHome: undefined;
-  PenpalDiscover: undefined;
   PenpalConnections: undefined;
   PenpalLetters: undefined;
 };
@@ -73,6 +78,7 @@ export type DatingDrawerParamList = {
   DatingMatches: undefined;
   DatingChats: undefined;
   DatingBlockList: undefined;
+  DatingMyProfile: undefined;
 };
 
 export type DatingStackParamList = {

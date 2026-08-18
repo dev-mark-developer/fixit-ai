@@ -1,7 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity,
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  ActivityIndicator,
+  TouchableOpacity,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { PenpalStackParamList } from '../../types/navigation';
 import { Colors } from '../../utils/colors';
@@ -17,92 +23,91 @@ export default function PenpalLetterDetailScreen({ route, navigation }: Props) {
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
 
   useEffect(() => {
-    getUser().then((u) => setCurrentUserId(u?.id ?? null));
-    penpalApi.getLetter(letterId)
-      .then((res) => setLetter(res.data?.data ?? null))
+    getUser().then(u => setCurrentUserId(u?.id ?? null));
+    penpalApi
+      .getLetter(letterId)
+      .then(res => setLetter(res.data?.data ?? null))
       .catch(() => setLetter(null))
       .finally(() => setLoading(false));
   }, [letterId]);
 
   const formatDate = (dateStr: string) =>
-    new Date(dateStr).toLocaleString('en-US', {
-      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-      hour: '2-digit', minute: '2-digit',
+    new Date(dateStr).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
     });
 
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator color={Colors.primary} size="large" />
-      </View>
-    );
-  }
-
-  if (!letter) {
-    return (
-      <View style={styles.center}>
-        <Text style={styles.notFoundText}>Letter not found.</Text>
-      </View>
-    );
-  }
-
-  const isInbox = letter.receiverId === currentUserId;
+  const isInbox = !!letter && letter.receiverId === currentUserId;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={styles.letterHeader}>
-        <Text style={styles.letterTitle}>{letter.title}</Text>
-        <View style={styles.metaRow}>
-          <Text style={styles.metaLabel}>From</Text>
-          <Text style={styles.metaValue}>{letter.senderPseudoName}</Text>
-        </View>
-        <View style={styles.metaRow}>
-          <Text style={styles.metaLabel}>To</Text>
-          <Text style={styles.metaValue}>{letter.receiverPseudoName}</Text>
-        </View>
-        <Text style={styles.date}>{formatDate(letter.createdAt)}</Text>
+    <SafeAreaView style={styles.root} edges={['top']}>
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={8}>
+          <Text style={styles.backArrow}>←</Text>
+        </TouchableOpacity>
+        {isInbox && letter && (
+          <TouchableOpacity
+            hitSlop={8}
+            onPress={() =>
+              navigation.navigate('PenpalCompose', {
+                receiverId: letter.senderId,
+                receiverPseudoName: letter.senderPseudoName,
+              })
+            }
+          >
+            <Text style={styles.replyText}>Reply</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
-      <View style={styles.divider} />
-
-      <Text style={styles.body}>{letter.content}</Text>
-
-      {isInbox && (
-        <TouchableOpacity
-          style={styles.replyBtn}
-          onPress={() =>
-            navigation.navigate('PenpalCompose', {
-              receiverId: letter.senderId,
-              receiverPseudoName: letter.senderPseudoName,
-            })
-          }
+      {loading ? (
+        <View style={styles.center}>
+          <ActivityIndicator color={Colors.penpal} size="large" />
+        </View>
+      ) : !letter ? (
+        <View style={styles.center}>
+          <Text style={styles.notFoundText}>Letter not found.</Text>
+        </View>
+      ) : (
+        <ScrollView
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
         >
-          <Text style={styles.replyBtnText}>✏️  Reply to {letter.senderPseudoName}</Text>
-        </TouchableOpacity>
+          <Text style={styles.title}>{letter.title}</Text>
+          <Text style={styles.meta}>
+            From {letter.senderPseudoName} · {formatDate(letter.createdAt)}
+          </Text>
+          <Text style={styles.body}>{letter.content}</Text>
+        </ScrollView>
       )}
-    </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
-  content: { padding: 20, paddingBottom: 40 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.background },
+  root: { flex: 1, backgroundColor: Colors.background },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  backArrow: { fontSize: 24, color: Colors.text, fontWeight: '600' },
+  replyText: { fontSize: 16, fontWeight: '700', color: Colors.penpal },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   notFoundText: { fontSize: 15, color: Colors.textSecondary },
-  letterHeader: {
-    backgroundColor: Colors.primaryLight, borderRadius: 16, padding: 18, marginBottom: 24,
-    borderWidth: 1, borderColor: Colors.primaryMuted,
+  content: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 48 },
+  title: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: Colors.text,
+    lineHeight: 34,
+    marginBottom: 8,
   },
-  letterTitle: { fontSize: 20, fontWeight: '700', color: Colors.text, marginBottom: 14 },
-  metaRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
-  metaLabel: { fontSize: 12, color: Colors.textSecondary, width: 36, fontWeight: '600', textTransform: 'uppercase' },
-  metaValue: { fontSize: 14, color: Colors.text, fontWeight: '600', marginLeft: 8 },
-  date: { fontSize: 12, color: Colors.textMuted, marginTop: 10 },
-  divider: { height: 1, backgroundColor: Colors.border, marginBottom: 24 },
+  meta: { fontSize: 13, color: Colors.textMuted, marginBottom: 24 },
   body: { fontSize: 16, color: Colors.text, lineHeight: 28 },
-  replyBtn: {
-    marginTop: 36, paddingVertical: 15, borderRadius: 14,
-    backgroundColor: Colors.primary, alignItems: 'center',
-  },
-  replyBtnText: { color: Colors.white, fontSize: 15, fontWeight: '700' },
 });

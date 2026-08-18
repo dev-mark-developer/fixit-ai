@@ -8,6 +8,7 @@ import MentorProfileSetupScreen from '../screens/mentor/MentorProfileSetupScreen
 import MentorSubscriptionScreen from '../screens/mentor/MentorSubscriptionScreen';
 import MentorEditProfileScreen from '../screens/mentor/MentorEditProfileScreen';
 import MentorDrawerNavigator from './MentorDrawerNavigator';
+import DatingNavigator from './DatingNavigator';
 import NotificationsScreen from '../screens/main/NotificationsScreen';
 import ChangePasswordScreen from '../screens/main/ChangePasswordScreen';
 import EditProfileScreen from '../screens/main/EditProfileScreen';
@@ -49,12 +50,17 @@ export default function MentorNavigator() {
       <Stack.Screen
         name="MentorProfileSetup"
         component={MentorProfileSetupScreen}
-        options={{ title: 'Complete Your Profile' }}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="MentorDating"
+        component={DatingNavigator}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         name="MentorSubscription"
         component={MentorSubscriptionScreen}
-        options={{ title: 'Mentor Plan' }}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         name="MentorMain"
@@ -70,7 +76,7 @@ export default function MentorNavigator() {
       <Stack.Screen
         name="Notifications"
         component={NotificationsScreen as any}
-        options={{ title: 'Notifications' }}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         name="ChangePassword"

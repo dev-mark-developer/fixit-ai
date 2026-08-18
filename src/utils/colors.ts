@@ -23,14 +23,17 @@ export const Colors = {
   datingLight: '#FEF0F0',
 
   // Spiritual Dating
-  spiritual: '#7B68EE',
-  spiritualSecondary: '#9B8EC4',
-  spiritualLight: '#F0EEFF',
+  spiritual: '#624D95',
+  spiritualSecondary: '#8A76BE',
+  spiritualLight: '#EFEBF8',
+  spiritualLime: '#D0DF26',
+  spiritualLimeLight: '#F0F5BD',
 
   // Penpal
-  penpal: '#2E8B8B',
-  penpalSecondary: '#45B7AA',
-  penpalLight: '#E8F6F6',
+  penpal: '#3351FD',
+  penpalSecondary: '#5B6EF5',
+  penpalLight: '#EEF1FF',
+  penpalMuted: '#AEB8FB',
 
   // Mentor / Spiritual Guru
   mentor: '#6B3FA0',

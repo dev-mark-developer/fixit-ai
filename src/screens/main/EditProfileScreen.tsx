@@ -4,13 +4,13 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  Image,
   ActivityIndicator,
 } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { ProfileStackParamList } from '../../types/navigation';
 import { Colors } from '../../utils/colors';
+import RemoteImage from '../../components/common/RemoteImage';
 import { usersApi, UserProfile } from '../../api/users';
 import AppInput from '../../components/common/AppInput';
 import AppButton from '../../components/common/AppButton';
@@ -172,7 +172,11 @@ export default function EditProfileScreen({ navigation }: Props) {
         disabled={uploadingImage}
       >
         {displayImageUri ? (
-          <Image source={{ uri: displayImageUri }} style={styles.avatar} />
+          <RemoteImage
+            uri={displayImageUri}
+            style={styles.avatar}
+            indicatorColor={Colors.primary}
+          />
         ) : (
           <View style={styles.avatarPlaceholder}>
             <Text style={styles.avatarInitials}>{initials}</Text>

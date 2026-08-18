@@ -5,22 +5,43 @@ Read this before making any changes.
 
 ---
 
-## 1. Do NOT touch API integration work
+## Phase status
 
-- This project is a **UI-only** effort. We are only making **UI changes across the whole app**.
-- **Never** remove, comment out, uncomment, replace, or otherwise modify any
-  **API integration related code** — this includes:
-  - API calls / network requests (fetch, axios, services, etc.)
-  - Endpoints, base URLs, and request/response handling
-  - API keys, tokens, and auth/integration logic
-  - Data-fetching hooks, state wiring tied to API responses
-- If a UI change *seems* to require touching API code, **stop and do not change it**.
-  Instead, log it in [API_CHANGES_NEEDED.md](./API_CHANGES_NEEDED.md) (see instruction 2).
+- **Phase 1 — UI (COMPLETE, 2026-08-17):** All modules (auth, home/shared,
+  dating incl. spiritual flow, penpal, mentor) have been matched to the Figma
+  designs. The old "UI-only, never touch API code" rule from this phase is
+  **retired**.
+- **Phase 2 — API integration (CURRENT):** We are now integrating and updating
+  the API integrations. Some **flow changes may still be requested later**, so
+  keep screens flexible and don't assume the current navigation/flows are final.
 
-## 2. Track API/endpoint/screen changes that are needed
+## 1. API integration work is now allowed
 
-- If, while doing UI work, you find that an **API, endpoint, or screen with API
-  integration needs a change**, do not make the change.
-- Record it instead in the shared memory files:
-  - [API_CHANGES_NEEDED.md](./API_CHANGES_NEEDED.md) — things that need to change.
-  - [MEMORY_LOG.md](./MEMORY_LOG.md) — running log of notes/decisions for both of us.
+- Wiring **existing endpoints** into screens, updating request/response
+  handling, and integrating backend capabilities the app never used
+  (e.g. `POST /api/Dating/matches/{matchId}/upload` for chat attachments)
+  is now in scope.
+- Use the Swagger as the source of truth for the contract:
+  `https://beta.contentdevelopmentpros.com:4125/swagger`
+  (spec: `/swagger/v1/swagger.json`). Note most **response schemas are
+  untyped** there — verify real response shapes with the dev API logger
+  (`src/api/logging.ts`, logs every request/response in Metro) before relying
+  on them.
+- Keep changes incremental and don't break working flows: auth/token refresh
+  (`src/api/axios.ts`), SignalR chat (`src/services/chatHub.ts`), and the
+  existing happy paths should keep working after every change.
+
+## 2. Keep the trackers up to date
+
+- [API_CHANGES_NEEDED.md](./API_CHANGES_NEEDED.md) stays the shared list of
+  **backend** changes we're waiting on (fields, params, new endpoints).
+  - When a gap is resolved (backend shipped it, or we integrated an existing
+    endpoint), mark the row 🟢 Resolved with a date instead of deleting it.
+  - When new backend needs surface during integration work, add a row
+    (include the **endpoint** column).
+  - Keep the `.xlsx` exports and the screen lists
+    ([SCREENS_API_CHANGES_REQUIRED.md](./SCREENS_API_CHANGES_REQUIRED.md) /
+    [SCREENS_NO_API_CHANGES.md](./SCREENS_NO_API_CHANGES.md)) in sync when
+    rows change.
+- [MEMORY_LOG.md](./MEMORY_LOG.md) — keep logging notable work/decisions per
+  session, as before.

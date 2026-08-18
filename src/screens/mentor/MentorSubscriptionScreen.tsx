@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, ActivityIndicator,
+  View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Image,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import Icon from 'react-native-vector-icons/Ionicons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { MentorStackParamList } from '../../types/navigation';
 import { Colors } from '../../utils/colors';
@@ -12,6 +14,7 @@ import AppAlert from '../../components/common/AppAlert';
 
 type Props = NativeStackScreenProps<MentorStackParamList, 'MentorSubscription'>;
 
+// Kept for reference — features are no longer shown on the redesigned plan card.
 const PLAN_FEATURES = [
   'Unlimited assigned seekers',
   'Push notifications for new assignments',
@@ -21,12 +24,13 @@ const PLAN_FEATURES = [
 ];
 
 const IAP_PRODUCT_ID = 'com.fixit.mentor.monthly';
-const PLAN_PRICE = '$9.99 / month';
+const PLAN_PRICE = '$20';
 
 export default function MentorSubscriptionScreen({ navigation }: Props) {
   const [subscription, setSubscription] = useState<MentorSubscription | null>(null);
   const [fetching, setFetching] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
   const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
 
   useEffect(() => {
@@ -61,7 +65,7 @@ export default function MentorSubscriptionScreen({ navigation }: Props) {
     } catch {
       // Non-fatal
     }
-    proceed();
+    setSuccess(true);
   };
 
   const handleSubscribe = async () => {
@@ -87,66 +91,91 @@ export default function MentorSubscriptionScreen({ navigation }: Props) {
 
   const isActive = subscription && !subscription.isExpired;
 
+  // ── Success (Congratulations) state ────────────────────────
+  if (success) {
+    return (
+      <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
+        <View style={styles.successWrap}>
+          <Image
+            source={require('../../assets/congratulation.png')}
+            style={styles.successImage}
+            resizeMode="contain"
+          />
+          <Text style={styles.successTitle}>Congratulations!</Text>
+          <Text style={styles.successSubtitle}>
+            You Have Successfully Subscribed To The Mentorship Program!
+          </Text>
+          <Text style={styles.successBody}>
+            You're all set to guide seekers on their journey. Your mentor
+            dashboard is now unlocked.
+          </Text>
+        </View>
+        <View style={styles.successFooter}>
+          <AppButton title="Continue" onPress={proceed} style={styles.continueBtn} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
-    <>
+    <SafeAreaView style={styles.root} edges={['top']}>
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.canGoBack() && navigation.goBack()} hitSlop={8}>
+          <Icon name="arrow-back" size={24} color={Colors.text} />
+        </TouchableOpacity>
+      </View>
+
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
-        <View style={styles.hero}>
-          <Text style={styles.heroIcon}>🌟</Text>
-          <Text style={styles.heroTitle}>Mentor Plan</Text>
+        <Text style={styles.pageTitle}>Subscription Plan</Text>
+
+        {/* Plan card */}
+        <View style={styles.planCard}>
+          <Image
+            source={require('../../assets/crown.png')}
+            style={styles.planMedal}
+            resizeMode="contain"
+          />
+          <Text style={styles.planName}>Mentorship Program</Text>
+
           {isActive ? (
             <>
               <View style={styles.activeBadge}>
                 <Text style={styles.activeBadgeText}>✓ Active</Text>
               </View>
-              <Text style={styles.heroNote}>
+              <Text style={styles.planNote}>
                 Renews on {new Date(subscription!.endDate).toLocaleDateString()}
-                {` · ${subscription!.daysRemaining} days remaining`}
+                {` · ${subscription!.daysRemaining} days left`}
               </Text>
+              <AppButton
+                title="Manage Subscription"
+                onPress={() => setAlert({ title: 'Manage Subscription', message: 'To cancel or change your plan, go to your device\'s subscription settings (App Store or Google Play).' })}
+                style={styles.planBtn}
+              />
             </>
           ) : (
             <>
-              <Text style={styles.heroPricing}>{PLAN_PRICE}</Text>
-              <Text style={styles.heroNote}>Cancel anytime · Billed monthly</Text>
+              <Text style={styles.planPrice}>
+                {PLAN_PRICE}
+                <Text style={styles.planPricePer}>/Month</Text>
+              </Text>
+              <Text style={styles.planNote}>Cancel Anytime</Text>
+              <TouchableOpacity
+                style={styles.planBtn}
+                onPress={handleSubscribe}
+                disabled={loading}
+                activeOpacity={0.9}
+              >
+                {loading
+                  ? <ActivityIndicator color={Colors.white} />
+                  : <Text style={styles.planBtnText}>Subscribe To Become a Guide</Text>}
+              </TouchableOpacity>
             </>
           )}
         </View>
 
-        <View style={styles.featuresCard}>
-          <Text style={styles.featuresTitle}>What's included</Text>
-          {PLAN_FEATURES.map((f) => (
-            <View key={f} style={styles.featureRow}>
-              <Text style={styles.featureCheck}>✓</Text>
-              <Text style={styles.featureText}>{f}</Text>
-            </View>
-          ))}
-        </View>
-
-        {isActive ? (
-          <>
-            <AppButton
-              title="Manage Subscription"
-              onPress={() => setAlert({ title: 'Manage Subscription', message: 'To cancel or change your plan, go to your device\'s subscription settings (App Store or Google Play).' })}
-              variant="outline"
-              style={styles.subscribeBtn}
-            />
-            <AppButton
-              title="Done"
-              onPress={proceed}
-              style={styles.skipBtn}
-            />
-          </>
-        ) : (
-          <AppButton
-            title="Subscribe Now"
-            onPress={handleSubscribe}
-            loading={loading}
-            style={styles.subscribeBtn}
-          />
-        )}
-
-        <Text style={styles.disclaimer}>
-          Subscriptions renew automatically. You can manage or cancel anytime
-          from your device's account settings.
+        <Text style={styles.footerNote}>
+          You may cancel your mentor subscription anytime
         </Text>
       </ScrollView>
 
@@ -156,26 +185,40 @@ export default function MentorSubscriptionScreen({ navigation }: Props) {
         message={alert?.message}
         onClose={() => setAlert(null)}
       />
-    </>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: Colors.background },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.background },
-  container: {
-    flexGrow: 1,
-    backgroundColor: Colors.background,
-    padding: 24,
-    paddingBottom: 40,
-  },
-  hero: {
-    alignItems: 'center',
+
+  header: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4 },
+  container: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 40 },
+  pageTitle: { fontSize: 24, fontWeight: '800', color: Colors.text, marginBottom: 24 },
+
+  planCard: {
+    borderWidth: 2,
+    borderColor: '#3B49F0',
+    borderRadius: 20,
     paddingVertical: 28,
+    paddingHorizontal: 24,
+    alignItems: 'center',
   },
-  heroIcon: { fontSize: 56, marginBottom: 14 },
-  heroTitle: { fontSize: 26, fontWeight: '800', color: Colors.mentor, marginBottom: 8 },
-  heroPricing: { fontSize: 32, fontWeight: '800', color: Colors.text, marginBottom: 6 },
-  heroNote: { fontSize: 13, color: Colors.textSecondary, textAlign: 'center' },
+  planMedal: { width: 72, height: 72, marginBottom: 16 },
+  planName: { fontSize: 20, fontWeight: '800', color: Colors.text, marginBottom: 10 },
+  planPrice: { fontSize: 34, fontWeight: '800', color: '#B5C334' },
+  planPricePer: { fontSize: 15, fontWeight: '600', color: Colors.textMuted },
+  planNote: { fontSize: 13, color: Colors.textMuted, marginTop: 4, marginBottom: 20 },
+  planBtn: {
+    backgroundColor: Colors.mentor,
+    borderRadius: 14,
+    paddingVertical: 15,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    alignSelf: 'stretch',
+  },
+  planBtnText: { fontSize: 15, fontWeight: '700', color: Colors.white },
   activeBadge: {
     backgroundColor: '#D1FAE5',
     paddingHorizontal: 16,
@@ -184,26 +227,32 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   activeBadgeText: { fontSize: 14, fontWeight: '700', color: '#065F46' },
-  featuresCard: {
-    backgroundColor: Colors.mentorLight,
-    borderRadius: 16,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    marginBottom: 28,
-    gap: 12,
-  },
-  featuresTitle: { fontSize: 15, fontWeight: '700', color: Colors.text, marginBottom: 4 },
-  featureRow: { flexDirection: 'row', alignItems: 'flex-start' },
-  featureCheck: { fontSize: 14, fontWeight: '700', color: Colors.mentor, marginRight: 10, marginTop: 1 },
-  featureText: { flex: 1, fontSize: 14, color: Colors.text, lineHeight: 20 },
-  subscribeBtn: { marginBottom: 12 },
-  skipBtn: { marginBottom: 20 },
-  disclaimer: {
-    fontSize: 11,
-    color: Colors.textMuted,
+
+  footerNote: {
+    fontSize: 13,
+    color: Colors.textSecondary,
     textAlign: 'center',
-    lineHeight: 16,
-    paddingHorizontal: 8,
+    marginTop: 20,
   },
+
+  // Success
+  successWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 },
+  successImage: { width: 150, height: 150, marginBottom: 28 },
+  successTitle: { fontSize: 22, fontWeight: '800', color: Colors.mentor, marginBottom: 6, textAlign: 'center' },
+  successSubtitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: Colors.text,
+    textAlign: 'center',
+    lineHeight: 28,
+    marginBottom: 16,
+  },
+  successBody: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 21,
+  },
+  successFooter: { paddingHorizontal: 24, paddingBottom: 12 },
+  continueBtn: { backgroundColor: Colors.mentor },
 });

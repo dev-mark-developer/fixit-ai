@@ -14,6 +14,12 @@ export interface DatingProfile {
   images: DatingImage[];
   interestIds: number[];
   iceBreakerQuestionIds: number[];
+  // Added by the backend (gap #8)
+  pseudoName?: string;
+  dateOfBirth?: string;
+  country?: string;
+  city?: string;
+  state?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -86,6 +92,30 @@ export interface SwipeResult {
   matchId?: number;
 }
 
+/**
+ * Row returned by the likes endpoints (gap #7). The response shape isn't
+ * typed in Swagger, so field names are optional and read defensively.
+ */
+export interface DatingLike {
+  userId?: number;
+  otherUserId?: number;
+  id?: number;
+  firstName?: string;
+  lastName?: string;
+  pseudoName?: string | null;
+  age?: number;
+  city?: string;
+  country?: string;
+  profileImageUrl?: string;
+  displayImageUrl?: string;
+  otherProfileImageUrl?: string;
+  otherDisplayImageUrl?: string;
+  otherFirstName?: string;
+  otherLastName?: string;
+  action?: string;
+  createdAt?: string;
+}
+
 export interface VettingQuestion {
   id: number;
   question: string;
@@ -125,6 +155,12 @@ export const datingApi = {
     displayImageId?: number;
     latitude?: number;
     longitude?: number;
+    // Added by the backend (gap #8)
+    pseudoName?: string;
+    dateOfBirth?: string; // YYYY-MM-DD
+    country?: string;
+    city?: string;
+    state?: string;
   }) => api.post('/dating/profile', data),
 
   // Images
@@ -147,9 +183,35 @@ export const datingApi = {
   getIceBreakers: () => api.get('/dating/icebreakers'),
   setIceBreakers: (questionIds: number[]) => api.post('/dating/icebreakers', { questionIds }),
 
-  // Discover
-  discover: (params?: { page?: number; pageSize?: number }) =>
-    api.get('/dating/discover', { params }),
+  // Discover — filter params added by the backend (gap #6)
+  discover: (params?: {
+    page?: number;
+    pageSize?: number;
+    country?: string;
+    interestedInGender?: string;
+    minAge?: number;
+    maxAge?: number;
+    distanceKm?: number;
+    interestIds?: number[];
+  }) =>
+    api.get('/dating/discover', {
+      params: params && {
+        page: params.page,
+        pageSize: params.pageSize,
+        Country: params.country,
+        InterestedInGender: params.interestedInGender,
+        MinAge: params.minAge,
+        MaxAge: params.maxAge,
+        DistanceKm: params.distanceKm,
+        InterestIds: params.interestIds,
+      },
+    }),
+
+  // Likes — endpoints added by the backend (gap #7)
+  getLikesReceived: (params?: { page?: number; pageSize?: number }) =>
+    api.get('/dating/likes/received', { params }),
+  getLikesSent: (params?: { page?: number; pageSize?: number }) =>
+    api.get('/dating/likes/sent', { params }),
 
   // Swipe
   swipe: (swipedUserId: number, action: 'Like' | 'SuperLike' | 'Ignore') =>

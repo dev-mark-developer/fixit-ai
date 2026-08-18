@@ -2,17 +2,24 @@ import axios from 'axios';
 import { getToken, getRefreshToken, getUser, saveSession } from '../store/auth';
 import { getDeviceId } from '../utils/device';
 import { triggerForceLogout } from '../store/authEventBridge';
+import { attachApiLogger } from './logging';
 
 //Local Dev
 // const BASE_URL = 'http://localhost:5143/api'; // USB tunnel: adb reverse tcp:5143 tcp:5143
 //Beta/UAT URL
 const BASE_URL = 'https://beta.contentdevelopmentpros.com:4125/api'; // USB tunnel: adb reverse tcp:5143 tcp:5143
 
+// Host origin (no /api suffix) — used to resolve relative image paths
+export const API_ORIGIN = BASE_URL.replace(/\/api\/?$/, '');
+
 const api = axios.create({
   baseURL: BASE_URL,
   timeout: 25000,
   headers: { 'Content-Type': 'application/json' },
 });
+
+// Dev-only: log every request/response (headers, payload, body) to Metro
+attachApiLogger(api);
 
 // ── Token refresh state ───────────────────────────────────────────────────────
 let isRefreshing = false;

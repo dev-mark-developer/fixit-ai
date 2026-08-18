@@ -32,6 +32,10 @@ export interface PenpalDiscoverItem {
   country?: string;
   firstName?: string;
   lastName?: string;
+  /** None | Pending | Accepted — added by the backend (gap #1) */
+  connectionStatus?: string;
+  /** Added by the backend (gap #2) */
+  age?: number;
 }
 
 export interface PenpalConnection {
@@ -90,7 +94,7 @@ export const penpalApi = {
     longitude?: number;
   }) => api.post('/penpal/profile', data),
 
-  discover: (params?: { search?: string; page?: number; pageSize?: number }) =>
+  discover: (params?: { search?: string; status?: string; page?: number; pageSize?: number }) =>
     api.get('/penpal/discover', { params }),
 
   sendConnection: (receiverId: number) =>
@@ -108,8 +112,13 @@ export const penpalApi = {
   removeConnection: (connectionId: number) =>
     api.delete(`/penpal/connections/${connectionId}/remove`),
 
-  getLetters: (params?: { direction?: 'Inbox' | 'Sent'; page?: number; pageSize?: number }) =>
-    api.get('/penpal/letters', { params }),
+  getLetters: (params?: {
+    direction?: 'Inbox' | 'Sent';
+    /** Per-penpal conversation thread — added by the backend (gap #3) */
+    withUserId?: number;
+    page?: number;
+    pageSize?: number;
+  }) => api.get('/penpal/letters', { params }),
 
   getLetter: (letterId: number) => api.get(`/penpal/letters/${letterId}`),
 

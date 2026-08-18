@@ -202,7 +202,7 @@ const styles = StyleSheet.create({
   },
 
   pinkCard: {
-    backgroundColor: Colors.primary,
+    backgroundColor: Colors.penpal,
     borderRadius: 16,
     padding: 20,
     marginBottom: 24,

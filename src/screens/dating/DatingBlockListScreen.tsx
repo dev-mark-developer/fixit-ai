@@ -4,7 +4,6 @@ import {
   Text,
   FlatList,
   TouchableOpacity,
-  Image,
   RefreshControl,
   ActivityIndicator,
   StyleSheet,
@@ -17,6 +16,7 @@ import type { DatingDrawerParamList, DatingStackParamList } from '../../types/na
 import { datingApi } from '../../api/dating';
 import AppAlert from '../../components/common/AppAlert';
 import { Colors } from '../../utils/colors';
+import RemoteImage from '../../components/common/RemoteImage';
 
 type Props = CompositeScreenProps<
   DrawerScreenProps<DatingDrawerParamList, 'DatingBlockList'>,
@@ -88,7 +88,7 @@ export default function DatingBlockListScreen(_props: Props) {
       <View style={styles.row}>
         <View style={styles.avatarWrap}>
           {item.profileImageUrl ? (
-            <Image source={{ uri: item.profileImageUrl }} style={styles.avatar} />
+            <RemoteImage uri={item.profileImageUrl} style={styles.avatar} />
           ) : (
             <View style={styles.avatarFallback}>
               <Text style={styles.avatarInitial}>{initials}</Text>

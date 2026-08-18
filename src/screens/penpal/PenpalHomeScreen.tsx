@@ -41,7 +41,7 @@ export default function PenpalHomeScreen({ navigation }: Props) {
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator color={Colors.primary} size="large" />
+        <ActivityIndicator color={Colors.penpal} size="large" />
       </View>
     );
   }
@@ -74,11 +74,11 @@ export default function PenpalHomeScreen({ navigation }: Props) {
 
       <Text style={styles.sectionTitle}>What would you like to do?</Text>
 
-      <TouchableOpacity style={styles.actionCard} onPress={() => navigation.navigate('PenpalDiscover')}>
+      <TouchableOpacity style={styles.actionCard} onPress={() => navigation.navigate('PenpalConnections')}>
         <Text style={styles.actionIcon}>🔍</Text>
         <View style={styles.actionContent}>
-          <Text style={styles.actionTitle}>Discover Penpals</Text>
-          <Text style={styles.actionDesc}>Find people to connect with</Text>
+          <Text style={styles.actionTitle}>Find a Kindred Spirit</Text>
+          <Text style={styles.actionDesc}>Discover people and manage connections</Text>
         </View>
         <Text style={styles.chevron}>›</Text>
       </TouchableOpacity>
@@ -119,7 +119,7 @@ const styles = StyleSheet.create({
   },
   avatarCircle: {
     width: 52, height: 52, borderRadius: 26,
-    backgroundColor: Colors.primary, justifyContent: 'center', alignItems: 'center',
+    backgroundColor: Colors.penpal, justifyContent: 'center', alignItems: 'center',
   },
   avatarText: { fontSize: 22, fontWeight: '700', color: Colors.white },
   profileInfo: { flex: 1, marginLeft: 12 },
@@ -128,9 +128,9 @@ const styles = StyleSheet.create({
   profileLocation: { fontSize: 13, color: Colors.textMuted, marginTop: 2 },
   editBtn: {
     paddingHorizontal: 14, paddingVertical: 6, borderRadius: 8,
-    borderWidth: 1, borderColor: Colors.primary,
+    borderWidth: 1, borderColor: Colors.penpal,
   },
-  editBtnText: { color: Colors.primary, fontSize: 13, fontWeight: '600' },
+  editBtnText: { color: Colors.penpal, fontSize: 13, fontWeight: '600' },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: Colors.text, marginBottom: 14 },
   actionCard: {
     flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surface,

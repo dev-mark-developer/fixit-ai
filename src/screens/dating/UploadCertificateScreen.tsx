@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   StyleSheet,
+  Image,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { launchImageLibrary } from 'react-native-image-picker';
@@ -98,9 +99,11 @@ export default function UploadCertificateScreen({ navigation }: Props) {
     return (
       <ScrollView contentContainerStyle={styles.centeredContent}>
         <View style={styles.card}>
-          <View style={[styles.iconCircle, { backgroundColor: '#D1FAE5' }]}>
-            <Text style={styles.iconEmoji}>✅</Text>
-          </View>
+          <Image
+            source={require('../../assets/thumb-up.png')}
+            style={styles.stateImg}
+            resizeMode="contain"
+          />
           <Text style={styles.cardTitle}>You're Approved!</Text>
           <Text style={styles.cardSub}>
             You can now access Spiritual Dating. Start connecting with like-minded individuals.
@@ -125,9 +128,11 @@ export default function UploadCertificateScreen({ navigation }: Props) {
     return (
       <ScrollView contentContainerStyle={styles.centeredContent}>
         <View style={styles.card}>
-          <View style={[styles.iconCircle, { backgroundColor: Colors.spiritualLight }]}>
-            <Text style={styles.iconEmoji}>🔍</Text>
-          </View>
+          <Image
+            source={require('../../assets/load-time.png')}
+            style={styles.stateImg}
+            resizeMode="contain"
+          />
           <Text style={styles.cardTitle}>Under Review</Text>
           <Text style={styles.cardSub}>
             Your document is being reviewed by our team. This usually takes 1–3 business days.
@@ -141,6 +146,11 @@ export default function UploadCertificateScreen({ navigation }: Props) {
             <View style={styles.statusDot} />
             <Text style={styles.statusText}>Pending Review</Text>
           </View>
+          <AppButton
+            title="Back To Home"
+            onPress={() => (navigation.getParent() as any)?.navigate('Home')}
+            style={{ ...styles.spiritualBtn, alignSelf: 'stretch' as const, marginTop: 20 }}
+          />
         </View>
       </ScrollView>
     );
@@ -164,9 +174,13 @@ export default function UploadCertificateScreen({ navigation }: Props) {
       )}
 
       <View style={styles.uploadHero}>
-        <View style={[styles.iconCircle, { backgroundColor: Colors.spiritualLight }]}>
-          <Text style={styles.iconEmoji}>📜</Text>
-        </View>
+        <Image
+          source={isDeclined
+            ? require('../../assets/docDecline.png')
+            : require('../../assets/certificate.png')}
+          style={styles.stateImg}
+          resizeMode="contain"
+        />
         <Text style={styles.uploadTitle}>
           {isDeclined ? 'Resubmit Certificate' : 'Upload Certificate'}
         </Text>
@@ -187,7 +201,11 @@ export default function UploadCertificateScreen({ navigation }: Props) {
           </>
         ) : (
           <>
-            <Text style={styles.pickerPlaceholderIcon}>⬆️</Text>
+            <Image
+              source={require('../../assets/document-upload.png')}
+              style={styles.pickerUploadIcon}
+              resizeMode="contain"
+            />
             <Text style={styles.pickerLabel}>Tap to choose a document or image</Text>
             <Text style={styles.pickerHint}>PDF, JPG, PNG supported</Text>
           </>
@@ -225,15 +243,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.border,
   },
-  iconCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  iconEmoji: { fontSize: 36 },
+  stateImg: { width: 160, height: 150, marginBottom: 20, alignSelf: 'center' },
+  pickerUploadIcon: { width: 34, height: 34, marginBottom: 10 },
   cardTitle: { fontSize: 22, fontWeight: '800', color: Colors.text, marginBottom: 12, textAlign: 'center' },
   cardSub: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center', lineHeight: 21, marginBottom: 16 },
   cardMeta: { fontSize: 12, color: Colors.textMuted, marginBottom: 20 },

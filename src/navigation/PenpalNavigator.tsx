@@ -23,7 +23,7 @@ export default function PenpalNavigator() {
       initialRouteName={initialRoute}
       screenOptions={{
         headerStyle: { backgroundColor: Colors.background },
-        headerTintColor: Colors.primary,
+        headerTintColor: Colors.penpal,
         headerTitleStyle: { color: Colors.text, fontWeight: '700' },
         headerShadowVisible: false,
       }}
@@ -46,17 +46,17 @@ export default function PenpalNavigator() {
       <Stack.Screen
         name="PenpalLetterDetail"
         component={PenpalLetterDetailScreen}
-        options={{ title: 'Letter' }}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         name="PenpalCompose"
         component={PenpalComposeScreen}
-        options={{ title: 'Write Letter' }}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         name="PenpalPublicProfile"
         component={PenpalPublicProfileScreen}
-        options={{ title: 'Penpal Profile' }}
+        options={{ headerShown: false }}
       />
     </Stack.Navigator>
   );

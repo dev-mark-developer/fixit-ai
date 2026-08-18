@@ -1,14 +1,12 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity,
+  View, Text, StyleSheet, ScrollView,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '../../types/navigation';
 import { Colors } from '../../utils/colors';
-import { useAuth } from '../../store/AuthContext';
-import { useModuleStatus } from '../../store/ModuleStatusContext';
-import { saveSession } from '../../store/auth';
 import AppButton from '../../components/common/AppButton';
-import AppAlert from '../../components/common/AppAlert';
-import api from '../../api/axios';
 
 const BENEFITS = [
   { icon: '👥', title: 'Guide Others', desc: 'Be matched with seekers who need your wisdom and guidance.' },
@@ -18,36 +16,18 @@ const BENEFITS = [
 ];
 
 export default function MentorSetupScreen() {
-  const { user } = useAuth();
-  const { refresh } = useModuleStatus();
-  const [loading, setLoading] = useState(false);
-  const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
-  const handleBecomeMentor = async () => {
-    setLoading(true);
-    try {
-      const res = await api.post('/users/upgrade-to-mentor');
-      const { accessToken } = res.data?.data ?? {};
-      if (!accessToken) throw new Error('Invalid server response.');
-      await saveSession(accessToken, { ...user!, role: 'Mentor' });
-      // refresh() detects isMentor=true → MainNavigator renders MentorNavigator
-      await refresh();
-    } catch (err: any) {
-      const msg = err.response?.data?.message ?? (!err.response
-        ? 'Unable to connect to server.'
-        : 'Could not complete the upgrade. Please try again.');
-      setAlert({ title: 'Error', message: msg });
-    } finally {
-      setLoading(false);
-    }
-  };
+  // The account is NOT upgraded here — the user fills in the guru profile
+  // first and the upgrade happens when they save it, so backing out of the
+  // form leaves them a normal user.
+  const handleBecomeMentor = () => navigation.navigate('MentorProfileSetup');
 
   return (
-    <>
-      <ScrollView
-        contentContainerStyle={styles.container}
-        showsVerticalScrollIndicator={false}
-      >
+    <ScrollView
+      contentContainerStyle={styles.container}
+      showsVerticalScrollIndicator={false}
+    >
         <View style={styles.hero}>
           <Text style={styles.heroIcon}>🎓</Text>
           <Text style={styles.heroTitle}>Become a Spiritual Guru</Text>
@@ -71,23 +51,14 @@ export default function MentorSetupScreen() {
         <AppButton
           title="Start My Guru Journey"
           onPress={handleBecomeMentor}
-          loading={loading}
           style={styles.btn}
         />
 
-        <Text style={styles.disclaimer}>
-          By continuing, you agree to take on the responsibility of guiding seekers
-          assigned to you with care and integrity.
-        </Text>
-      </ScrollView>
-
-      <AppAlert
-        visible={!!alert}
-        title={alert?.title ?? ''}
-        message={alert?.message}
-        onClose={() => setAlert(null)}
-      />
-    </>
+      <Text style={styles.disclaimer}>
+        By continuing, you agree to take on the responsibility of guiding seekers
+        assigned to you with care and integrity.
+      </Text>
+    </ScrollView>
   );
 }
 

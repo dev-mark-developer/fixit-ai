@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  ActivityIndicator, Linking, Image,
+  ActivityIndicator, Linking,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { DatingStackParamList } from '../../types/navigation';
 import { Colors } from '../../utils/colors';
+import RemoteImage from '../../components/common/RemoteImage';
 import { mentorApi, ExternalMentor } from '../../api/mentor';
 
 type Props = NativeStackScreenProps<DatingStackParamList, 'SpiritualMentors'>;
@@ -63,7 +64,7 @@ export default function SpiritualMentorsScreen(_: Props) {
         <View style={styles.card}>
           <View style={styles.cardTop}>
             {item.profileImageUrl ? (
-              <Image source={{ uri: item.profileImageUrl }} style={styles.avatar} />
+              <RemoteImage uri={item.profileImageUrl} style={styles.avatar} />
             ) : (
               <View style={styles.avatarPlaceholder}>
                 <Text style={styles.avatarInitial}>{item.name.charAt(0).toUpperCase()}</Text>

@@ -5,6 +5,7 @@ import {
   Image,
   Modal,
   SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -22,72 +23,100 @@ import Animated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
+import Icon from 'react-native-vector-icons/Ionicons';
 import type { DatingDrawerParamList, DatingStackParamList } from '../../types/navigation';
-import { datingApi, DiscoverUser } from '../../api/dating';
+import { datingApi, DiscoverUser, InterestCategory } from '../../api/dating';
 import AppAlert from '../../components/common/AppAlert';
+import CountryPicker from '../../components/common/CountryPicker';
+import DatingTopBar from '../../components/dating/DatingTopBar';
+import DatingBottomBar from '../../components/dating/DatingBottomBar';
 import { Colors } from '../../utils/colors';
+import RemoteImage from '../../components/common/RemoteImage';
+import { useModuleStatus } from '../../store/ModuleStatusContext';
 
 type Props = CompositeScreenProps<
   DrawerScreenProps<DatingDrawerParamList, 'DatingDiscover'>,
   NativeStackScreenProps<DatingStackParamList>
 >;
 
+// Age filter is a single-thumb slider: the range is AGE_MIN → thumb value
+const AGE_MIN = 18;
+const AGE_MAX = 80;
+
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 const CARD_W = SCREEN_W - 32;
-const CARD_H = SCREEN_H * 0.62;
+const CARD_H = SCREEN_H * 0.56;
 const SWIPE_THRESHOLD = 120;
 const ROTATION_FACTOR = 15;
 
 // ──────────────────────────────────────────────────────────────
-// Match overlay
+// Match overlay — "Congratulations! It's a Match" (Figma)
 // ──────────────────────────────────────────────────────────────
 interface MatchOverlayProps {
   visible: boolean;
   matchedUser: DiscoverUser | null;
-  matchId: number | null;
+  accent: string;
   onSayHi: () => void;
   onKeepSwiping: () => void;
 }
 
-function MatchOverlay({ visible, matchedUser, matchId, onSayHi, onKeepSwiping }: MatchOverlayProps) {
+function MatchOverlay({ visible, matchedUser, accent, onSayHi, onKeepSwiping }: MatchOverlayProps) {
   if (!visible || !matchedUser) return null;
-  const avatarUri =
-    matchedUser.displayImageUrl ?? matchedUser.profileImageUrl ?? undefined;
+  const avatarUri = matchedUser.displayImageUrl ?? matchedUser.profileImageUrl;
 
   return (
     <Modal transparent animationType="fade" visible={visible} statusBarTranslucent>
       <View style={matchStyles.overlay}>
-        <Text style={matchStyles.title}>It's a Match!</Text>
-        <Text style={matchStyles.sub}>
-          You and {matchedUser.firstName} liked each other
-        </Text>
-
-        <View style={matchStyles.avatarRow}>
-          <View style={matchStyles.avatarWrap}>
+        {/* Tilted photo cards with heart badges */}
+        <View style={matchStyles.photoStage}>
+          <View style={[matchStyles.photoCard, matchStyles.photoCardRight]}>
+            <View style={[matchStyles.photoFallback, { backgroundColor: `${accent}22` }]}>
+              <Text style={[matchStyles.photoInitial, { color: accent }]}>Me</Text>
+            </View>
+          </View>
+          <View style={[matchStyles.photoCard, matchStyles.photoCardLeft]}>
             {avatarUri ? (
-              <Image source={{ uri: avatarUri }} style={matchStyles.avatar} />
+              <RemoteImage uri={avatarUri} style={matchStyles.photo} indicatorColor={accent} />
             ) : (
-              <View style={[matchStyles.avatar, matchStyles.avatarFallback]}>
-                <Text style={matchStyles.avatarInitial}>
+              <View style={[matchStyles.photoFallback, { backgroundColor: `${accent}22` }]}>
+                <Text style={[matchStyles.photoInitial, { color: accent }]}>
                   {matchedUser.firstName.charAt(0).toUpperCase()}
                 </Text>
               </View>
             )}
+            <Image
+              source={require('../../assets/circularHeart.png')}
+              style={[matchStyles.heartBadge, matchStyles.heartBadgeBL]}
+              resizeMode="contain"
+            />
           </View>
-          <Text style={matchStyles.heartEmoji}>💞</Text>
-          <View style={matchStyles.avatarWrap}>
-            <View style={[matchStyles.avatar, matchStyles.avatarFallback]}>
-              <Text style={matchStyles.avatarInitial}>Me</Text>
-            </View>
-          </View>
+          <Image
+            source={require('../../assets/circularHeart.png')}
+            style={[matchStyles.heartBadge, matchStyles.heartBadgeTR]}
+            resizeMode="contain"
+          />
         </View>
 
-        <TouchableOpacity style={matchStyles.sayHiBtn} onPress={onSayHi} activeOpacity={0.85}>
-          <Text style={matchStyles.sayHiText}>Say Hi</Text>
+        <Text style={[matchStyles.congrats, { color: accent }]}>Congratulations!</Text>
+        <Text style={matchStyles.title}>It's a Match</Text>
+        <Text style={matchStyles.sub}>
+          You and {matchedUser.firstName} liked each other. Start the conversation now.
+        </Text>
+
+        <TouchableOpacity
+          style={[matchStyles.sayHiBtn, { backgroundColor: accent }]}
+          onPress={onSayHi}
+          activeOpacity={0.85}
+        >
+          <Text style={matchStyles.sayHiText}>Say Hello</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={matchStyles.keepSwipingBtn} onPress={onKeepSwiping} activeOpacity={0.75}>
-          <Text style={matchStyles.keepSwipingText}>Keep Swiping</Text>
+        <TouchableOpacity
+          style={[matchStyles.keepSwipingBtn, { borderColor: accent }]}
+          onPress={onKeepSwiping}
+          activeOpacity={0.75}
+        >
+          <Text style={[matchStyles.keepSwipingText, { color: accent }]}>Keep Swiping</Text>
         </TouchableOpacity>
       </View>
     </Modal>
@@ -97,58 +126,123 @@ function MatchOverlay({ visible, matchedUser, matchId, onSayHi, onKeepSwiping }:
 const matchStyles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(233,64,87,0.92)',
+    backgroundColor: Colors.background,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 32,
   },
-  title: { fontSize: 36, fontWeight: '800', color: Colors.white, marginBottom: 8 },
-  sub: { fontSize: 16, color: 'rgba(255,255,255,0.85)', marginBottom: 40, textAlign: 'center' },
-  avatarRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 48,
-    gap: 12,
-  },
-  avatarWrap: {
+  photoStage: { width: 260, height: 280, marginBottom: 28 },
+  photoCard: {
+    position: 'absolute',
+    width: 150,
+    height: 190,
+    borderRadius: 24,
+    overflow: 'hidden',
+    backgroundColor: Colors.surface,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 14,
+    elevation: 8,
   },
-  avatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    borderWidth: 3,
-    borderColor: Colors.white,
+  photoCardLeft: { left: 0, bottom: 0, transform: [{ rotate: '-8deg' }] },
+  photoCardRight: { right: 0, top: 0, transform: [{ rotate: '8deg' }] },
+  photo: { width: '100%', height: '100%' },
+  photoFallback: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  photoInitial: { fontSize: 40, fontWeight: '800' },
+  heartBadge: {
+    width: 62,
+    height: 62,
   },
-  avatarFallback: {
-    backgroundColor: 'rgba(255,255,255,0.25)',
-    justifyContent: 'center',
-    alignItems: 'center',
+  heartBadgeTR: { position: 'absolute', top: -14, right: 26 },
+  heartBadgeBL: { position: 'absolute', bottom: 6, left: -18 },
+
+  congrats: { fontSize: 30, fontWeight: '800', fontStyle: 'italic', marginBottom: 4 },
+  title: { fontSize: 22, fontWeight: '800', color: Colors.text, marginBottom: 10 },
+  sub: {
+    fontSize: 14, color: Colors.textSecondary, textAlign: 'center',
+    lineHeight: 20, marginBottom: 32,
   },
-  avatarInitial: { fontSize: 32, fontWeight: '700', color: Colors.white },
-  heartEmoji: { fontSize: 32 },
   sayHiBtn: {
-    width: '100%',
-    backgroundColor: Colors.white,
-    borderRadius: 14,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginBottom: 12,
+    width: '100%', borderRadius: 14, paddingVertical: 16,
+    alignItems: 'center', marginBottom: 12,
   },
-  sayHiText: { fontSize: 17, fontWeight: '700', color: Colors.dating },
+  sayHiText: { fontSize: 16, fontWeight: '700', color: Colors.white },
   keepSwipingBtn: {
-    width: '100%',
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.6)',
-    borderRadius: 14,
-    paddingVertical: 14,
-    alignItems: 'center',
+    width: '100%', borderWidth: 1.5, borderRadius: 14,
+    paddingVertical: 15, alignItems: 'center',
   },
-  keepSwipingText: { fontSize: 15, fontWeight: '600', color: Colors.white },
+  keepSwipingText: { fontSize: 15, fontWeight: '600' },
+});
+
+// ──────────────────────────────────────────────────────────────
+// Simple track slider (no external lib) for the filter sheet
+// ──────────────────────────────────────────────────────────────
+interface TrackSliderProps {
+  min: number;
+  max: number;
+  value: number;
+  accent: string;
+  labelLeft: string;
+  labelValue: string;
+  onChange: (v: number) => void;
+}
+
+function TrackSlider({ min, max, value, accent, labelLeft, labelValue, onChange }: TrackSliderProps) {
+  const [trackW, setTrackW] = useState(0);
+  const ratio = (value - min) / (max - min);
+
+  const setFromX = (x: number) => {
+    if (trackW <= 0) return;
+    const r = Math.min(1, Math.max(0, x / trackW));
+    onChange(Math.round(min + r * (max - min)));
+  };
+
+  const pan = Gesture.Pan()
+    .onBegin((e) => { 'worklet'; runOnJS(setFromX)(e.x); })
+    .onUpdate((e) => { 'worklet'; runOnJS(setFromX)(e.x); });
+
+  return (
+    <View style={sliderStyles.wrap}>
+      <GestureDetector gesture={pan}>
+        <View
+          style={sliderStyles.touchArea}
+          onLayout={(e) => setTrackW(e.nativeEvent.layout.width)}
+        >
+          <View style={sliderStyles.track} />
+          <View style={[sliderStyles.fill, { width: `${ratio * 100}%`, backgroundColor: accent }]} />
+          <View style={[sliderStyles.thumb, { left: Math.max(0, ratio * trackW - 14), backgroundColor: accent }]} />
+        </View>
+      </GestureDetector>
+      <View style={sliderStyles.labels}>
+        <Text style={sliderStyles.labelMin}>{labelLeft}</Text>
+        <Text style={[sliderStyles.labelVal, { color: accent, left: `${ratio * 100}%` }]}>
+          {labelValue}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+const sliderStyles = StyleSheet.create({
+  wrap: { marginBottom: 8 },
+  touchArea: { height: 32, justifyContent: 'center' },
+  track: {
+    height: 5, borderRadius: 3, backgroundColor: Colors.border,
+  },
+  fill: {
+    position: 'absolute', height: 5, borderRadius: 3, left: 0,
+  },
+  thumb: {
+    position: 'absolute',
+    width: 28, height: 28, borderRadius: 14,
+    borderWidth: 5, borderColor: Colors.white,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2, shadowRadius: 4, elevation: 4,
+  },
+  labels: { height: 20, position: 'relative' },
+  labelMin: { position: 'absolute', left: 0, fontSize: 13, color: Colors.text },
+  labelVal: { position: 'absolute', fontSize: 13, fontWeight: '600', marginLeft: -12 },
 });
 
 // ──────────────────────────────────────────────────────────────
@@ -166,7 +260,7 @@ function SwipeCard({ user, index, onSwipe, onInfo }: SwipeCardProps) {
   const translateY = useSharedValue(0);
   const isTop = index === 0;
 
-  const imageUri = user.displayImageUrl ?? user.profileImageUrl ?? undefined;
+  const imageUri = user.displayImageUrl ?? user.profileImageUrl;
 
   const commitSwipe = useCallback(
     (direction: 'left' | 'right' | 'super') => {
@@ -232,7 +326,12 @@ function SwipeCard({ user, index, onSwipe, onInfo }: SwipeCardProps) {
       <Animated.View style={[styles.card, { zIndex: 10 - index }, animatedStyle]}>
         {/* Photo */}
         {imageUri ? (
-          <Image source={{ uri: imageUri }} style={styles.cardImage} resizeMode="cover" />
+          <RemoteImage
+            uri={imageUri}
+            style={styles.cardImage}
+            resizeMode="cover"
+            indicatorSize="large"
+          />
         ) : (
           <View style={[styles.cardImage, styles.cardImageFallback]}>
             <Text style={styles.cardImageInitial}>
@@ -249,38 +348,24 @@ function SwipeCard({ user, index, onSwipe, onInfo }: SwipeCardProps) {
           <Text style={styles.ignoreLabelText}>NOPE</Text>
         </Animated.View>
 
-        {/* Bottom overlay — entire area is tappable to open profile */}
+        {/* Name + location overlay — tap to open the full profile */}
         <TouchableOpacity
           style={styles.cardOverlay}
           onPress={() => onInfo(user)}
           activeOpacity={0.85}
         >
-          <View style={styles.cardInfoRow}>
-            <Text style={[styles.cardName, { flex: 1 }]}>
-              {user.firstName} {user.lastName}
-              {user.age ? `, ${user.age}` : ''}
-            </Text>
-            <Text style={styles.infoBtnText}>ℹ</Text>
-          </View>
+          <Text style={styles.cardName}>
+            {user.firstName}
+            {user.age ? `, ${user.age}` : ''}
+          </Text>
           {(user.city || user.country) ? (
-            <Text style={styles.cardLocation}>
-              {[user.city, user.country].filter(Boolean).join(', ')}
-            </Text>
-          ) : null}
-          {user.interests.length > 0 && (
-            <View style={styles.cardChips}>
-              {user.interests.slice(0, 4).map((interest, i) => (
-                <View key={i} style={styles.cardChip}>
-                  <Text style={styles.cardChipText}>{interest}</Text>
-                </View>
-              ))}
-              {user.interests.length > 4 && (
-                <View style={styles.cardChip}>
-                  <Text style={styles.cardChipText}>+{user.interests.length - 4}</Text>
-                </View>
-              )}
+            <View style={styles.cardLocationRow}>
+              <Icon name="location-outline" size={14} color={Colors.white} />
+              <Text style={styles.cardLocation}>
+                {[user.city, user.country].filter(Boolean).join(', ')}
+              </Text>
             </View>
-          )}
+          ) : null}
         </TouchableOpacity>
       </Animated.View>
     </GestureDetector>
@@ -291,6 +376,12 @@ function SwipeCard({ user, index, onSwipe, onInfo }: SwipeCardProps) {
 // Main screen
 // ──────────────────────────────────────────────────────────────
 export default function DatingDiscoverScreen({ navigation }: Props) {
+  const { datingType } = useModuleStatus();
+  const isSpiritual = datingType === 'Spiritual';
+  const accent = isSpiritual ? Colors.spiritual : Colors.dating;
+  const lime = isSpiritual ? Colors.spiritualLime : Colors.datingSecondary;
+  const limeLight = isSpiritual ? Colors.spiritualLimeLight : Colors.datingLight;
+
   const [users, setUsers] = useState<DiscoverUser[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -301,20 +392,78 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
   const [matchedUser, setMatchedUser] = useState<DiscoverUser | null>(null);
   const [matchId, setMatchId] = useState<number | null>(null);
 
+  // Filter sheet — server-side since the discover API gained filter params
+  // (gap #6 resolved)
+  const [filterVisible, setFilterVisible] = useState(false);
+  const [filterCountry, setFilterCountry] = useState('');
+  const [countryPickerVisible, setCountryPickerVisible] = useState(false);
+  const [filterDistance, setFilterDistance] = useState(30);
+  const [filterAge, setFilterAge] = useState(26);
+  const [filterGender, setFilterGender] = useState<'Male' | 'Female' | null>(null);
+
+  // Advance Filters (interests) — unlocked while the subscription/IAP work is
+  // on hold; discover already accepts InterestIds (gap #6).
+  const [advanceVisible, setAdvanceVisible] = useState(false);
+  const [interestCategories, setInterestCategories] = useState<InterestCategory[]>([]);
+  const [expandedCategory, setExpandedCategory] = useState<number | null>(null);
+  const [selectedInterests, setSelectedInterests] = useState<Set<number>>(new Set());
+
+  const toggleInterest = useCallback((id: number) => {
+    setSelectedInterests((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+
+  // Load interest categories the first time Advance Filters is opened
+  useEffect(() => {
+    if (!advanceVisible || interestCategories.length > 0) return;
+    datingApi
+      .getInterests(datingType ?? undefined)
+      .then((res) => {
+        const cats: InterestCategory[] = res.data?.data ?? [];
+        setInterestCategories(cats);
+        setExpandedCategory(cats[0]?.id ?? null);
+      })
+      .catch(() => {});
+  }, [advanceVisible, interestCategories.length, datingType]);
+
   // Prevent duplicate swipe calls
   const swipingRef = useRef(false);
 
+  const loadUsers = useCallback(async (withFilters: boolean) => {
+    setLoading(true);
+    try {
+      const res = await datingApi.discover({
+        page: 1,
+        pageSize: 10,
+        ...(withFilters
+          ? {
+              country: filterCountry || undefined,
+              interestedInGender: filterGender ?? undefined,
+              minAge: AGE_MIN,
+              maxAge: filterAge,
+              distanceKm: filterDistance,
+              interestIds: selectedInterests.size
+                ? Array.from(selectedInterests)
+                : undefined,
+            }
+          : {}),
+      });
+      setUsers(res.data?.data ?? []);
+      setCurrentIndex(0);
+    } catch {
+      setAlert({ title: 'Error', message: 'Could not load profiles. Please try again.' });
+    } finally {
+      setLoading(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterCountry, filterGender, filterAge, filterDistance, selectedInterests]);
+
   useEffect(() => {
-    datingApi
-      .discover({ page: 1, pageSize: 10 })
-      .then((res) => {
-        const data: DiscoverUser[] = res.data?.data ?? [];
-        setUsers(data);
-      })
-      .catch(() => {
-        setAlert({ title: 'Error', message: 'Could not load profiles. Please try again.' });
-      })
-      .finally(() => setLoading(false));
+    loadUsers(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleSwipe = useCallback(
@@ -379,7 +528,7 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={Colors.dating} size="large" />
+        <ActivityIndicator color={accent} size="large" />
       </View>
     );
   }
@@ -387,28 +536,39 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
   return (
     <GestureHandlerRootView style={styles.root}>
       <SafeAreaView style={styles.root}>
-        {/* Header */}
-        <View style={styles.topBar}>
-          <TouchableOpacity
-            style={styles.topBarBtn}
-            onPress={() => navigation.openDrawer()}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Text style={styles.topBarIcon}>{'☰'}</Text>
+        <DatingTopBar />
+
+        {/* Heading + filter */}
+        <View style={styles.headingRow}>
+          <Text style={styles.heading}>
+            Discover & Find{' '}
+            <Text style={[styles.headingAccent, { color: accent }]}>
+              Your Perfect Match
+            </Text>
+          </Text>
+          <TouchableOpacity onPress={() => setFilterVisible(true)} hitSlop={8}>
+            <Icon name="options-outline" size={26} color={lime} />
           </TouchableOpacity>
-
-          <Text style={styles.topBarTitle}>Discover</Text>
-
-          <View style={styles.topBarBtn} />
         </View>
 
         {/* Card stack */}
         <View style={styles.cardStack}>
           {visibleUsers.length === 0 ? (
             <View style={styles.emptyState}>
-              <Text style={styles.emptyEmoji}>🌅</Text>
-              <Text style={styles.emptyTitle}>Come back tomorrow</Text>
-              <Text style={styles.emptySub}>for more matches</Text>
+              <Image
+                source={require('../../assets/spiritual.png')}
+                style={styles.emptyImage}
+                resizeMode="contain"
+              />
+              <Text style={[styles.emptyScript, { color: lime }]}>That's all for today!</Text>
+              <Text style={styles.emptyTitle}>
+                Check Back Later For More{' '}
+                <Text style={{ color: accent }}>Matches.</Text>
+              </Text>
+              <Text style={styles.emptySub}>
+                New members join every day. Adjust your filters or come back soon
+                to meet more people.
+              </Text>
             </View>
           ) : (
             // Render from back to front so front card receives touches
@@ -425,42 +585,238 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
               );
             })
           )}
+
+          {/* Action pill overlapping the card bottom (Figma) */}
+          {visibleUsers.length > 0 && (
+            <View style={styles.actionPill}>
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.actionGhost]}
+                onPress={() => handleActionButton('Ignore')}
+                activeOpacity={0.8}
+              >
+                <Icon name="close" size={26} color={lime} />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.actionBtn, { backgroundColor: limeLight }]}
+                onPress={() => handleActionButton('SuperLike')}
+                activeOpacity={0.8}
+              >
+                <Icon name="star" size={24} color={lime} />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.actionBtn, { backgroundColor: accent }]}
+                onPress={() => handleActionButton('Like')}
+                activeOpacity={0.8}
+              >
+                <Icon name="heart" size={26} color={isSpiritual ? Colors.spiritualLime : Colors.white} />
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
 
-        {/* Action buttons */}
-        {visibleUsers.length > 0 && (
-          <View style={styles.actions}>
-            <TouchableOpacity
-              style={[styles.actionBtn, styles.actionIgnore]}
-              onPress={() => handleActionButton('Ignore')}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.actionIgnoreIcon}>✕</Text>
-            </TouchableOpacity>
+        <DatingBottomBar active="DatingDiscover" />
 
+        {/* Filter bottom sheet */}
+        <Modal
+          visible={filterVisible}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setFilterVisible(false)}
+        >
+          <View style={styles.sheetOverlay}>
             <TouchableOpacity
-              style={[styles.actionBtn, styles.actionSuperLike]}
-              onPress={() => handleActionButton('SuperLike')}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.actionSuperLikeIcon}>★</Text>
-            </TouchableOpacity>
+              style={styles.sheetDismiss}
+              activeOpacity={1}
+              onPress={() => setFilterVisible(false)}
+            />
+            <View style={styles.sheet}>
+              <View style={styles.sheetHandle} />
 
-            <TouchableOpacity
-              style={[styles.actionBtn, styles.actionLike]}
-              onPress={() => handleActionButton('Like')}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.actionLikeIcon}>♥</Text>
-            </TouchableOpacity>
+              {advanceVisible ? (
+                /* ── Advance Filters (Figma pg 29) ───────────────── */
+                <ScrollView showsVerticalScrollIndicator={false}>
+                  <TouchableOpacity
+                    onPress={() => setAdvanceVisible(false)}
+                    hitSlop={8}
+                    style={styles.advanceBack}
+                  >
+                    <Icon name="arrow-back" size={22} color={Colors.text} />
+                  </TouchableOpacity>
+                  <Text style={styles.sheetTitle}>Advance Filters</Text>
+                  <Text style={styles.fieldLabel}>Choose Interests</Text>
+
+                  {interestCategories.length === 0 ? (
+                    <ActivityIndicator color={accent} style={styles.advanceLoader} />
+                  ) : (
+                    interestCategories.map((cat) => {
+                      const open = expandedCategory === cat.id;
+                      return (
+                        <View key={cat.id}>
+                          <TouchableOpacity
+                            style={styles.categoryRow}
+                            onPress={() => setExpandedCategory(open ? null : cat.id)}
+                            activeOpacity={0.75}
+                          >
+                            <Text style={[styles.categoryName, { color: accent }]}>
+                              {cat.name}
+                            </Text>
+                            <Icon
+                              name={open ? 'chevron-up' : 'chevron-down'}
+                              size={18}
+                              color={accent}
+                            />
+                          </TouchableOpacity>
+                          {open && (
+                            <View style={styles.interestChips}>
+                              {cat.interests.map((interest) => {
+                                const selected = selectedInterests.has(interest.id);
+                                return (
+                                  <TouchableOpacity
+                                    key={interest.id}
+                                    style={[
+                                      styles.interestChip,
+                                      selected && { backgroundColor: lime, borderColor: lime },
+                                    ]}
+                                    onPress={() => toggleInterest(interest.id)}
+                                    activeOpacity={0.75}
+                                  >
+                                    <Text
+                                      style={[
+                                        styles.interestChipText,
+                                        { color: selected ? Colors.text : accent },
+                                      ]}
+                                    >
+                                      {interest.name}
+                                    </Text>
+                                  </TouchableOpacity>
+                                );
+                              })}
+                            </View>
+                          )}
+                        </View>
+                      );
+                    })
+                  )}
+
+                  <TouchableOpacity
+                    style={[styles.applyBtn, { backgroundColor: accent }]}
+                    onPress={() => {
+                      setAdvanceVisible(false);
+                      setFilterVisible(false);
+                      loadUsers(true);
+                    }}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.applyBtnText}>Apply</Text>
+                  </TouchableOpacity>
+                </ScrollView>
+              ) : (
+              <ScrollView showsVerticalScrollIndicator={false}>
+                <Text style={styles.sheetTitle}>Filter</Text>
+
+                {/* Country */}
+                <Text style={styles.fieldLabel}>Country</Text>
+                <TouchableOpacity
+                  style={styles.selectBox}
+                  onPress={() => setCountryPickerVisible(true)}
+                >
+                  <Text style={filterCountry ? styles.selectText : styles.selectPlaceholder}>
+                    {filterCountry || 'Select country'}
+                  </Text>
+                  <Icon name="chevron-down" size={18} color={Colors.textMuted} />
+                </TouchableOpacity>
+
+                {/* Distance */}
+                <Text style={styles.fieldLabel}>Distance</Text>
+                <TrackSlider
+                  min={0}
+                  max={100}
+                  value={filterDistance}
+                  accent={accent}
+                  labelLeft="0 km"
+                  labelValue={`${filterDistance} km`}
+                  onChange={setFilterDistance}
+                />
+
+                {/* Age */}
+                <Text style={styles.fieldLabel}>Age</Text>
+                <TrackSlider
+                  min={AGE_MIN}
+                  max={AGE_MAX}
+                  value={filterAge}
+                  accent={accent}
+                  labelLeft={`${AGE_MIN}`}
+                  labelValue={`${filterAge}`}
+                  onChange={setFilterAge}
+                />
+
+                {/* Interested In */}
+                <Text style={styles.fieldLabel}>Interested In</Text>
+                <View style={styles.genderRow}>
+                  {(['Male', 'Female'] as const).map((g) => {
+                    const selected = filterGender === g;
+                    return (
+                      <TouchableOpacity
+                        key={g}
+                        style={[
+                          styles.genderPill,
+                          selected ? { backgroundColor: accent } : styles.genderPillInactive,
+                        ]}
+                        onPress={() => setFilterGender(g)}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={styles.genderPillText}>{g}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                {/* Advance Filters — unlocked while subscription/IAP is on hold */}
+                <TouchableOpacity
+                  style={[styles.advanceBtn, { backgroundColor: lime, borderColor: lime }]}
+                  onPress={() => setAdvanceVisible(true)}
+                  activeOpacity={0.8}
+                >
+                  <Image
+                    source={require('../../assets/crownSmall.png')}
+                    style={styles.advanceCrown}
+                    resizeMode="contain"
+                  />
+                  <Text style={[styles.advanceBtnText, styles.advanceBtnTextActive]}>
+                    Advance Filters
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.applyBtn, { backgroundColor: accent }]}
+                  onPress={() => {
+                    setFilterVisible(false);
+                    loadUsers(true);
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.applyBtnText}>Apply</Text>
+                </TouchableOpacity>
+              </ScrollView>
+              )}
+            </View>
           </View>
-        )}
+
+          <CountryPicker
+            visible={countryPickerVisible}
+            selected={filterCountry}
+            onSelect={(c) => setFilterCountry(c)}
+            onClose={() => setCountryPickerVisible(false)}
+          />
+        </Modal>
 
         {/* Match modal */}
         <MatchOverlay
           visible={matchVisible}
           matchedUser={matchedUser}
-          matchId={matchId}
+          accent={accent}
           onSayHi={() => {
             setMatchVisible(false);
             if (matchedUser && matchId) {
@@ -489,39 +845,36 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.background },
 
-  // Top bar
-  topBar: {
+  headingRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 4,
+    gap: 12,
   },
-  topBarBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: Colors.surface,
-    justifyContent: 'center',
-    alignItems: 'center',
+  heading: {
+    flex: 1,
+    fontSize: 22,
+    fontWeight: '800',
+    color: Colors.text,
+    lineHeight: 29,
   },
-  topBarIcon: { fontSize: 20 },
-  topBarTitle: { fontSize: 18, fontWeight: '700', color: Colors.text },
+  headingAccent: { fontWeight: '800' },
 
   // Card stack
   cardStack: {
     flex: 1,
     alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 8,
+    justifyContent: 'flex-start',
+    marginTop: 12,
   },
   card: {
     position: 'absolute',
     width: CARD_W,
     height: CARD_H,
-    borderRadius: 20,
+    borderRadius: 28,
     overflow: 'hidden',
     backgroundColor: Colors.surface,
     shadowColor: '#000',
@@ -536,14 +889,14 @@ const styles = StyleSheet.create({
     position: 'absolute',
   },
   cardImageFallback: {
-    backgroundColor: Colors.datingLight,
+    backgroundColor: Colors.spiritualLight,
     justifyContent: 'center',
     alignItems: 'center',
   },
   cardImageInitial: {
     fontSize: 80,
     fontWeight: '700',
-    color: Colors.dating,
+    color: Colors.spiritual,
     opacity: 0.6,
   },
 
@@ -573,103 +926,149 @@ const styles = StyleSheet.create({
   },
   ignoreLabelText: { fontSize: 24, fontWeight: '800', color: Colors.error },
 
-  // Card bottom overlay
+  // Card bottom overlay — name + location (Figma)
   cardOverlay: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    paddingHorizontal: 16,
-    paddingBottom: 20,
-    paddingTop: 48,
-    backgroundColor: 'rgba(0,0,0,0.38)',
-  },
-  cardInfoRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    marginBottom: 4,
+    paddingHorizontal: 20,
+    paddingBottom: 60,
+    paddingTop: 40,
   },
   cardName: {
-    fontSize: 22,
-    fontWeight: '700',
+    fontSize: 24,
+    fontWeight: '800',
     color: Colors.white,
+    textShadowColor: 'rgba(0,0,0,0.45)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
   },
+  cardLocationRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
   cardLocation: {
-    fontSize: 14,
-    color: 'rgba(255,255,255,0.85)',
-    marginBottom: 10,
-  },
-  infoBtnText: { fontSize: 18, color: Colors.white },
-
-  cardChips: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  cardChip: {
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  cardChipText: {
-    fontSize: 12,
+    fontSize: 13,
     color: Colors.white,
-    fontWeight: '500',
+    textShadowColor: 'rgba(0,0,0,0.45)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
   },
 
-  // Action buttons
-  actions: {
+  // Action pill
+  actionPill: {
+    position: 'absolute',
+    top: CARD_H - 36,
+    alignSelf: 'center',
     flexDirection: 'row',
-    justifyContent: 'center',
     alignItems: 'center',
-    gap: 20,
-    paddingVertical: 20,
-    paddingBottom: 28,
+    gap: 14,
+    backgroundColor: Colors.white,
+    borderRadius: 44,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    zIndex: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.14,
+    shadowRadius: 12,
+    elevation: 9,
   },
   actionBtn: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 4,
   },
-  actionIgnore: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    backgroundColor: Colors.white,
-    borderWidth: 2,
-    borderColor: Colors.error,
-  },
-  actionIgnoreIcon: { fontSize: 22, color: Colors.error, fontWeight: '700' },
-  actionSuperLike: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: Colors.white,
-    borderWidth: 2,
-    borderColor: '#F5A623',
-  },
-  actionSuperLikeIcon: { fontSize: 22, color: '#F5A623' },
-  actionLike: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    backgroundColor: Colors.white,
-    borderWidth: 2,
-    borderColor: Colors.dating,
-  },
-  actionLikeIcon: { fontSize: 24, color: Colors.dating },
+  actionGhost: { backgroundColor: Colors.white },
 
   // Empty state
   emptyState: {
     alignItems: 'center',
     paddingHorizontal: 32,
+    paddingTop: 12,
   },
-  emptyEmoji: { fontSize: 64, marginBottom: 16 },
-  emptyTitle: { fontSize: 22, fontWeight: '700', color: Colors.text, marginBottom: 8, textAlign: 'center' },
-  emptySub: { fontSize: 15, color: Colors.textSecondary, textAlign: 'center' },
+  emptyImage: { width: 260, height: 240, marginBottom: 8 },
+  emptyScript: { fontSize: 24, fontWeight: '800', fontStyle: 'italic', marginBottom: 6 },
+  emptyTitle: {
+    fontSize: 22, fontWeight: '800', color: Colors.text,
+    textAlign: 'center', lineHeight: 30, marginBottom: 10,
+  },
+  emptySub: { fontSize: 13, color: Colors.textSecondary, textAlign: 'center', lineHeight: 19 },
+
+  // Filter sheet
+  sheetOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)' },
+  sheetDismiss: { flex: 1 },
+  sheet: {
+    backgroundColor: Colors.background,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 24,
+    paddingTop: 10,
+    paddingBottom: 32,
+    maxHeight: '78%',
+  },
+  sheetHandle: {
+    alignSelf: 'center',
+    width: 84,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: Colors.border,
+    marginBottom: 18,
+  },
+  sheetTitle: { fontSize: 24, fontWeight: '800', color: Colors.text, marginBottom: 18 },
+
+  fieldLabel: { fontSize: 15, fontWeight: '600', color: Colors.text, marginBottom: 8, marginTop: 8 },
+  selectBox: {
+    height: 52, borderRadius: 12, backgroundColor: Colors.surface, paddingHorizontal: 14,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  selectText: { fontSize: 15, color: Colors.text, flex: 1 },
+  selectPlaceholder: { fontSize: 15, color: Colors.textMuted, flex: 1 },
+
+  genderRow: { flexDirection: 'row', gap: 12, marginBottom: 16, marginTop: 2 },
+  genderPill: {
+    paddingHorizontal: 26,
+    paddingVertical: 13,
+    borderRadius: 28,
+  },
+  genderPillInactive: { backgroundColor: '#BDBDBD' },
+  genderPillText: { fontSize: 15, fontWeight: '700', color: Colors.white },
+
+  advanceBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    borderWidth: 1.5, borderColor: Colors.border, borderRadius: 14,
+    paddingVertical: 15, marginBottom: 12,
+  },
+  advanceCrown: { width: 20, height: 20 },
+  advanceBtnText: { fontSize: 15, fontWeight: '600', color: Colors.textMuted },
+  advanceBtnTextActive: { color: Colors.text, fontWeight: '700' },
+
+  // Advance Filters (interests)
+  advanceBack: { alignSelf: 'flex-start', paddingBottom: 8 },
+  advanceLoader: { marginVertical: 32 },
+  categoryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+  },
+  categoryName: { fontSize: 15, fontWeight: '600' },
+  interestChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    paddingBottom: 12,
+  },
+  interestChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.white,
+  },
+  interestChipText: { fontSize: 14, fontWeight: '500' },
+  applyBtn: { borderRadius: 14, paddingVertical: 16, alignItems: 'center' },
+  applyBtnText: { fontSize: 16, fontWeight: '700', color: Colors.white },
 });
