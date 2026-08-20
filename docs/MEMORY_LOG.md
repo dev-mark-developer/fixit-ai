@@ -5,6 +5,137 @@ doing UI work on **AIFixitMobileApp**. Newest entries at the top.
 
 ---
 
+## 2026-08-18 — Chat: attachments, voice notes & the rest of the hub contract
+Integrated `docs/CHAT_API.md` end-to-end. Gap **#10 → 🟢 Resolved**; four new
+backend gaps opened (**#14–#17**).
+
+**Bug found first:** `chatHub.ts` pointed at a hardcoded
+`http://localhost:5143/hubs/chat` while `api/axios.ts` builds against
+`https://beta.contentdevelopmentpros.com:4125`. Chat could not have connected
+on beta at all. The hub URL is now derived from `API_ORIGIN`, so it follows
+whichever environment axios is pointed at.
+
+**SignalR (`src/services/chatHub.ts`)** — rewritten, same public shape:
+- New invokes `SendMessageWithAttachments` and `SendChatFile` alongside
+  `SendMessage` / `MarkAsRead`.
+- New `Error` listener — a rejected invoke arrives as an event, not a thrown
+  promise, so failures used to vanish silently. Now surfaced to the user.
+- Sends **throw** when the socket is down instead of silently returning; the
+  screen tells the user rather than pretending it sent.
+- Connection state (`connecting`/`connected`/`reconnecting`/`disconnected`)
+  is observable, and `UserOnline`/`UserOffline`/`MessagesRead` payloads are
+  read defensively (bare number *or* `{userId}` / `{matchId}` object).
+- Ref-counted connect/disconnect so the chats list and a chat detail screen
+  can both hold the socket without one closing the other's connection.
+- Falls back to a negotiated handshake if `skipNegotiation` WebSockets fail.
+
+**Attachments** — `POST /dating/matches/{id}/uploads` (multi, key `files`,
+max 10) wired in `src/services/chatAttachments.ts`: pick → stage in a tray →
+upload → `SendMessageWithAttachments`. Text and files go as **one** message.
+Photos/videos come from `react-native-image-picker` (`mediaType: 'mixed'`,
+plus camera capture).
+
+**Voice notes** — added **`react-native-nitro-sound`** (+ `react-native-nitro-modules`).
+⚠️ Native dependency: `pod install` has been run, but **the app must be
+rebuilt** (not just Metro-reloaded) before voice notes work. Added
+`RECORD_AUDIO` + `CAMERA` to `AndroidManifest.xml` and
+`NSMicrophoneUsageDescription` / `NSCameraUsageDescription` /
+`NSPhotoLibraryUsageDescription` to `Info.plist`. Records AAC/MPEG-4 and
+uploads as `.m4a` (`audio/m4a`) so the API classifies it `VoiceNote`.
+
+**Timestamp bug:** hub payloads end in `Z`, REST history has **no zone marker**,
+so `new Date()` was reading every historical message as local time — the whole
+history was skewed by the device's UTC offset. All chat dates now go through
+`parseChatDate` in `src/utils/chatMedia.ts`.
+
+**Screen work (`DatingChatDetailScreen`)** — renders `attachments[]` (with the
+legacy `fileUrl` fallback for pre-attachment messages), image/video grid with
+a full-screen swipeable viewer, voice-note bubbles with a scrubbing waveform,
+day separators, read receipts (✓/✓✓ off `isRead` + `MessagesRead`), history
+pagination, and hub-error alerts. The header's "Online" no longer lies — it
+used to show the *device's own* socket state; it now shows the peer's presence
+only once an event proves it (see #14 — there's no roster to ask).
+
+**Chats list** — rows update live from `ReceiveMessage` (preview, timestamp,
+unread badge) and sort by recency, instead of waiting for a focus refetch.
+
+### Follow-up: "Attachment type 'audio/x-m4a' is not allowed."
+
+Every voice note sent from **iOS** was rejected. Two independent causes, both
+now understood and pinned down empirically rather than guessed:
+
+1. **RN discards the MIME type you declare on iOS.** For a `{uri, name, type}`
+   form part, `RCTNetworking.mm` fetches the file via `RCTFileRequestHandler.mm`,
+   derives a MIME from the **local file extension** through UTI, and
+   *overwrites* the part's `content-type`. Confirmed with the same CoreServices
+   call the handler uses: `.m4a → audio/x-m4a`, `.aac → audio/aac`,
+   `.mp3 → audio/mpeg`, `.mp4 → video/mp4`. Android is unaffected —
+   `NetworkingModule.constructMultipartBody` parses the declared type off the
+   part headers, which is why this only ever failed on iPhone.
+2. **The upload endpoint's allow-list is narrower than its docs.** Probed the
+   live beta API across 22 MIME types (see gap #18 and the correction block in
+   `CHAT_API.md`). `audio/m4a` is accepted; `audio/x-m4a` is not.
+
+**Fix** (`src/utils/uploadPart.ts`): on iOS, audio parts are sent as a
+`base64` form part instead of a `uri` part. That branch of
+`processDataForHTTPQuery` returns no `contentType`, so the declared
+`audio/m4a` survives and the API accepts it. Scoped to audio only — photos
+already arrive as re-encoded `.jpg`/`.png` and videos as `.mp4`/`.mov`, all of
+which derive an accepted type, and base64 costs memory proportional to file
+size (fine for a voice note, not for a 50MB video).
+
+Also added a **pick-time guard** (`isSupportedAttachment`) so choosing a GIF
+or HEIC gives an immediate, specific message instead of a failed upload.
+
+### Follow-up 2: "image/jpg can't be sent" on iOS
+
+The guard above was written as an **allow-list**, and it wrongly blocked plain
+JPEGs. `react-native-image-picker` builds its MIME by concatenating a *sniffed
+extension* onto `"image/"` (`ImagePickerManager.mm`), so every JPEG is reported
+as the non-standard **`image/jpg`**.
+
+Probing the API showed this wasn't only a client bug — the server refuses
+`image/jpg` too, and matches **case-sensitively** (`image/JPEG` is refused).
+So on Android, where the declared type is what actually gets sent, ordinary
+photo attachments would have failed as well.
+
+Two changes:
+- **`canonicalMime()`** maps the known bad spellings to what the API wants
+  (`image/jpg`→`image/jpeg`, `video/mov`→`video/quicktime`,
+  `audio/mp3`→`audio/mpeg`, …) and is applied in `assetToStaged`, so the
+  *upload itself* is fixed, not just the check.
+- The guard is now a **deny-list** of types verified to be refused, not an
+  allow-list. Wrongly blocking a file the server would have accepted is worse
+  than a late failure, and the server's own message still surfaces. Lesson:
+  don't gate on a whitelist inferred from a sample.
+
+Both lists live in one place in `src/services/chatAttachments.ts` —
+**revisit them if the backend widens its allow-list (gap #18)**.
+
+### Follow-up 3: picker never opened on iOS
+
+Tapping "Photos & Videos" did nothing on iOS. The attach sheet is a RN
+`Modal`, and the handler called `launchImageLibrary` in the same tick as
+`setAttachMenuVisible(false)` — so the picker's native view controller tried to
+present from a controller that was still dismissing, which iOS ignores
+silently. (The app's other pickers are launched from plain buttons, which is
+why only this screen was affected.)
+
+Fixed by deferring: the chosen source is parked in `pendingPickRef` and run
+from the Modal's **`onDismiss`**, which fires once the sheet is really gone.
+`onDismiss` is iOS-only, so Android runs it immediately; a 700ms timer backs it
+up, and `runPendingPick` clears the ref before acting so whichever fires first
+wins and the other is a no-op. **Any native picker/camera launched from inside
+a `Modal` needs this treatment.**
+
+### Follow-up 4: "Vo" clipped in the voice-note bubble
+
+The idle label read `"Voice note"`, but it sits in a slot sized for a `0:00`
+timer, and 26 waveform bars (~115pt) pushed the bubble past its `maxWidth` —
+so it rendered as "Vo". The label is now always timer-shaped (`--:--` until the
+clip has been played once, since attachments carry no duration — gap #15), the
+bar count is down to 20, and the waveform yields space before the timer does.
+
 ## 2026-08-17 — Integrated backend-delivered gaps #1,2,3,4,6,7,8
 Backend shipped these; app side now wired (verified against the live Swagger):
 - **#1** `GET /penpal/discover` returns `connectionStatus` → All-tab card shows

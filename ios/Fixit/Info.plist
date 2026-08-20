@@ -33,8 +33,14 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Fixit uses your camera so you can send photos and videos in chat.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Fixit uses your microphone so you can record and send voice notes in chat.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Fixit needs access to your photos so you can share them in chat and on your profile.</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UIAppFonts</key>

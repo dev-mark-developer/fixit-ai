@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -22,6 +22,9 @@ import DatingBottomBar from '../../components/dating/DatingBottomBar';
 import { Colors } from '../../utils/colors';
 import RemoteImage from '../../components/common/RemoteImage';
 import { useModuleStatus } from '../../store/ModuleStatusContext';
+import { chatHub } from '../../services/chatHub';
+import { messagePreview, parseChatDate } from '../../utils/chatMedia';
+import { getUser } from '../../store/auth';
 
 type Props = CompositeScreenProps<
   DrawerScreenProps<DatingDrawerParamList, 'DatingChats'>,
@@ -29,15 +32,22 @@ type Props = CompositeScreenProps<
 >;
 
 function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
+  const date = parseChatDate(dateStr);
+  if (Number.isNaN(date.getTime())) return '';
+  const mins = Math.floor((Date.now() - date.getTime()) / 60000);
   if (mins < 1) return 'Just Now';
   if (mins < 60) return `${mins} mins ago`;
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return `${hrs} Hour${hrs > 1 ? 's' : ''} ago`;
   const days = Math.floor(hrs / 24);
   if (days < 7) return `${days} Day${days > 1 ? 's' : ''} ago`;
-  return new Date(dateStr).toLocaleDateString();
+  return date.toLocaleDateString();
+}
+
+/** Most recent activity first — keeps live hub updates from landing mid-list. */
+function recencyOf(match: DatingMatch): number {
+  const date = parseChatDate(match.lastMessageAt ?? match.matchedAt);
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
 }
 
 export default function DatingChatsScreen({ navigation }: Props) {
@@ -50,6 +60,8 @@ export default function DatingChatsScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
+  // Read inside hub callbacks, which outlive the render that registered them.
+  const currentUserId = useRef<number | null>(null);
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -71,15 +83,57 @@ export default function DatingChatsScreen({ navigation }: Props) {
     }, [load]),
   );
 
+  useEffect(() => {
+    let active = true;
+    getUser().then((user) => { if (active) currentUserId.current = user?.id ?? null; });
+    return () => { active = false; };
+  }, []);
+
+  // Live rows: a new message updates the preview, timestamp and unread badge
+  // in place instead of waiting for the next focus refetch.
+  useFocusEffect(
+    useCallback(() => {
+      chatHub.connect().catch(() => {
+        // Offline is fine here — the list still renders from REST.
+      });
+
+      const unsubscribe = chatHub.onMessage((msg) => {
+        setMatches((prev) =>
+          prev.map((m) => {
+            if (m.id !== msg.matchId) return m;
+            const fromPeer = msg.senderId !== currentUserId.current;
+            return {
+              ...m,
+              lastMessage: messagePreview(msg),
+              lastMessageAt: msg.sentAt,
+              unreadCount: fromPeer ? m.unreadCount + 1 : m.unreadCount,
+            };
+          }),
+        );
+      });
+
+      return () => {
+        unsubscribe();
+        chatHub.disconnect();
+      };
+    }, []),
+  );
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return matches;
-    return matches.filter((m) =>
-      `${m.otherFirstName} ${m.otherLastName}`.toLowerCase().includes(q),
-    );
+    const rows = q
+      ? matches.filter((m) =>
+          `${m.otherFirstName} ${m.otherLastName}`.toLowerCase().includes(q),
+        )
+      : matches;
+    return [...rows].sort((a, b) => recencyOf(b) - recencyOf(a));
   }, [matches, search]);
 
   const openChat = (match: DatingMatch) => {
+    // Opening the thread marks it read, so clear the badge straight away.
+    setMatches((prev) =>
+      prev.map((m) => (m.id === match.id ? { ...m, unreadCount: 0 } : m)),
+    );
     navigation.navigate('DatingChatDetail', {
       matchId: match.id,
       matchedUserId: match.otherUserId,

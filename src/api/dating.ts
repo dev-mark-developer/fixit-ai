@@ -1,4 +1,5 @@
 import api from './axios';
+import { buildUploadPart } from '../utils/uploadPart';
 
 export interface DatingProfile {
   id: number;
@@ -67,12 +68,27 @@ export interface DatingMatch {
   otherUserId: number;
   otherFirstName: string;
   otherLastName: string;
+  otherPseudoName?: string | null;
   otherProfileImageUrl?: string;
   otherDisplayImageUrl?: string;
+  otherAge?: number;
   matchedAt: string;
   unreadCount: number;
   lastMessage?: string;
   lastMessageAt?: string;
+}
+
+/** The only attachment kinds the chat hub accepts. */
+export type ChatFileType = 'Image' | 'Video' | 'VoiceNote';
+
+export interface ChatAttachment {
+  /** Absent on the payload we send up, present on everything the server returns. */
+  id?: number;
+  fileUrl: string;
+  fileType: ChatFileType;
+  fileName?: string | null;
+  fileSizeBytes?: number | null;
+  sortOrder?: number;
 }
 
 export interface ChatMessage {
@@ -80,12 +96,30 @@ export interface ChatMessage {
   matchId: number;
   senderId: number;
   receiverId: number;
-  content?: string;
+  content?: string | null;
+  /** 'Text' when there are no files, else the FIRST attachment's type. */
   messageType: string;
-  fileUrl?: string;
+  /** Legacy mirror of `attachments[0].fileUrl` — read `attachments` instead. */
+  fileUrl?: string | null;
+  attachments?: ChatAttachment[];
+  /**
+   * Hub payloads end in `Z`; REST history carries NO zone marker.
+   * Always read this through `parseChatDate` in `utils/chatMedia`.
+   */
   sentAt: string;
   isRead: boolean;
 }
+
+/** A local file staged for upload (image picker / voice recorder output). */
+export interface ChatUploadFile {
+  uri: string;
+  name: string;
+  /** MIME type — the API only accepts `image/*`, `video/*` and `audio/*`. */
+  type: string;
+}
+
+/** Max files the hub will accept on a single message. */
+export const MAX_CHAT_ATTACHMENTS = 10;
 
 export interface SwipeResult {
   isMatch: boolean;
@@ -225,6 +259,35 @@ export const datingApi = {
     api.get(`/dating/matches/${matchId}/messages`, { params }),
   markMessagesRead: (matchId: number) =>
     api.patch(`/dating/matches/${matchId}/messages/read`),
+
+  // Chat attachments — upload first, then send the returned descriptors over
+  // SignalR with `SendMessageWithAttachments`.
+  /**
+   * Up to {@link MAX_CHAT_ATTACHMENTS} files in one call. Only `image/*`,
+   * `video/*` and `audio/*` are accepted; anything else comes back 400.
+   * Resolves to `ChatAttachment[]` in `data.data`.
+   */
+  uploadChatFiles: async (matchId: number, files: ChatUploadFile[]) => {
+    const form = new FormData();
+    // `buildUploadPart` is what keeps the declared MIME type intact on iOS.
+    for (const file of files) {
+      form.append('files', (await buildUploadPart(file)) as any);
+    }
+    return api.post(`/dating/matches/${matchId}/uploads`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      // Video/voice payloads routinely outrun the 25s instance default.
+      timeout: 120000,
+    });
+  },
+  /** Legacy single-file upload — resolves to the file URL string in `data.data`. */
+  uploadChatFile: async (matchId: number, file: ChatUploadFile) => {
+    const form = new FormData();
+    form.append('file', (await buildUploadPart(file)) as any);
+    return api.post(`/dating/matches/${matchId}/upload`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000,
+    });
+  },
 
   // Vetting
   getVettingQuestions: () => api.get('/dating/vetting/questions'),

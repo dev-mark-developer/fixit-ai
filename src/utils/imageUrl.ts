@@ -14,3 +14,10 @@ export function resolveImageUrl(url?: string | null): string | undefined {
   if (/^[a-z][a-z0-9+.-]*:/i.test(url)) return url;
   return `${API_ORIGIN}${url.startsWith('/') ? '' : '/'}${url}`;
 }
+
+/**
+ * Same resolution for non-image media (chat video and voice-note attachments
+ * come back as the same relative paths). Aliased rather than duplicated so
+ * there's one rule for turning an API path into something playable.
+ */
+export const resolveMediaUrl = resolveImageUrl;
