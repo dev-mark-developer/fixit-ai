@@ -20,6 +20,7 @@ import { datingApi, DatingMatch } from '../../api/dating';
 import DatingTopBar from '../../components/dating/DatingTopBar';
 import DatingBottomBar from '../../components/dating/DatingBottomBar';
 import { Colors } from '../../utils/colors';
+import { usePrefetchImages } from '../../utils/imageCache';
 import RemoteImage from '../../components/common/RemoteImage';
 import { useModuleStatus } from '../../store/ModuleStatusContext';
 import { chatHub } from '../../services/chatHub';
@@ -57,6 +58,7 @@ export default function DatingChatsScreen({ navigation }: Props) {
   const lime = isSpiritual ? Colors.spiritualLime : Colors.datingSecondary;
 
   const [matches, setMatches] = useState<DatingMatch[]>([]);
+  usePrefetchImages(matches.map(m => m.otherDisplayImageUrl ?? m.otherProfileImageUrl));
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');

@@ -5,6 +5,179 @@ doing UI work on **AIFixitMobileApp**. Newest entries at the top.
 
 ---
 
+## 2026-08-20 — Firebase push notifications wired end-to-end
+
+Full setup guide (including the bits only the account owner can do):
+**[PUSH_NOTIFICATIONS.md](./PUSH_NOTIFICATIONS.md)**.
+
+**Libraries:** `@react-native-firebase/app` + `@react-native-firebase/messaging`
+v26.3.0. Note v26 is **modular-only** — the `messaging()` namespaced API the
+old stubs referenced no longer exists, so everything uses
+`getMessaging(...)` / `getToken(messaging)` style calls.
+
+**The token path was already half-built.** `LoginRequest` and
+`RegisterRequest` both accept `pushToken`, and the app already sent it — but
+`getPushToken()` in `src/utils/device.ts` was a stub returning `null`, so it
+never carried anything. Replaced by `src/services/pushNotifications.ts`
+(moved rather than re-exported: the service needs `getDeviceId()` from
+`device.ts`, so keeping it there would have been circular).
+
+There's **no device-registration endpoint**, but `POST /auth/heartbeat`
+accepts `{ deviceId, pushToken }` — that's the mid-session channel. So:
+- sign-in → token rides along on login/register,
+- after login → re-synced via heartbeat (catches a permission grant made
+  during login),
+- FCM rotation → `onTokenRefresh` → heartbeat,
+- logout → `deleteToken()` so the device stops receiving the old account's
+  notifications.
+
+**Both native inits are deliberately guarded.** The google-services Gradle
+plugin hard-fails a build when `google-services.json` is missing, and
+`FirebaseApp.configure()` raises a fatal error without `GoogleService-Info.plist`
+— and those files can only come from the Firebase console. Applying either
+unconditionally would have broken the build for everyone until the files
+landed. Instead both check for their file first, so **the app builds and runs
+exactly as before today**, and push activates on the next rebuild after the
+files are added.
+
+**iOS Podfile took two fixes**, both scoped deliberately narrowly:
+1. RNFB v26 defaults to SPM for Firebase, which is incompatible with this
+   project's static linkage (`SPM + static linkage is not supported`). Set
+   `$RNFirebaseDisableSPM = true` rather than switching the whole app to
+   `use_frameworks! :dynamic`, which would have changed linkage for every
+   other native module.
+2. That exposed `FirebaseCoreInternal` (Swift) importing `GoogleUtilities`,
+   which has no module map. Added `pod 'GoogleUtilities', :modular_headers =>
+   true` rather than a global `use_modular_headers!`.
+
+Firebase 12.18.0 also needs `pod install --repo-update` on a stale spec repo.
+Pods now install clean (Firebase 12.18.0 + RNFB 26.3.0).
+
+⏳ **Shelf life:** CocoaPods warns that FirebaseCore is deprecated and stops
+publishing there after **October 2026** — SPM is the future, which is why RNFB
+defaults to it. A migration to SPM (and therefore dynamic frameworks) will be
+needed eventually.
+
+**Also:** activated the deep-link block that was left commented in
+`AppNavigator.tsx` (rewritten for the modular API) — a tap with `matchId` +
+`senderId` in the payload's `data` opens that chat, anything else opens
+Notifications; a cold-start tap is held until the navigator is ready. Fixed the
+long-standing `getCurrentRoute()?.name` type error there while in the file, so
+**`tsc` is now clean across the whole project** for the first time.
+
+**Config files:** `ios/Fixit/GoogleService-Info.plist` was added during the
+session but only *copied into the folder* — it was **not a member of the Xcode
+target**, so the app would never have found it and Firebase would have stayed
+silently uninitialised. Registered it in the *Fixit* Copy Bundle Resources
+phase via CocoaPods' own `xcodeproj` gem (safer than hand-editing
+`project.pbxproj`) and verified `BUNDLE_ID` matches the Xcode bundle id.
+**`android/app/google-services.json` is still missing** — register the Firebase
+Android app under `com.fixit.mobileapp` (see the rename below).
+
+### Android package renamed `com.fixit.app` → `com.fixit.mobileapp`
+
+Done everywhere, so both platforms now share one id:
+- `android/app/build.gradle` — `applicationId` **and** `namespace`
+- `android/settings.gradle` — `rootProject.name`
+- `package.json` / `package-lock.json` — `name`
+- `MainActivity.kt` / `MainApplication.kt` — `package` declaration, and the
+  files moved to `android/app/src/main/java/com/fixit/mobileapp/`. That also
+  fixes a pre-existing oddity: they were in a **literal directory named
+  `com/com.fixit.app/`**, which Kotlin tolerates (it doesn't require dir to
+  match package) but is wrong.
+
+Nothing else referenced the old name — no manifest entries (the components use
+the `.MainActivity` shorthand, which resolves through `namespace`), no
+`BuildConfig`/`R` imports, and iOS was already `com.fixit.mobileapp`.
+
+⚠️ A changed `applicationId` is a **different app** to Android: existing
+`com.fixit.app` installs won't upgrade over it, they sit side by side.
+Uninstall the old one, and `./gradlew clean` before the next build so stale
+generated sources under the old namespace don't linger.
+
+### Follow-up fixes
+
+**Release-only AAPT failure: `resource color/notification_accent … not found`.**
+Follow-on from the manifest fix below, and it only showed up on
+`assembleRelease` — debug built fine. `firebase.json` values are substituted
+into **RNFB's own manifest**, so a resource reference is resolved against the
+*library's* resources, and RNFB messaging bundles its own `colors.xml` of CSS
+colour names. `@color/notification_accent` lives in the app module, so the
+library couldn't link it. The split that actually works:
+- `messaging_android_notification_channel_id` → `firebase.json` (plain string,
+  no resource lookup)
+- `default_notification_color` → app `AndroidManifest.xml` with
+  `tools:replace="android:resource"` (must resolve against app resources)
+
+So the manifest-merger suggestion I dismissed as "fighting the library" was
+right for the colour specifically. **Rule of thumb: `firebase.json` is only
+for values that resolve inside RNFB's own resource namespace.** And: verify
+`assembleRelease`, not just `assembleDebug` — this class of resource error is
+release-only.
+
+**Android manifest merger failure.** I'd added
+`com.google.firebase.messaging.default_notification_channel_id` and
+`…default_notification_color` meta-data to `AndroidManifest.xml`. RNFB
+**already declares both** in its own manifest, filled from Gradle manifest
+placeholders, so `:app:processDebugMainManifest` failed with duplicate
+attributes. Removed them and configured the colour through **`firebase.json`**
+at the repo root (`messaging_android_notification_color`), which is the
+mechanism RNFB provides — `tools:replace` would have silenced the error but
+fought the library instead of configuring it. Also dropped the
+`default_notification_channel_id` string I'd added: setting a channel id
+requires something to *create* that channel (native code or notifee), and an
+id naming a non-existent channel just makes FCM fall back to its own default.
+**Lesson: check whether a native lib already declares manifest entries before
+adding them.**
+
+**`messaging/registration-timeout` on iOS.** `getPushToken()` was calling
+`registerDeviceForRemoteMessages()` as a belt-and-braces step. RNFB already
+registers automatically, so that call was redundant — and it *blocks* waiting
+on an APNs response, which never arrives on the Simulator. A "no token yet"
+became a hard failure that aborted the whole fetch. Removed; the check is now
+observational (log-only) and the catch prints an iOS checklist. Real point
+worth remembering: **push tokens need a physical iOS device** — the Simulator
+generally can't complete APNs registration at all.
+
+**Permission moved to app launch.** It was requested inside the login/register
+handlers, so the prompt appeared on pressing Login. Now asked once from
+`App.tsx` on mount. This isn't only cosmetic: on iOS, APNs registration only
+completes after notifications are allowed and `getToken()` fails until then —
+so asking at the login button guaranteed the first sign-in sent `pushToken:
+null`.
+
+### Local notifications (`@notifee/react-native` v9.1.8)
+
+Added `src/services/localNotifications.ts` — display now, schedule for later,
+cancel, list scheduled ids, clear badge. This also closes the foreground gap:
+FCM draws nothing while the app is open, so foreground messages are now
+re-raised through notifee, which is the only reason they're visible.
+
+**The trap here is double-display.** FCM draws `notification`-payload messages
+itself when the app is backgrounded, so raising them again duplicates them.
+The rule now encoded in `registerBackgroundHandler`:
+
+| Message | State | Drawn by |
+|---|---|---|
+| has `notification` | foreground | notifee |
+| has `notification` | background/quit | the OS |
+| data-only | either | notifee |
+
+Taps can't double-fire either — notifee-drawn notifications report through
+notifee, OS-drawn ones through FCM, and `onNotificationTap` subscribes to
+both, so a local notification deep-links exactly like a push.
+
+Because notifee now *creates* the `fixit_default` channel at launch, the
+channel id went back into `firebase.json` (it was removed earlier precisely
+because nothing created it). `DEFAULT_CHANNEL_ID` and the `firebase.json` key
+must stay in sync — **Android silently drops notifications naming a channel
+that doesn't exist.**
+
+`PushPayload` moved to `src/types/notifications.ts`: `pushNotifications` now
+imports from `localNotifications`, so leaving the type in the former would
+have been circular. Still re-exported from `pushNotifications` so existing
+import sites keep working.
+
 ## 2026-08-18 — Chat: attachments, voice notes & the rest of the hub contract
 Integrated `docs/CHAT_API.md` end-to-end. Gap **#10 → 🟢 Resolved**; four new
 backend gaps opened (**#14–#17**).

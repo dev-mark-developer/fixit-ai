@@ -60,6 +60,10 @@ export default function UploadCertificateScreen({ navigation }: Props) {
     const result = await launchImageLibrary({
       mediaType: 'mixed',
       selectionLimit: 1,
+      // A certificate has to stay readable, so this is capped far higher than
+      // an avatar — it only trims the camera's excess. Ignored for PDFs.
+      maxWidth: 2048,
+      maxHeight: 2048,
     });
     if (result.didCancel || !result.assets?.length) return;
     const asset = result.assets[0];

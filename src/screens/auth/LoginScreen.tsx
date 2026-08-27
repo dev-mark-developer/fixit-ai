@@ -5,7 +5,8 @@ const LOGO = require('../../assets/fixit-app-logo.png');
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { AuthStackParamList } from '../../types/navigation';
 import { Colors } from '../../utils/colors';
-import { getDeviceId, getPlatform, getPushToken } from '../../utils/device';
+import { getDeviceId, getPlatform } from '../../utils/device';
+import { getPushToken } from '../../services/pushNotifications';
 import { useAuth } from '../../store/AuthContext';
 import AppInput from '../../components/common/AppInput';
 import AppButton from '../../components/common/AppButton';
@@ -40,6 +41,9 @@ export default function LoginScreen({ navigation }: Props) {
     if (!validate()) return;
     setLoading(true);
     try {
+      // Permission was already asked for at app launch (App.tsx), so this just
+      // reads whatever token exists. Null is fine — AuthContext re-syncs via
+      // heartbeat once one becomes available.
       const [deviceId, pushToken] = await Promise.all([
         getDeviceId(),
         getPushToken(),

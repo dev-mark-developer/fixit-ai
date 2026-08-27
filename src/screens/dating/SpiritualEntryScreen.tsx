@@ -68,6 +68,12 @@ export default function SpiritualEntryScreen({ navigation }: Props) {
   // out of this screen is to log out.
   const mentorPending = mentorRequest?.status?.toLowerCase() === 'pending';
 
+  // True whenever the mentor card reads "Request Submitted" — the request is in
+  // and no mentor is assigned yet. Vetting and certificate upload are hidden in
+  // that state so the user isn't offered a path around the request they made.
+  const mentorRequestSubmitted =
+    !!mentorRequest && mentorRequest.status?.toLowerCase() !== 'assigned';
+
   const handleLogout = () => {
     Alert.alert('Log Out', 'Are you sure you want to log out?', [
       { text: 'Cancel', style: 'cancel' },
@@ -450,29 +456,31 @@ export default function SpiritualEntryScreen({ navigation }: Props) {
             </View>
           )}
         </View>
-      </ScrollView>
 
-      {/* Actions pinned to bottom */}
-      <View style={styles.gatewayFooter}>
-        <AppButton
-          title="Begin My Vetting"
-          onPress={() => navigation.navigate('VettingQuiz')}
-          style={styles.vettingBtn}
-        />
-        <View style={styles.orRow}>
-          <View style={styles.orLine} />
-          <Text style={styles.orText}>OR</Text>
-          <View style={styles.orLine} />
-        </View>
-        <TouchableOpacity
-          style={styles.certBtn}
-          onPress={() => navigation.navigate('UploadCertificate')}
-          activeOpacity={0.85}
-        >
-          <Image source={require('../../assets/document-upload.png')} style={styles.certBtnIcon} resizeMode="contain" />
-          <Text style={styles.certBtnText}>Upload Certificate</Text>
-        </TouchableOpacity>
-      </View>
+        {/* Actions scroll with the content */}
+        {!mentorRequestSubmitted && (
+          <View style={styles.gatewayFooter}>
+            <AppButton
+              title="Begin My Vetting"
+              onPress={() => navigation.navigate('VettingQuiz')}
+              style={styles.vettingBtn}
+            />
+            <View style={styles.orRow}>
+              <View style={styles.orLine} />
+              <Text style={styles.orText}>OR</Text>
+              <View style={styles.orLine} />
+            </View>
+            <TouchableOpacity
+              style={styles.certBtn}
+              onPress={() => navigation.navigate('UploadCertificate')}
+              activeOpacity={0.85}
+            >
+              <Image source={require('../../assets/document-upload.png')} style={styles.certBtnIcon} resizeMode="contain" />
+              <Text style={styles.certBtnText}>Upload Certificate</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -494,7 +502,7 @@ const styles = StyleSheet.create({
   logoutText: { fontSize: 14, fontWeight: '700', color: Colors.white },
 
   // ── Gateway ───────────────────────────────────────────
-  gatewayContent: { padding: 24, paddingBottom: 16 },
+  gatewayContent: { padding: 24, paddingBottom: 32 },
 
   illustration: {
     width: '100%',
@@ -584,12 +592,8 @@ const styles = StyleSheet.create({
   mentorCardDesc: { fontSize: 12, color: Colors.textSecondary, lineHeight: 17 },
   mentorCardChevron: { fontSize: 22, color: Colors.textMuted, fontWeight: '300' },
 
-  gatewayFooter: {
-    padding: 20,
-    paddingBottom: 32,
-    backgroundColor: Colors.background,
-    gap: 0,
-  },
+  // Sits inside the scroll content, which already supplies the side padding.
+  gatewayFooter: { marginTop: 24 },
   vettingBtn: { backgroundColor: Colors.spiritual, marginBottom: 0 },
 
   orRow: {

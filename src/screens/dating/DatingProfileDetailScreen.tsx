@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   Dimensions, ActivityIndicator, Alert,
@@ -8,7 +8,7 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import type { DatingStackParamList } from '../../types/navigation';
 import { Colors } from '../../utils/colors';
 import RemoteImage from '../../components/common/RemoteImage';
-import { datingApi } from '../../api/dating';
+import { datingApi, DatingUserDetail } from '../../api/dating';
 import ReportModal from '../../components/common/ReportModal';
 import { useModuleStatus } from '../../store/ModuleStatusContext';
 
@@ -19,46 +19,65 @@ const HEADER_H = SCREEN_H * 0.48;
 const GRID_GAP = 10;
 const TILE_W = (SCREEN_W - 40 - GRID_GAP * 2) / 3;
 
+function ageFromDob(dob?: string): number | undefined {
+  if (!dob) return undefined;
+  const d = new Date(dob);
+  if (isNaN(d.getTime())) return undefined;
+  const now = new Date();
+  let age = now.getFullYear() - d.getFullYear();
+  const m = now.getMonth() - d.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age--;
+  return age >= 0 && age < 130 ? age : undefined;
+}
+
 export default function DatingProfileDetailScreen({ route, navigation }: Props) {
-  const {
-    userId, firstName, lastName, age, city, country, about,
-    displayImageUrl, profileImageUrl, interests, images, iceBreakerQuestions,
-  } = route.params;
+  const { userId } = route.params;
+  // Route params act as instant seed data (header renders immediately); the
+  // fetched profile fills or replaces them when it arrives.
+  const seed = route.params;
 
   const { datingType } = useModuleStatus();
   const isSpiritual = datingType === 'Spiritual';
   const accent = isSpiritual ? Colors.spiritual : Colors.dating;
-  const lime = isSpiritual ? Colors.spiritualLime : Colors.datingSecondary;
   const limeLight = isSpiritual ? Colors.spiritualLimeLight : Colors.datingLight;
 
-  const [swiping, setSwiping] = useState<'Like' | 'SuperLike' | 'Ignore' | null>(null);
+  const [profile, setProfile] = useState<DatingUserDetail | null>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
   const [reportVisible, setReportVisible] = useState(false);
   const [flagMenuVisible, setFlagMenuVisible] = useState(false);
 
-  const headerUri = displayImageUrl ?? profileImageUrl ?? images[0];
-  const galleryImages = images.filter((img) => img !== headerUri);
+  useEffect(() => {
+    let active = true;
+    datingApi.getUser(userId)
+      .then((res) => {
+        if (!active) return;
+        const data = (res.data?.data ?? res.data) as DatingUserDetail | undefined;
+        if (data && typeof data === 'object') setProfile(data);
+      })
+      .catch(() => {}) // seed params keep the screen usable
+      .finally(() => active && setProfileLoading(false));
+    return () => { active = false; };
+  }, [userId]);
 
-  const handleAction = async (action: 'Like' | 'SuperLike' | 'Ignore') => {
-    if (swiping) return;
-    setSwiping(action);
-    try {
-      const res = await datingApi.swipe(userId, action);
-      const result = res.data?.data as { isMatch: boolean; matchId?: number } | undefined;
-      if (result?.isMatch) {
-        Alert.alert(
-          "It's a Match! 💞",
-          `You and ${firstName} liked each other!`,
-          [{ text: 'Say Hi', onPress: () => navigation.goBack() }, { text: 'Keep Swiping', onPress: () => navigation.goBack() }],
-        );
-      } else {
-        navigation.goBack();
-      }
-    } catch {
-      navigation.goBack();
-    } finally {
-      setSwiping(null);
-    }
-  };
+  const firstName = profile?.pseudoName || profile?.firstName || seed.firstName;
+  const age = profile?.age ?? ageFromDob(profile?.dateOfBirth) ?? seed.age;
+  const city = profile?.city ?? seed.city;
+  const country = profile?.country ?? seed.country;
+  const about = profile?.about ?? seed.about;
+  const interests = profile?.interests
+    ? profile.interests.map((i) => (typeof i === 'string' ? i : i?.name ?? '')).filter(Boolean)
+    : seed.interests;
+  const iceBreakerQuestions = profile?.iceBreakerQuestions
+    ? profile.iceBreakerQuestions.map((q) => (typeof q === 'string' ? q : q?.question ?? '')).filter(Boolean)
+    : seed.iceBreakerQuestions;
+  const images = profile?.images
+    ? profile.images.map((img) => (typeof img === 'string' ? img : img?.imageUrl ?? '')).filter(Boolean)
+    : seed.images;
+
+  const headerUri =
+    profile?.displayImageUrl ?? profile?.profileImageUrl ??
+    seed.displayImageUrl ?? seed.profileImageUrl ?? images[0];
+  const galleryImages = images.filter((img) => img !== headerUri);
 
   const handleBlock = () => {
     setFlagMenuVisible(false);
@@ -162,6 +181,13 @@ export default function DatingProfileDetailScreen({ route, navigation }: Props) 
         </View>
 
         <View style={styles.body}>
+          {/* Body loading — only when the seed had nothing to show yet */}
+          {profileLoading && !about && interests.length === 0 && galleryImages.length === 0 && (
+            <View style={styles.bodyLoading}>
+              <ActivityIndicator color={accent} size="small" />
+            </View>
+          )}
+
           {/* About */}
           {!!about && (
             <View style={styles.section}>
@@ -208,45 +234,9 @@ export default function DatingProfileDetailScreen({ route, navigation }: Props) 
             </View>
           )}
 
-          <View style={{ height: 110 }} />
+          <View style={{ height: 32 }} />
         </View>
       </ScrollView>
-
-      {/* Action pill */}
-      <View style={styles.actionPill}>
-        <TouchableOpacity
-          style={[styles.actionBtn, { backgroundColor: Colors.white }]}
-          onPress={() => handleAction('Ignore')}
-          disabled={!!swiping}
-          activeOpacity={0.8}
-        >
-          {swiping === 'Ignore'
-            ? <ActivityIndicator color={lime} size="small" />
-            : <Icon name="close" size={26} color={lime} />}
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.actionBtn, { backgroundColor: limeLight }]}
-          onPress={() => handleAction('SuperLike')}
-          disabled={!!swiping}
-          activeOpacity={0.8}
-        >
-          {swiping === 'SuperLike'
-            ? <ActivityIndicator color={lime} size="small" />
-            : <Icon name="star" size={24} color={lime} />}
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.actionBtn, { backgroundColor: accent }]}
-          onPress={() => handleAction('Like')}
-          disabled={!!swiping}
-          activeOpacity={0.8}
-        >
-          {swiping === 'Like'
-            ? <ActivityIndicator color={Colors.white} size="small" />
-            : <Icon name="heart" size={26} color={isSpiritual ? Colors.spiritualLime : Colors.white} />}
-        </TouchableOpacity>
-      </View>
     </View>
   );
 }
@@ -261,12 +251,19 @@ const styles = StyleSheet.create({
   },
   headerInitial: { fontSize: 80, fontWeight: '700', opacity: 0.6 },
 
-  overlayBtn: { position: 'absolute', top: 54 },
+  // Translucent scrim behind the glyph — the header can be a dark photo, a pale
+  // photo or the tinted initials fallback, and white alone reads on none of them.
+  overlayBtn: {
+    position: 'absolute', top: 54,
+    width: 38, height: 38, borderRadius: 19,
+    justifyContent: 'center', alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.38)',
+  },
   backBtn: { left: 20 },
   flagBtn: { right: 20 },
 
   flagMenu: {
-    position: 'absolute', top: 88, right: 20,
+    position: 'absolute', top: 100, right: 20,
     backgroundColor: Colors.white, borderRadius: 10,
     paddingVertical: 4, width: 150,
     shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
@@ -291,6 +288,7 @@ const styles = StyleSheet.create({
   },
 
   body: { paddingHorizontal: 20, paddingTop: 22 },
+  bodyLoading: { paddingVertical: 28, alignItems: 'center' },
 
   section: { marginBottom: 22 },
   sectionTitle: { fontSize: 17, fontWeight: '700', color: Colors.text, marginBottom: 10 },
@@ -312,18 +310,5 @@ const styles = StyleSheet.create({
   galleryTile: {
     width: TILE_W, height: TILE_W * 1.25, borderRadius: 12,
     backgroundColor: Colors.surface,
-  },
-
-  actionPill: {
-    position: 'absolute', bottom: 28, alignSelf: 'center',
-    flexDirection: 'row', alignItems: 'center', gap: 14,
-    backgroundColor: Colors.white, borderRadius: 44,
-    paddingHorizontal: 14, paddingVertical: 10,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.14, shadowRadius: 12, elevation: 9,
-  },
-  actionBtn: {
-    width: 58, height: 58, borderRadius: 29,
-    justifyContent: 'center', alignItems: 'center',
   },
 });

@@ -52,7 +52,14 @@ function PenpalDrawerContent({ navigation }: DrawerContentComponentProps) {
   }, [drawerStatus]);
 
   const handleAvatarUpload = () => {
-    launchImageLibrary({ mediaType: 'photo', quality: 0.8 }, async response => {
+    launchImageLibrary({
+      mediaType: 'photo',
+      quality: 0.8,
+      // Rendered as a small circle everywhere — no reason to ship the
+      // camera's full-resolution original over the wire.
+      maxWidth: 512,
+      maxHeight: 512,
+    }, async response => {
       const asset = response.assets?.[0];
       if (!asset?.uri) return;
       setUploadingAvatar(true);

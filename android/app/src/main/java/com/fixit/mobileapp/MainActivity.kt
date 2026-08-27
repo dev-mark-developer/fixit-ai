@@ -1,4 +1,4 @@
-package com.fixit.app
+package com.fixit.mobileapp
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate

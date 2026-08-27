@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Dimensions,
@@ -11,6 +11,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import type { CompositeScreenProps } from '@react-navigation/native';
 import type { DrawerScreenProps } from '@react-navigation/drawer';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -22,6 +23,7 @@ import ReportModal from '../../components/common/ReportModal';
 import DatingTopBar from '../../components/dating/DatingTopBar';
 import DatingBottomBar from '../../components/dating/DatingBottomBar';
 import { Colors } from '../../utils/colors';
+import { usePrefetchImages } from '../../utils/imageCache';
 import RemoteImage from '../../components/common/RemoteImage';
 import { useModuleStatus } from '../../store/ModuleStatusContext';
 
@@ -60,15 +62,17 @@ const CARD_H = CARD_W * 1.35;
 interface MatchCardProps {
   match: DatingMatch;
   accent: string;
+  onOpenProfile: () => void;
   onChat: () => void;
   onReport: () => void;
 }
 
-function MatchCard({ match, accent, onChat, onReport }: MatchCardProps) {
+function MatchCard({ match, accent, onOpenProfile, onChat, onReport }: MatchCardProps) {
   const imageUri = match.otherDisplayImageUrl ?? match.otherProfileImageUrl;
 
   return (
-    <TouchableOpacity style={cardStyles.card} onPress={onChat} activeOpacity={0.85}>
+    // The card body opens the profile; chat has its own button top-right.
+    <TouchableOpacity style={cardStyles.card} onPress={onOpenProfile} activeOpacity={0.85}>
       <RemoteImage
         uri={imageUri}
         style={cardStyles.photo}
@@ -196,59 +200,99 @@ export default function DatingMatchesScreen({ navigation }: Props) {
   // Likes tabs (gap #7)
   const [likesReceived, setLikesReceived] = useState<DatingLike[]>([]);
   const [likesSent, setLikesSent] = useState<DatingLike[]>([]);
+  usePrefetchImages([
+    ...matches.map(m => m.otherDisplayImageUrl ?? m.otherProfileImageUrl),
+    ...likesReceived.map(likeImage),
+    ...likesSent.map(likeImage),
+  ]);
   const [likesLoading, setLikesLoading] = useState(false);
   const [likesLocked, setLikesLocked] = useState(false);
 
-  const load = useCallback(async (isRefresh = false) => {
-    if (isRefresh) setRefreshing(true); else setLoading(true);
+  // Only the newest request per list may write state, and each list blocks with
+  // its spinner only until it has loaded once — after that refreshes are silent.
+  const matchesReqRef = useRef(0);
+  const matchesLoadedRef = useRef(false);
+  const likesReqRef = useRef(0);
+  const likesLoadedRef = useRef<Partial<Record<TabKey, boolean>>>({});
+
+  const load = useCallback(async (isRefresh = false, silent = false) => {
+    const reqId = ++matchesReqRef.current;
+    if (!silent) { if (isRefresh) setRefreshing(true); else setLoading(true); }
     try {
       const res = await datingApi.getMatches();
+      if (reqId !== matchesReqRef.current) return;
       setMatches(res.data?.data ?? []);
     } catch {
-      setAlert({ title: 'Error', message: 'Could not load matches. Please try again.' });
+      if (reqId !== matchesReqRef.current) return;
+      // A silent refresh leaves the list it already has alone rather than
+      // interrupting a working screen with an alert nobody asked for.
+      if (!silent) {
+        setAlert({ title: 'Error', message: 'Could not load matches. Please try again.' });
+      }
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (reqId === matchesReqRef.current) {
+        matchesLoadedRef.current = true;
+        if (!silent) { setLoading(false); setRefreshing(false); }
+      }
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  const loadLikes = useCallback(async (tab: 'likes_received' | 'my_likes', silent = false) => {
+    const reqId = ++likesReqRef.current;
+    if (!silent) setLikesLoading(true);
+    try {
+      const res = tab === 'likes_received'
+        ? await datingApi.getLikesReceived()
+        : await datingApi.getLikesSent();
+      if (reqId !== likesReqRef.current) return;
+      const rows: DatingLike[] = res.data?.data ?? [];
+      if (tab === 'likes_received') {
+        setLikesLocked(false);
+        setLikesReceived(rows);
+      } else {
+        setLikesSent(rows);
+      }
+    } catch (err: any) {
+      if (reqId !== likesReqRef.current) return;
+      // 402/403 → premium required, show the locked preview instead. That one
+      // applies even on a silent pass: losing premium changes what may be shown.
+      const status = err?.response?.status;
+      if (tab === 'likes_received' && (status === 402 || status === 403)) {
+        setLikesLocked(true);
+      } else if (!silent) {
+        if (tab === 'likes_received') setLikesReceived([]); else setLikesSent([]);
+      }
+    } finally {
+      if (reqId === likesReqRef.current) {
+        likesLoadedRef.current[tab] = true;
+        if (!silent) setLikesLoading(false);
+      }
+    }
+  }, []);
 
-  // Fetch the likes list when its tab is opened
+  const refreshActiveTab = useCallback((tab: TabKey) => {
+    if (tab === 'matches') load(false, matchesLoadedRef.current);
+    else loadLikes(tab, !!likesLoadedRef.current[tab]);
+  }, [load, loadLikes]);
+
+  // Refetch whenever a tab is selected — My Matches included, which previously
+  // loaded once on mount and then went stale for the rest of the session.
   useEffect(() => {
-    if (activeTab === 'matches') return;
-    let active = true;
-    setLikesLoading(true);
-    const req =
-      activeTab === 'likes_received'
-        ? datingApi.getLikesReceived()
-        : datingApi.getLikesSent();
-    req
-      .then((res) => {
-        if (!active) return;
-        const rows: DatingLike[] = res.data?.data ?? [];
-        if (activeTab === 'likes_received') {
-          setLikesLocked(false);
-          setLikesReceived(rows);
-        } else {
-          setLikesSent(rows);
-        }
-      })
-      .catch((err) => {
-        if (!active) return;
-        // 402/403 → premium required, show the locked preview instead
-        const status = err?.response?.status;
-        if (activeTab === 'likes_received' && (status === 402 || status === 403)) {
-          setLikesLocked(true);
-        } else if (activeTab === 'likes_received') {
-          setLikesReceived([]);
-        } else {
-          setLikesSent([]);
-        }
-      })
-      .finally(() => active && setLikesLoading(false));
-    return () => { active = false; };
-  }, [activeTab]);
+    refreshActiveTab(activeTab);
+  }, [activeTab, refreshActiveTab]);
+
+  // ...and on every focus, so returning from a chat or a profile is up to date.
+  // The tab effect already covers mount, so the first focus is skipped to keep
+  // the two from firing the same request twice.
+  const activeTabRef = useRef(activeTab);
+  useEffect(() => { activeTabRef.current = activeTab; }, [activeTab]);
+  const didMountRef = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      if (!didMountRef.current) { didMountRef.current = true; return; }
+      refreshActiveTab(activeTabRef.current);
+    }, [refreshActiveTab]),
+  );
 
   const openChat = (match: DatingMatch) => {
     navigation.navigate('DatingChatDetail', {
@@ -261,8 +305,23 @@ export default function DatingMatchesScreen({ navigation }: Props) {
   const goPremium = () =>
     navigation.navigate('DatingPremium', { datingType: datingType ?? 'NonSpiritual' });
 
-  // Likes rows carry only the summary fields — about/interests/gallery aren't
-  // in the likes response, so the detail screen just hides those sections.
+  // Match rows carry only summary fields; the detail screen fetches the rest
+  // from `GET /dating/user/{userId}`, so these params are just the instant paint.
+  const openMatchProfile = (match: DatingMatch) => {
+    navigation.navigate('DatingProfileDetail', {
+      userId: match.otherUserId,
+      firstName: match.otherPseudoName || match.otherFirstName,
+      lastName: match.otherPseudoName ? '' : match.otherLastName,
+      age: match.otherAge,
+      displayImageUrl: match.otherDisplayImageUrl,
+      profileImageUrl: match.otherProfileImageUrl,
+      interests: [],
+      images: [],
+      iceBreakerQuestions: [],
+    });
+  };
+
+  // Same for the likes rows — summary fields only, detail screen fills the rest.
   const openLikeProfile = (like: DatingLike) => {
     const userId = likeUserId(like);
     if (!userId) return;
@@ -302,6 +361,7 @@ export default function DatingMatchesScreen({ navigation }: Props) {
           <MatchCard
             match={item}
             accent={accent}
+            onOpenProfile={() => openMatchProfile(item)}
             onChat={() => openChat(item)}
             onReport={() => {
               setReportUserId(item.otherUserId);

@@ -6,6 +6,7 @@ import {
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { DatingStackParamList } from '../../types/navigation';
 import { Colors } from '../../utils/colors';
+import { usePrefetchImages } from '../../utils/imageCache';
 import RemoteImage from '../../components/common/RemoteImage';
 import { mentorApi, ExternalMentor } from '../../api/mentor';
 
@@ -13,6 +14,7 @@ type Props = NativeStackScreenProps<DatingStackParamList, 'SpiritualMentors'>;
 
 export default function SpiritualMentorsScreen(_: Props) {
   const [mentors, setMentors] = useState<ExternalMentor[]>([]);
+  usePrefetchImages(mentors.map(m => m.profileImageUrl));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 

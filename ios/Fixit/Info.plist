@@ -36,7 +36,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>Fixit uses your camera so you can send photos and videos in chat.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string/>
+	<string></string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Fixit uses your microphone so you can record and send voice notes in chat.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

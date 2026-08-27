@@ -7,7 +7,8 @@ import { launchImageLibrary } from 'react-native-image-picker';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { AuthStackParamList } from '../../types/navigation';
 import { Colors } from '../../utils/colors';
-import { getDeviceId, getPlatform, getPushToken } from '../../utils/device';
+import { getDeviceId, getPlatform } from '../../utils/device';
+import { getPushToken } from '../../services/pushNotifications';
 import AppInput from '../../components/common/AppInput';
 import AppButton from '../../components/common/AppButton';
 import AppAlert, { AlertButton } from '../../components/common/AppAlert';
@@ -103,7 +104,15 @@ export default function RegisterScreen({ navigation }: Props) {
   };
 
   const pickImage = () => {
-    launchImageLibrary({ mediaType: 'photo', quality: 0.8, includeBase64: false }, (response) => {
+    launchImageLibrary({
+      mediaType: 'photo',
+      quality: 0.8,
+      includeBase64: false,
+      // Rendered as a small circle everywhere — no reason to ship the
+      // camera's full-resolution original over the wire.
+      maxWidth: 512,
+      maxHeight: 512,
+    }, (response) => {
       const asset = response.assets?.[0];
       if (asset?.uri) {
         setProfileImageUri(asset.uri);
@@ -116,6 +125,7 @@ export default function RegisterScreen({ navigation }: Props) {
     if (!validate()) return;
     setLoading(true);
     try {
+      // Permission was already asked for at app launch (App.tsx).
       const [deviceId, pushToken] = await Promise.all([getDeviceId(), getPushToken()]);
 
       // Sign-up photo is uploaded first (no auth needed); the returned URL is

@@ -97,7 +97,14 @@ export default function DatingMyProfileScreen() {
   );
 
   const handleUpload = () => {
-    launchImageLibrary({ mediaType: 'photo', quality: 0.8 }, async (res) => {
+    launchImageLibrary({
+      mediaType: 'photo',
+      quality: 0.8,
+      // Gallery shots are viewed full-screen, so they keep more detail than
+      // an avatar — but still nowhere near a 4032px camera original.
+      maxWidth: 1440,
+      maxHeight: 1440,
+    }, async (res) => {
       const asset = res.assets?.[0];
       if (!asset?.uri) return;
       setUploading(true);
@@ -115,7 +122,14 @@ export default function DatingMyProfileScreen() {
   // Tap the avatar → pick a photo, upload it to the dating gallery and make
   // it the display image (existing upload + set-display endpoints).
   const handleAvatarUpload = () => {
-    launchImageLibrary({ mediaType: 'photo', quality: 0.8 }, async (res) => {
+    launchImageLibrary({
+      mediaType: 'photo',
+      quality: 0.8,
+      // Gallery shots are viewed full-screen, so they keep more detail than
+      // an avatar — but still nowhere near a 4032px camera original.
+      maxWidth: 1440,
+      maxHeight: 1440,
+    }, async (res) => {
       const asset = res.assets?.[0];
       if (!asset?.uri) return;
       setUploadingAvatar(true);

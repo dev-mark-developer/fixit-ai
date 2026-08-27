@@ -11,6 +11,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import type { CompositeScreenProps } from '@react-navigation/native';
 import type { DrawerScreenProps } from '@react-navigation/drawer';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -31,6 +32,7 @@ import CountryPicker from '../../components/common/CountryPicker';
 import DatingTopBar from '../../components/dating/DatingTopBar';
 import DatingBottomBar from '../../components/dating/DatingBottomBar';
 import { Colors } from '../../utils/colors';
+import { usePrefetchImages } from '../../utils/imageCache';
 import RemoteImage from '../../components/common/RemoteImage';
 import { useModuleStatus } from '../../store/ModuleStatusContext';
 
@@ -383,6 +385,7 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
   const limeLight = isSpiritual ? Colors.spiritualLimeLight : Colors.datingLight;
 
   const [users, setUsers] = useState<DiscoverUser[]>([]);
+  usePrefetchImages(users.map(u => u.displayImageUrl ?? u.profileImageUrl));
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
@@ -432,8 +435,21 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
   // Prevent duplicate swipe calls
   const swipingRef = useRef(false);
 
-  const loadUsers = useCallback(async (withFilters: boolean) => {
-    setLoading(true);
+  // Whether the current deck came from a filtered query — a refresh on focus
+  // has to preserve the user's filters instead of silently resetting them.
+  const filtersAppliedRef = useRef(false);
+  // Only the newest request may write state; refocusing mid-flight would
+  // otherwise let a stale response land on top of a fresh one.
+  const requestIdRef = useRef(0);
+
+  // Flips after the first load settles: from then on a refresh has something on
+  // screen to leave in place, so it can run without the blocking spinner.
+  const hasLoadedRef = useRef(false);
+
+  const loadUsers = useCallback(async (withFilters: boolean, silent = false) => {
+    const requestId = ++requestIdRef.current;
+    filtersAppliedRef.current = withFilters;
+    if (!silent) setLoading(true);
     try {
       const res = await datingApi.discover({
         page: 1,
@@ -451,20 +467,38 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
             }
           : {}),
       });
+      if (requestId !== requestIdRef.current) return;
       setUsers(res.data?.data ?? []);
       setCurrentIndex(0);
     } catch {
-      setAlert({ title: 'Error', message: 'Could not load profiles. Please try again.' });
+      if (requestId !== requestIdRef.current) return;
+      // A silent refresh keeps whatever deck is already on screen — interrupting
+      // a working screen with an alert the user never asked for is worse noise.
+      if (!silent) {
+        setAlert({ title: 'Error', message: 'Could not load profiles. Please try again.' });
+      }
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) {
+        hasLoadedRef.current = true;
+        if (!silent) setLoading(false);
+      }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterCountry, filterGender, filterAge, filterDistance, selectedInterests]);
 
-  useEffect(() => {
-    loadUsers(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // `loadUsers` is a new function on every filter change, so the focus effect
+  // reads it through a ref — depending on it directly would refetch mid-drag
+  // while the filter sheet is still open.
+  const loadUsersRef = useRef(loadUsers);
+  useEffect(() => { loadUsersRef.current = loadUsers; }, [loadUsers]);
+
+  // Refresh on every focus so returning from a profile, a chat or the drawer
+  // shows a fresh deck. Only the first load blocks with a spinner; later ones
+  // swap the deck in underneath the user.
+  useFocusEffect(
+    useCallback(() => {
+      loadUsersRef.current(filtersAppliedRef.current, hasLoadedRef.current);
+    }, []),
+  );
 
   const handleSwipe = useCallback(
     (user: DiscoverUser, direction: 'left' | 'right' | 'super') => {

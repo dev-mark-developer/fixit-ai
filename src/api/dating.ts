@@ -63,6 +63,30 @@ export interface DiscoverUser {
   images: string[];
 }
 
+/**
+ * Full public profile from `GET /dating/user/{userId}` (gap #13). The shape
+ * isn't typed in Swagger, so list fields tolerate both plain strings and the
+ * object forms used elsewhere (DatingImage / Interest / IceBreakerQuestion).
+ */
+export interface DatingUserDetail {
+  userId: number;
+  firstName?: string;
+  lastName?: string;
+  pseudoName?: string | null;
+  profileImageUrl?: string;
+  displayImageUrl?: string;
+  datingType?: string;
+  about?: string;
+  country?: string;
+  city?: string;
+  state?: string;
+  age?: number;
+  dateOfBirth?: string;
+  interests?: (string | { name?: string })[];
+  iceBreakerQuestions?: (string | { question?: string })[];
+  images?: (string | { imageUrl?: string })[];
+}
+
 export interface DatingMatch {
   id: number;
   otherUserId: number;
@@ -240,6 +264,9 @@ export const datingApi = {
         InterestIds: params.interestIds,
       },
     }),
+
+  // Another user's full public profile — endpoint added by the backend (gap #13)
+  getUser: (userId: number) => api.get(`/dating/user/${userId}`),
 
   // Likes — endpoints added by the backend (gap #7)
   getLikesReceived: (params?: { page?: number; pageSize?: number }) =>

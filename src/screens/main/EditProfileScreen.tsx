@@ -95,7 +95,15 @@ export default function EditProfileScreen({ navigation }: Props) {
 
   const pickImage = () => {
     launchImageLibrary(
-      { mediaType: 'photo', quality: 0.8, includeBase64: false },
+      {
+        mediaType: 'photo',
+        quality: 0.8,
+        includeBase64: false,
+        // Rendered as a small circle everywhere — no reason to ship the
+        // camera's full-resolution original over the wire.
+        maxWidth: 512,
+        maxHeight: 512,
+      },
       async (response) => {
         const uri = response.assets?.[0]?.uri;
         if (!uri) return;

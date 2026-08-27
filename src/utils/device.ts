@@ -24,20 +24,6 @@ export function getPlatform(): string {
   return Platform.OS === 'ios' ? 'iOS' : 'Android';
 }
 
-/**
- * Returns the FCM push token for the current device.
- *
- * TO ENABLE PUSH NOTIFICATIONS:
- * 1. npm install @react-native-firebase/app @react-native-firebase/messaging
- * 2. Create a Firebase project at https://console.firebase.google.com
- * 3. Add google-services.json to android/app/
- * 4. Add GoogleService-Info.plist to ios/
- * 5. Run: cd android && ./gradlew clean
- * 6. Replace the body of this function with:
- *      const messaging = require('@react-native-firebase/messaging').default;
- *      await messaging().requestPermission();
- *      return await messaging().getToken();
- */
-export async function getPushToken(): Promise<string | null> {
-  return null;
-}
+// The FCM token lives in `src/services/pushNotifications.ts` — importing it
+// back into this module would be circular, since that service needs
+// `getDeviceId` from here.

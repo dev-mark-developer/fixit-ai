@@ -1,4 +1,4 @@
-package com.fixit.app
+package com.fixit.mobileapp
 
 import android.app.Application
 import com.facebook.react.PackageList

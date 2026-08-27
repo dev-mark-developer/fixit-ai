@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(plutil -p ios/Fixit/GoogleService-Info.plist)",
+      "Bash(ruby -e \"require 'xcodeproj'; puts 'xcodeproj gem OK: ' + Xcodeproj::VERSION\")",
+      "Bash(ruby /private/tmp/claude-501/-Users-bilalhashmi-Desktop-ReactNative-AIFixitMobileApp/84db9eb2-e9f8-4868-9188-7326e66f8105/scratchpad/add_plist.rb)",
+      "Bash(ruby -e ' *)",
+      "Bash(npx tsc *)",
+      "Bash(git mv *)",
+      "Bash(perl -pi -e 's/\\\\bcom\\\\.fixit\\\\.app\\\\b/com.fixit.mobileapp/g' android/app/src/main/java/com/fixit/mobileapp/MainActivity.kt android/app/src/main/java/com/fixit/mobileapp/MainApplication.kt android/settings.gradle package.json package-lock.json)",
+      "Bash(perl -pi -e 's/namespace \"com\\\\.fixit\\\\.app\"/namespace \"com.fixit.mobileapp\"/' android/app/build.gradle)",
+      "Bash(node -e \"console.log\\(require\\('./package.json'\\).name\\)\")",
+      "Bash(node -e \"const l=require\\('./package-lock.json'\\);console.log\\(l.name, '|', l.packages[''].name\\)\")",
+      "Bash(./gradlew clean *)",
+      "Bash(npx eslint *)",
+      "Bash(./gradlew assembleDebug --console=plain)",
+      "Bash([ -s \"$F\" ])",
+      "Bash(npm view *)",
+      "Bash(node -e \"let d='';process.stdin.on\\('data',c=>d+=c\\).on\\('end',\\(\\)=>{const v=JSON.parse\\(d\\);console.log\\(v.slice\\(-6\\).join\\(', '\\)\\)}\\)\")",
+      "Bash(npm install *)",
+      "Bash(node -e \"console.log\\('notifee:', require\\('./package.json'\\).dependencies['@notifee/react-native']\\)\")",
+      "Bash(node -e \"const p=require\\('./node_modules/@notifee/react-native/package.json'\\);console.log\\('main:',p.main,'types:',p.types||p.typings\\)\")",
+      "Bash(pod install *)",
+      "Bash(./gradlew assembleRelease --console=plain)",
+      "Bash(./gradlew assembleDebug --console=plain -q)",
+      "Bash(echo \"exit=$?\")"
+    ]
+  }
+}

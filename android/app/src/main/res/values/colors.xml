@@ -1,0 +1,5 @@
+<resources>
+    <!-- Tint applied to the small icon in the notification shade.
+         Matches Colors.primary in src/utils/colors.ts. -->
+    <color name="notification_accent">#E8386D</color>
+</resources>

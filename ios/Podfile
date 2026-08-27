@@ -8,6 +8,17 @@ require Pod::Executable.execute_command('node', ['-p',
 platform :ios, min_ios_version_supported
 prepare_react_native_project!
 
+# react-native-firebase v26 resolves the Firebase SDK through Swift Package
+# Manager by default, and those products are automatic (non-dynamic) libraries
+# — with this project's static linkage each RNFB pod embeds its own copy and
+# they collide as duplicate symbols at link time.
+#
+# Opting out puts Firebase back on ordinary CocoaPods, which is compatible with
+# static linkage. The alternative RNFB suggests — use_frameworks! :dynamic —
+# would change linkage for every other native module in the app (nitro,
+# reanimated, vector-icons …), which is a far bigger blast radius.
+$RNFirebaseDisableSPM = true
+
 linkage = ENV['USE_FRAMEWORKS']
 if linkage != nil
   Pod::UI.puts "Configuring Pod with #{linkage}ally linked Frameworks".green
@@ -16,6 +27,12 @@ end
 
 target 'Fixit' do
   config = use_native_modules!
+
+  # Firebase's Swift pods (FirebaseCoreInternal) import GoogleUtilities, which
+  # ships no module map. Under static linking Swift can't import it without
+  # one. Scoped to this pod rather than a global `use_modular_headers!`, which
+  # would change header generation for every dependency in the project.
+  pod 'GoogleUtilities', :modular_headers => true
 
   use_react_native!(
     :path => config[:reactNativePath],

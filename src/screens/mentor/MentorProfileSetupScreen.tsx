@@ -88,7 +88,14 @@ export default function MentorProfileSetupScreen({ navigation }: Props) {
   }, []);
 
   const pickImage = () => {
-    launchImageLibrary({ mediaType: 'photo', quality: 0.8 }, (res) => {
+    launchImageLibrary({
+      mediaType: 'photo',
+      quality: 0.8,
+      // Rendered as a small circle everywhere — no reason to ship the
+      // camera's full-resolution original over the wire.
+      maxWidth: 512,
+      maxHeight: 512,
+    }, (res) => {
       if (res.assets?.[0]?.uri) setProfileImageUri(res.assets[0].uri);
     });
   };

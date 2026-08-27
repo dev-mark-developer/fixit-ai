@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Colors } from '../../utils/colors';
 import { resolveImageUrl } from '../../utils/imageUrl';
+import { hasLoaded, markLoaded } from '../../utils/imageCache';
 
 interface BaseProps {
   /** Raw URL from the API — relative paths are resolved against the API host. */
@@ -32,6 +33,10 @@ interface RemoteImageProps extends BaseProps {
  * <Image> that resolves relative API URLs and shows a spinner while the
  * bitmap downloads. When the URL is missing or the file fails to load it
  * renders `fallback` (or nothing), so a dead link never leaves a blank box.
+ *
+ * The spinner only appears the first time a URL is painted this session
+ * (see utils/imageCache) — remounting a screen reads from the native image
+ * cache, so flashing a placeholder there just makes cached images look slow.
  */
 export default function RemoteImage({
   uri,
@@ -42,8 +47,17 @@ export default function RemoteImage({
   fallback,
 }: RemoteImageProps) {
   const source = resolveImageUrl(uri);
-  const [loading, setLoading] = useState(true);
+  const [tracked, setTracked] = useState(source);
+  const [loading, setLoading] = useState(() => !hasLoaded(source));
   const [failed, setFailed] = useState(false);
+
+  // Recycled rows (FlatList) hand the same instance a different URL — reset
+  // so a previous row's `failed` doesn't blank out the new image.
+  if (tracked !== source) {
+    setTracked(source);
+    setLoading(!hasLoaded(source));
+    setFailed(false);
+  }
 
   if (!source || failed) return <>{fallback ?? null}</>;
 
@@ -58,7 +72,7 @@ export default function RemoteImage({
         source={{ uri: source }}
         style={StyleSheet.absoluteFill}
         resizeMode={resizeMode}
-        onLoadStart={() => setLoading(true)}
+        onLoad={() => markLoaded(source)}
         onLoadEnd={() => setLoading(false)}
         onError={() => { setFailed(true); setLoading(false); }}
       />
@@ -86,7 +100,13 @@ export function RemoteImageBackground({
   children,
 }: RemoteImageBackgroundProps) {
   const source = resolveImageUrl(uri);
-  const [loading, setLoading] = useState(true);
+  const [tracked, setTracked] = useState(source);
+  const [loading, setLoading] = useState(() => !hasLoaded(source));
+
+  if (tracked !== source) {
+    setTracked(source);
+    setLoading(!hasLoaded(source));
+  }
 
   return (
     <ImageBackground
@@ -94,7 +114,7 @@ export function RemoteImageBackground({
       style={style}
       imageStyle={imageStyle}
       resizeMode={resizeMode}
-      onLoadStart={() => setLoading(true)}
+      onLoad={() => markLoaded(source)}
       onLoadEnd={() => setLoading(false)}
     >
       {!!source && loading && (

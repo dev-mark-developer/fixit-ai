@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
 
@@ -8,6 +9,10 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
+    <!-- Push notifications. Android 13+ also requires a runtime grant, which
+         `requestNotificationPermission()` asks for. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
       android:name=".MainApplication"
@@ -30,5 +35,29 @@
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
       </activity>
+
+      <!--
+        Notification tint.
+
+        This CANNOT go in firebase.json. That value is substituted into
+        react-native-firebase's OWN manifest, so it is resolved against the
+        *library's* resources — which are its bundled CSS colour names, not
+        ours. Pointing it at an app colour breaks the library's own resource
+        linking:
+
+          AAPT: error: resource color/notification_accent
+          (aka io.invertase.firebase.messaging:color/notification_accent) not found
+
+        Overriding here instead resolves against the app's resources, where
+        the colour actually lives. `tools:replace` is required because RNFB
+        declares this same meta-data itself (defaulting to @color/white).
+
+        The channel id stays in firebase.json — it's a plain string, so it
+        needs no resource lookup.
+      -->
+      <meta-data
+        android:name="com.google.firebase.messaging.default_notification_color"
+        android:resource="@color/notification_accent"
+        tools:replace="android:resource" />
     </application>
 </manifest>

@@ -23,6 +23,7 @@ import type {
   PenpalStackParamList,
 } from '../../types/navigation';
 import { Colors } from '../../utils/colors';
+import { usePrefetchImages } from '../../utils/imageCache';
 import RemoteImage, {
   RemoteImageBackground,
 } from '../../components/common/RemoteImage';
@@ -64,6 +65,10 @@ export default function PenpalConnectionsScreen({ navigation }: Props) {
   const [search, setSearch] = useState('');
   const [people, setPeople] = useState<PenpalDiscoverItem[]>([]); // All tab
   const [conns, setConns] = useState<PenpalConnection[]>([]); // Requests/Connected
+  usePrefetchImages([
+    ...people.map(p => p.profileImageUrl),
+    ...conns.flatMap(c => [c.requesterImageUrl, c.receiverImageUrl]),
+  ]);
   const [loading, setLoading] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
   const [activeAction, setActiveAction] = useState<{
@@ -138,7 +143,11 @@ export default function PenpalConnectionsScreen({ navigation }: Props) {
     setConnectingId(userId);
     try {
       await penpalApi.sendConnection(userId);
-      setPeople(prev => prev.filter(p => p.userId !== userId));
+      // Keep the row in place and flip its button to Pending — dropping the
+      // person out of the list reads as if the request failed.
+      setPeople(prev =>
+        prev.map(p => (p.userId === userId ? { ...p, connectionStatus: 'Pending' } : p)),
+      );
       Alert.alert('Request Sent!', 'Your connection request has been sent.');
     } catch (err: any) {
       Alert.alert('Error', err.response?.data?.message ?? 'Could not send request.');

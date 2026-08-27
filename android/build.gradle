@@ -15,6 +15,10 @@ buildscript {
         classpath("com.android.tools.build:gradle")
         classpath("com.facebook.react:react-native-gradle-plugin")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
+        // Firebase Cloud Messaging. The plugin is only *applied* in
+        // app/build.gradle when google-services.json is present, so having the
+        // classpath here is harmless until the config file is added.
+        classpath("com.google.gms:google-services:4.5.0")
     }
 }
 
