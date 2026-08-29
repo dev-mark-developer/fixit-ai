@@ -23,6 +23,7 @@ import ReportModal from '../../components/common/ReportModal';
 import DatingTopBar from '../../components/dating/DatingTopBar';
 import DatingBottomBar from '../../components/dating/DatingBottomBar';
 import { Colors } from '../../utils/colors';
+import { useSubscription } from '../../store/SubscriptionContext';
 import { usePrefetchImages } from '../../utils/imageCache';
 import RemoteImage from '../../components/common/RemoteImage';
 import { useModuleStatus } from '../../store/ModuleStatusContext';
@@ -188,6 +189,7 @@ const cardStyles = StyleSheet.create({
 export default function DatingMatchesScreen({ navigation }: Props) {
   const { datingType } = useModuleStatus();
   const accent = datingType === 'Spiritual' ? Colors.spiritual : Colors.dating;
+  const { isPremium } = useSubscription();
 
   const [activeTab, setActiveTab] = useState<TabKey>('matches');
   const [matches, setMatches] = useState<DatingMatch[]>([]);
@@ -293,6 +295,19 @@ export default function DatingMatchesScreen({ navigation }: Props) {
       refreshActiveTab(activeTabRef.current);
     }, [refreshActiveTab]),
   );
+
+  // Entitlement stays the backend's call — the 402/403 in `loadLikes` is what
+  // locks this tab. This only reacts to the moment premium is bought, so the
+  // locked preview gives way to the real list without a manual refresh.
+  const wasPremiumRef = useRef(isPremium);
+  useEffect(() => {
+    const justSubscribed = isPremium && !wasPremiumRef.current;
+    wasPremiumRef.current = isPremium;
+    if (!justSubscribed) return;
+    likesLoadedRef.current.likes_received = false;
+    setLikesLocked(false);
+    if (activeTabRef.current === 'likes_received') loadLikes('likes_received');
+  }, [isPremium, loadLikes]);
 
   const openChat = (match: DatingMatch) => {
     navigation.navigate('DatingChatDetail', {

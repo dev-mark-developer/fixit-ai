@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Image,
   ActivityIndicator, SafeAreaView,
@@ -8,11 +8,14 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import type { DatingStackParamList } from '../../types/navigation';
 import { datingApi } from '../../api/dating';
 import AppAlert from '../../components/common/AppAlert';
+import ActivatingSubscriptionModal from '../../components/common/ActivatingSubscriptionModal';
 import { Colors } from '../../utils/colors';
+import { useSubscription } from '../../store/SubscriptionContext';
+import { fetchSubscriptionProduct, isIapSupported } from '../../services/iap';
 
 type Props = NativeStackScreenProps<DatingStackParamList, 'DatingPremium'>;
 
-const PLAN_PRICE = '$20';
+const PLAN_PRICE_FALLBACK = '$20';
 
 const PLAN_FEATURES = [
   'Unlimited Likes',
@@ -38,51 +41,137 @@ export default function DatingPremiumScreen({ route, navigation }: Props) {
   const accent = isSpiritual ? Colors.spiritual : Colors.dating;
   const lime = isSpiritual ? Colors.spiritualLime : Colors.datingSecondary;
 
+  const {
+    status, isPremium, refresh, purchase, restore, checkPendingActivation,
+  } = useSubscription();
+
   const [loading, setLoading] = useState(true);
-  const [subscription, setSubscription] = useState<DatingSubscription | null>(null);
+  const [price, setPrice] = useState(PLAN_PRICE_FALLBACK);
+  // Android has no billing integration yet, so it keeps reading the legacy
+  // per-flow dating record and its "coming soon" subscribe button.
+  const [androidSub, setAndroidSub] = useState<DatingSubscription | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [purchasing, setPurchasing] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const [activating, setActivating] = useState<'waiting' | 'timeout' | null>(null);
+  const [checking, setChecking] = useState(false);
   const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
+      if (isIapSupported) {
+        await refresh();
+        return;
+      }
       const res = await datingApi.getSubscription(datingType);
       const sub: DatingSubscription | null = res.data?.data ?? null;
-      setSubscription(sub?.isActive ? sub : null);
+      setAndroidSub(sub?.isActive ? sub : null);
     } catch {
-      setSubscription(null);
+      setAndroidSub(null);
     } finally {
       setLoading(false);
     }
-  };
+  }, [datingType, refresh]);
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [datingType]);
+  }, [load]);
 
-  const handleSubscribe = () => {
-    // In-app purchase flow is not configured for dating premium yet —
-    // logged in API_CHANGES_NEEDED.
-    setAlert({
-      title: 'Coming Soon',
-      message: 'In-app purchases for the premium plan are being set up. Please check back soon.',
-    });
-  };
+  useEffect(() => {
+    if (!isIapSupported) return;
+    // Real localised price straight off the store listing.
+    fetchSubscriptionProduct()
+      .then((product) => { if (product?.displayPrice) setPrice(product.displayPrice); })
+      .catch(() => {});
+  }, []);
+
+  const handleSubscribe = useCallback(async () => {
+    if (!isIapSupported) {
+      // Play billing isn't wired up yet — logged in API_CHANGES_NEEDED.
+      setAlert({
+        title: 'Coming Soon',
+        message: 'In-app purchases for the premium plan are being set up. Please check back soon.',
+      });
+      return;
+    }
+    setPurchasing(true);
+    try {
+      // The overlay goes up the moment Apple confirms payment and stays up
+      // until the backend grants the entitlement.
+      const outcome = await purchase(() => setActivating('waiting'));
+      if (outcome === 'cancelled') return;
+      if (outcome === 'active') {
+        setActivating(null);
+        setAlert({ title: 'You\'re Premium!', message: 'Unlimited swipes, advance filters and everyone who likes you are unlocked.' });
+        return;
+      }
+      // Paid, but Apple's server notification hasn't reached our backend yet.
+      setActivating('timeout');
+    } catch (err: any) {
+      setActivating(null);
+      setAlert({
+        title: 'Subscription Error',
+        message: err?.message ?? 'Purchase could not be completed. Please try again.',
+      });
+    } finally {
+      setPurchasing(false);
+    }
+  }, [purchase]);
+
+  const handleCheckAgain = useCallback(async () => {
+    setChecking(true);
+    try {
+      const active = await checkPendingActivation();
+      if (active) {
+        setActivating(null);
+        setAlert({ title: 'You\'re Premium!', message: 'Your subscription is now active.' });
+      } else {
+        setAlert({
+          title: 'Still Waiting',
+          message: 'The App Store has not confirmed the purchase yet. Your payment is safe — try again in a few minutes.',
+        });
+      }
+    } finally {
+      setChecking(false);
+    }
+  }, [checkPendingActivation]);
 
   const handleCancel = () => {
-    if (!subscription) return;
     setAlert(null);
+    if (isIapSupported) {
+      // Apple owns the cancellation flow for auto-renewing subscriptions.
+      setAlert({
+        title: 'Manage Subscription',
+        message: 'To cancel or change your plan, open Settings → Apple ID → Subscriptions on your device.',
+      });
+      return;
+    }
+    if (!androidSub) return;
     setCancelling(true);
-    datingApi.cancelSubscription(subscription.id)
+    datingApi.cancelSubscription(androidSub.id)
       .then(() => load())
       .catch(() => setAlert({ title: 'Error', message: 'Could not cancel your subscription. Please try again.' }))
       .finally(() => setCancelling(false));
   };
 
-  const handleRestore = () => {
-    setLoading(true);
-    load();
-  };
+  const handleRestore = useCallback(async () => {
+    if (!isIapSupported) {
+      setLoading(true);
+      load();
+      return;
+    }
+    setRestoring(true);
+    try {
+      const outcome = await restore();
+      setAlert(outcome === 'active'
+        ? { title: 'Subscription Restored', message: 'Your premium access is active again.' }
+        : { title: 'Nothing to Restore', message: 'We could not find an active subscription on this Apple ID.' });
+    } catch {
+      setAlert({ title: 'Restore Failed', message: 'Could not reach the App Store. Please try again.' });
+    } finally {
+      setRestoring(false);
+    }
+  }, [load, restore]);
 
   if (loading) {
     return (
@@ -92,7 +181,8 @@ export default function DatingPremiumScreen({ route, navigation }: Props) {
     );
   }
 
-  const isActive = !!subscription;
+  const isActive = isIapSupported ? isPremium : !!androidSub;
+  const renewsAt = isIapSupported ? status?.expiresAt : androidSub?.endDate;
 
   return (
     <SafeAreaView style={styles.root}>
@@ -116,12 +206,14 @@ export default function DatingPremiumScreen({ route, navigation }: Props) {
             <>
               <Text style={styles.planTitle}>My Plan Details</Text>
               <Text style={[styles.planPeriod, { color: accent }]}>Monthly</Text>
-              <Text style={[styles.planPrice, { color: accent }]}>{PLAN_PRICE}</Text>
-              <Text style={styles.billingDate}>
-                Billing Date: {new Date(subscription!.endDate).toLocaleDateString([], {
-                  day: 'numeric', month: 'long', year: 'numeric',
-                })}
-              </Text>
+              <Text style={[styles.planPrice, { color: accent }]}>{price}</Text>
+              {!!renewsAt && (
+                <Text style={styles.billingDate}>
+                  Billing Date: {new Date(renewsAt).toLocaleDateString([], {
+                    day: 'numeric', month: 'long', year: 'numeric',
+                  })}
+                </Text>
+              )}
 
               <TouchableOpacity
                 style={[styles.cancelBtn, { backgroundColor: lime }]}
@@ -131,7 +223,11 @@ export default function DatingPremiumScreen({ route, navigation }: Props) {
               >
                 {cancelling
                   ? <ActivityIndicator color={accent} size="small" />
-                  : <Text style={[styles.cancelBtnText, { color: accent }]}>Cancel Subscription</Text>}
+                  : (
+                    <Text style={[styles.cancelBtnText, { color: accent }]}>
+                      {isIapSupported ? 'Manage Subscription' : 'Cancel Subscription'}
+                    </Text>
+                  )}
               </TouchableOpacity>
               <Text style={styles.renewNote}>
                 Your membership renews automatically. Cancel anytime
@@ -141,7 +237,7 @@ export default function DatingPremiumScreen({ route, navigation }: Props) {
             <>
               <Text style={styles.planTitle}>Upgrade to Premium</Text>
               <View style={styles.priceRow}>
-                <Text style={[styles.planPrice, { color: accent }]}>{PLAN_PRICE}</Text>
+                <Text style={[styles.planPrice, { color: accent }]}>{price}</Text>
                 <Text style={[styles.perMonth, { color: accent }]}>/Month</Text>
               </View>
               <Text style={styles.cancelAnytime}>Cancel Anytime</Text>
@@ -149,9 +245,12 @@ export default function DatingPremiumScreen({ route, navigation }: Props) {
               <TouchableOpacity
                 style={[styles.subscribeBtn, { backgroundColor: accent }]}
                 onPress={handleSubscribe}
+                disabled={purchasing || restoring}
                 activeOpacity={0.85}
               >
-                <Text style={styles.subscribeBtnText}>Subscribe Now!</Text>
+                {purchasing
+                  ? <ActivityIndicator color={Colors.white} size="small" />
+                  : <Text style={styles.subscribeBtnText}>Subscribe Now!</Text>}
               </TouchableOpacity>
             </>
           )}
@@ -167,11 +266,26 @@ export default function DatingPremiumScreen({ route, navigation }: Props) {
         </View>
 
         {!isActive && (
-          <TouchableOpacity onPress={handleRestore} activeOpacity={0.7}>
-            <Text style={[styles.restore, { color: lime }]}>Restore Purchases</Text>
+          <TouchableOpacity
+            onPress={handleRestore}
+            disabled={purchasing || restoring}
+            activeOpacity={0.7}
+          >
+            {restoring
+              ? <ActivityIndicator color={lime} style={styles.restoreSpinner} />
+              : <Text style={[styles.restore, { color: lime }]}>Restore Purchases</Text>}
           </TouchableOpacity>
         )}
       </ScrollView>
+
+      <ActivatingSubscriptionModal
+        visible={activating !== null}
+        accent={accent}
+        phase={activating ?? 'waiting'}
+        checking={checking}
+        onCheckAgain={handleCheckAgain}
+        onDismiss={() => setActivating(null)}
+      />
 
       <AppAlert
         visible={!!alert}
@@ -240,4 +354,5 @@ const styles = StyleSheet.create({
     textDecorationLine: 'underline',
     marginTop: 18,
   },
+  restoreSpinner: { marginTop: 18 },
 });

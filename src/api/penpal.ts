@@ -21,6 +21,13 @@ export interface PenpalProfile {
   updatedAt: string;
 }
 
+/**
+ * What `/penpal/discover` filters on, one per tab of "Find a Kindred Spirit":
+ * Pending → Requests, Accepted → Connected, and an empty string → All, which
+ * asks for everyone rather than for people with no connection.
+ */
+export type PenpalConnectionStatus = '' | 'Pending' | 'Accepted';
+
 export interface PenpalDiscoverItem {
   userId: number;
   profileImageUrl?: string;
@@ -36,6 +43,19 @@ export interface PenpalDiscoverItem {
   connectionStatus?: string;
   /** Added by the backend (gap #2) */
   age?: number;
+
+  // Fields below describe the connection row behind a Pending/Accepted
+  // person, which the Requests and Connected tabs act on. Swagger doesn't
+  // type the discover response, so they're optional: when discover omits
+  // them the screen backfills from `/penpal/connections` (gap #26).
+  /** Connection id — needed to respond to, cancel or remove a connection. */
+  connectionId?: number;
+  /** Who sent the request; tells an incoming request from an outgoing one. */
+  requesterId?: number;
+  receiverId?: number;
+  /** When the request was sent, for the "2 days ago" line. */
+  connectionCreatedAt?: string;
+  createdAt?: string;
 }
 
 export interface PenpalConnection {
@@ -94,14 +114,25 @@ export const penpalApi = {
     longitude?: number;
   }) => api.post('/penpal/profile', data),
 
-  discover: (params?: { search?: string; status?: string; page?: number; pageSize?: number }) =>
-    api.get('/penpal/discover', { params }),
+  discover: (
+    params?: {
+      search?: string;
+      /** Empty string for every state; otherwise one tab's worth of people. */
+      status?: PenpalConnectionStatus;
+      page?: number;
+      pageSize?: number;
+    },
+    /** Lets a tab switch or a new keystroke drop the call it superseded. */
+    signal?: AbortSignal,
+  ) => api.get('/penpal/discover', { params, signal }),
 
   sendConnection: (receiverId: number) =>
     api.post('/penpal/connections', { receiverId }),
 
-  getConnections: (params?: { status?: string; page?: number; pageSize?: number }) =>
-    api.get('/penpal/connections', { params }),
+  getConnections: (
+    params?: { status?: string; page?: number; pageSize?: number },
+    signal?: AbortSignal,
+  ) => api.get('/penpal/connections', { params, signal }),
 
   respondConnection: (connectionId: number, status: 'Accepted' | 'Declined') =>
     api.patch(`/penpal/connections/${connectionId}/respond`, { status }),

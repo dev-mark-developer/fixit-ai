@@ -9,6 +9,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { DatingStackParamList } from '../../types/navigation';
 import { Colors } from '../../utils/colors';
 import { datingApi, DatingProfile } from '../../api/dating';
+import { useModuleStatus } from '../../store/ModuleStatusContext';
 import AppButton from '../../components/common/AppButton';
 import AppAlert from '../../components/common/AppAlert';
 
@@ -25,7 +26,8 @@ const extractError = (err: any): string => {
 };
 
 export default function NonSpiritualEntryScreen({ navigation }: Props) {
-  const [phase, setPhase] = useState<'loading' | 'welcome' | 'setup'>('loading');
+  const { refresh: refreshModules } = useModuleStatus();
+  const [phase, setPhase] = useState<'loading' | 'welcome' | 'setup' | 'blocked'>('loading');
   const [interestedIn, setInterestedIn] = useState('Male');
   const [saving, setSaving] = useState(false);
   const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
@@ -38,6 +40,14 @@ export default function NonSpiritualEntryScreen({ navigation }: Props) {
 
         if (!profile) {
           setPhase('setup');
+          return;
+        }
+
+        // A Spiritual account can never become Non-Spiritual — switching means
+        // deleting the account and registering again. Guarded here too because
+        // the lobby is not the only way onto this screen.
+        if (profile.datingType === 'Spiritual') {
+          setPhase('blocked');
           return;
         }
 
@@ -61,6 +71,7 @@ export default function NonSpiritualEntryScreen({ navigation }: Props) {
         interestedInGender: interestedIn,
       });
       // After creating profile, go to interest selection
+      await refreshModules();
       navigation.replace('DatingInterestSelection', { datingType: 'NonSpiritual' });
     } catch (err: any) {
       setAlert({ title: 'Error', message: extractError(err) });
@@ -86,6 +97,25 @@ export default function NonSpiritualEntryScreen({ navigation }: Props) {
       <View style={styles.center}>
         <ActivityIndicator size="large" color={Colors.dating} />
       </View>
+    );
+  }
+
+  // Spiritual account — Non-Spiritual is closed to them for good
+  if (phase === 'blocked') {
+    return (
+      <SafeAreaView style={styles.root} edges={['top']}>
+        <View style={styles.center} />
+        <AppAlert
+          visible
+          title="Switching Not Available"
+          message={
+            'Your account is registered for Spiritual Dating and cannot be switched to Non-Spiritual Dating.\n\n' +
+            'To use Non-Spiritual Dating you need to delete this account and register again.'
+          }
+          buttons={[{ text: 'Back to Dating', onPress: () => navigation.replace('DatingMain') }]}
+          onClose={() => navigation.replace('DatingMain')}
+        />
+      </SafeAreaView>
     );
   }
 

@@ -4,6 +4,8 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import type { MentorStackParamList } from '../types/navigation';
 import { Colors } from '../utils/colors';
 import { mentorApi } from '../api/mentor';
+import { useSubscription } from '../store/SubscriptionContext';
+import { isIapSupported } from '../services/iap';
 import MentorProfileSetupScreen from '../screens/mentor/MentorProfileSetupScreen';
 import MentorSubscriptionScreen from '../screens/mentor/MentorSubscriptionScreen';
 import MentorEditProfileScreen from '../screens/mentor/MentorEditProfileScreen';
@@ -27,6 +29,7 @@ const SHARED_HEADER = {
 export default function MentorNavigator() {
   const [profileLoading, setProfileLoading] = useState(true);
   const [hasProfile, setHasProfile] = useState(false);
+  const { isPremium, loading: subscriptionLoading } = useSubscription();
 
   useEffect(() => {
     mentorApi.getProfile()
@@ -35,7 +38,11 @@ export default function MentorNavigator() {
       .finally(() => setProfileLoading(false));
   }, []);
 
-  if (profileLoading) {
+  // The mentor programme is subscription-only. Android has no billing yet, so
+  // gating it there would lock those accounts out with no way to pay.
+  const gated = isIapSupported && !isPremium;
+
+  if (profileLoading || (isIapSupported && subscriptionLoading)) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.background }}>
         <ActivityIndicator size="large" color={Colors.mentor} />
@@ -43,7 +50,13 @@ export default function MentorNavigator() {
     );
   }
 
-  const initialRoute: keyof MentorStackParamList = hasProfile ? 'MentorMain' : 'MentorProfileSetup';
+  // Landing on the paywall as the stack's initial route is what makes the gate
+  // hard: there is nothing beneath it to go back to.
+  const initialRoute: keyof MentorStackParamList = !hasProfile
+    ? 'MentorProfileSetup'
+    : gated
+      ? 'MentorSubscription'
+      : 'MentorMain';
 
   return (
     <Stack.Navigator initialRouteName={initialRoute} screenOptions={SHARED_HEADER}>
@@ -61,6 +74,7 @@ export default function MentorNavigator() {
         name="MentorSubscription"
         component={MentorSubscriptionScreen}
         options={{ headerShown: false }}
+        initialParams={{ gate: gated }}
       />
       <Stack.Screen
         name="MentorMain"

@@ -39,14 +39,42 @@ export function markLoaded(url?: string | null): void {
  * Failures are swallowed: a dead link just means the row falls back to its
  * spinner-then-fallback path, same as if we'd never prefetched.
  */
+/**
+ * How many prefetches may be in flight at once.
+ *
+ * Images come from the same host as the API and share one HTTP/2 connection
+ * with it, so firing a whole page at once (a 20-row list fired 20) put the
+ * screen's own API calls behind a burst of downloads. Four keeps the cache
+ * warming without the list's request queueing behind its own thumbnails.
+ */
+const MAX_CONCURRENT_PREFETCH = 4;
+
+const queue: string[] = [];
+let inFlight = 0;
+
+function pump(): void {
+  while (inFlight < MAX_CONCURRENT_PREFETCH && queue.length > 0) {
+    const url = queue.shift() as string;
+    inFlight += 1;
+    Image.prefetch(url)
+      .then(ok => { if (ok !== false) markLoaded(url); })
+      .catch(() => {})
+      .finally(() => {
+        inFlight -= 1;
+        pump();
+      });
+  }
+}
+
 export function prefetchImages(urls: Array<string | null | undefined>): void {
   for (const raw of urls) {
     const url = resolveImageUrl(raw);
-    if (!url || seen.has(url)) continue;
-    Image.prefetch(url)
-      .then(ok => { if (ok !== false) markLoaded(url); })
-      .catch(() => {});
+    // `queue.includes` guards against a list that re-renders before its
+    // first batch has drained; the queue is at most a page long.
+    if (!url || seen.has(url) || queue.includes(url)) continue;
+    queue.push(url);
   }
+  pump();
 }
 
 /**

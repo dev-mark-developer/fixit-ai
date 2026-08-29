@@ -1,7 +1,14 @@
 {
   "extends": "@react-native/typescript-config",
   "compilerOptions": {
-    "types": ["jest"]
+    "types": ["jest"],
+    "paths": {
+      // react-native-iap's `exports` map aims the react-native condition at its
+      // raw TS source, which drags the library's own type errors into our
+      // build. Metro still bundles that source — this only points the type
+      // checker at the declarations the package ships.
+      "react-native-iap": ["./node_modules/react-native-iap/lib/typescript/src/index.d.ts"]
+    }
   },
   "include": ["**/*.ts", "**/*.tsx"],
   "exclude": ["**/node_modules", "**/Pods"]

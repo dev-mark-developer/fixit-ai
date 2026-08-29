@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Image,
 } from 'react-native';
@@ -10,45 +10,96 @@ import { Colors } from '../../utils/colors';
 import { getPlatform } from '../../utils/device';
 import { mentorApi, MentorSubscription } from '../../api/mentor';
 import AppButton from '../../components/common/AppButton';
-import AppAlert from '../../components/common/AppAlert';
+import AppAlert, { AlertButton } from '../../components/common/AppAlert';
+import ActivatingSubscriptionModal from '../../components/common/ActivatingSubscriptionModal';
+import { useSubscription } from '../../store/SubscriptionContext';
+import { useAuth } from '../../store/AuthContext';
+import { IAP_PRODUCT_ID, fetchSubscriptionProduct, isIapSupported } from '../../services/iap';
 
 type Props = NativeStackScreenProps<MentorStackParamList, 'MentorSubscription'>;
 
-// Kept for reference — features are no longer shown on the redesigned plan card.
-const PLAN_FEATURES = [
-  'Unlimited assigned seekers',
-  'Push notifications for new assignments',
-  'Mentor dashboard with progress tracking',
-  'Priority support from our team',
-  'Access to all future guru features',
-];
+const PLAN_PRICE_FALLBACK = '$20';
 
-const IAP_PRODUCT_ID = 'com.fixit.mentor.monthly';
-const PLAN_PRICE = '$20';
+export default function MentorSubscriptionScreen({ route, navigation }: Props) {
+  // The mandatory paywall right after mentor signup: nothing to go back to,
+  // and the account can't reach the dashboard until it's paid.
+  const gate = route.params?.gate ?? false;
 
-export default function MentorSubscriptionScreen({ navigation }: Props) {
-  const [subscription, setSubscription] = useState<MentorSubscription | null>(null);
-  const [fetching, setFetching] = useState(true);
+  const { logout } = useAuth();
+  const {
+    status, isPremium, refresh, purchase, restore, checkPendingActivation,
+  } = useSubscription();
+
+  // Android has no billing integration yet, so it keeps reading the legacy
+  // per-flow record and its stubbed purchase.
+  const [androidSub, setAndroidSub] = useState<MentorSubscription | null>(null);
+  const [fetching, setFetching] = useState(!isIapSupported);
+  const [price, setPrice] = useState(PLAN_PRICE_FALLBACK);
+
   const [loading, setLoading] = useState(false);
+  const [restoring, setRestoring] = useState(false);
   const [success, setSuccess] = useState(false);
-  const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
+  const [activating, setActivating] = useState<'waiting' | 'timeout' | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [alert, setAlert] = useState<{ title: string; message: string; buttons?: AlertButton[] } | null>(null);
 
   useEffect(() => {
+    if (isIapSupported) {
+      refresh();
+      // Real localised price straight off the store listing; the hardcoded
+      // label is only what shows if the product can't be read.
+      fetchSubscriptionProduct()
+        .then((product) => { if (product?.displayPrice) setPrice(product.displayPrice); })
+        .catch(() => {});
+      return;
+    }
     mentorApi.getSubscription()
-      .then((res) => setSubscription(res.data?.data ?? null))
-      .catch(() => setSubscription(null))
+      .then((res) => setAndroidSub(res.data?.data ?? null))
+      .catch(() => setAndroidSub(null))
       .finally(() => setFetching(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const proceed = () => {
-    if (navigation.canGoBack()) {
-      navigation.goBack();
-    } else {
+    if (gate) {
+      // The gate is this stack's initial route, so there is nothing to pop —
+      // hand the mentor their dashboard instead.
       navigation.replace('MentorMain');
+      return;
     }
+    if (navigation.canGoBack()) navigation.goBack();
+    else navigation.replace('MentorMain');
   };
 
-  const recordAndProceed = async (transactionId: string) => {
+  // ── iOS: real StoreKit purchase ───────────────────────────
+  const handlePurchase = useCallback(async () => {
+    setLoading(true);
+    try {
+      // The overlay goes up the moment Apple confirms payment and stays up
+      // until the backend grants the entitlement.
+      const outcome = await purchase(() => setActivating('waiting'));
+      if (outcome === 'cancelled') return;
+      if (outcome === 'active') {
+        setActivating(null);
+        setSuccess(true);
+        return;
+      }
+      // Paid, but Apple's server notification hasn't reached our backend yet.
+      setActivating('timeout');
+    } catch (err: any) {
+      setActivating(null);
+      setAlert({
+        title: 'Subscription Error',
+        message: err?.message ?? 'Purchase could not be completed. Please try again.',
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [purchase]);
+
+  // ── Android: unchanged stub until Play billing is wired up ─
+  const handleAndroidStub = useCallback(async () => {
+    setLoading(true);
     const now = new Date();
     const endDate = new Date(now);
     endDate.setMonth(endDate.getMonth() + 1);
@@ -57,29 +108,67 @@ export default function MentorSubscriptionScreen({ navigation }: Props) {
         planType: 'Mentor',
         store: getPlatform() === 'iOS' ? 'Apple' : 'Google',
         iapProductId: IAP_PRODUCT_ID,
-        iapTransactionId: transactionId,
+        iapTransactionId: `STUB_${Date.now()}`,
         startDate: now.toISOString(),
         endDate: endDate.toISOString(),
         isTrialPeriod: false,
       });
-    } catch {
-      // Non-fatal
-    }
-    setSuccess(true);
-  };
-
-  const handleSubscribe = async () => {
-    setLoading(true);
-    try {
-      // TO ENABLE IAP: replace with react-native-iap purchase flow
-      const fakeTransactionId = `STUB_${Date.now()}`;
-      await recordAndProceed(fakeTransactionId);
+      setSuccess(true);
     } catch (err: any) {
-      setAlert({ title: 'Subscription Error', message: err.response?.data?.message ?? 'Purchase could not be completed. Please try again.' });
+      setAlert({
+        title: 'Subscription Error',
+        message: err.response?.data?.message ?? 'Purchase could not be completed. Please try again.',
+      });
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  const handleSubscribe = isIapSupported ? handlePurchase : handleAndroidStub;
+
+  const handleRestore = useCallback(async () => {
+    setRestoring(true);
+    try {
+      const outcome = await restore();
+      if (outcome === 'active') setSuccess(true);
+      else setAlert({
+        title: 'Nothing to Restore',
+        message: 'We could not find an active subscription on this Apple ID.',
+      });
+    } catch {
+      setAlert({ title: 'Restore Failed', message: 'Could not reach the App Store. Please try again.' });
+    } finally {
+      setRestoring(false);
+    }
+  }, [restore]);
+
+  const handleCheckAgain = useCallback(async () => {
+    setChecking(true);
+    try {
+      const active = await checkPendingActivation();
+      if (active) {
+        setActivating(null);
+        setSuccess(true);
+      } else {
+        setAlert({
+          title: 'Still Waiting',
+          message: 'The App Store has not confirmed the purchase yet. Your payment is safe — try again in a few minutes, or use Restore Purchases.',
+        });
+      }
+    } finally {
+      setChecking(false);
+    }
+  }, [checkPendingActivation]);
+
+  const confirmLogout = () =>
+    setAlert({
+      title: 'Sign Out',
+      message: 'You can subscribe next time you sign in.',
+      buttons: [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Sign Out', style: 'destructive', onPress: () => { logout(); } },
+      ],
+    });
 
   if (fetching) {
     return (
@@ -89,7 +178,10 @@ export default function MentorSubscriptionScreen({ navigation }: Props) {
     );
   }
 
-  const isActive = subscription && !subscription.isExpired;
+  const isActive = isIapSupported
+    ? isPremium
+    : !!androidSub && !androidSub.isExpired;
+  const renewsAt = isIapSupported ? status?.expiresAt : androidSub?.endDate;
 
   // ── Success (Congratulations) state ────────────────────────
   if (success) {
@@ -119,15 +211,28 @@ export default function MentorSubscriptionScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.canGoBack() && navigation.goBack()} hitSlop={8}>
-          <Icon name="arrow-back" size={24} color={Colors.text} />
-        </TouchableOpacity>
+      {/* Header — the gate has no way back, only a way out of the account. */}
+      <View style={[styles.header, gate && styles.headerGate]}>
+        {gate ? (
+          <TouchableOpacity onPress={confirmLogout} hitSlop={8}>
+            <Text style={styles.logoutText}>Sign Out</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity onPress={() => navigation.canGoBack() && navigation.goBack()} hitSlop={8}>
+            <Icon name="arrow-back" size={24} color={Colors.text} />
+          </TouchableOpacity>
+        )}
       </View>
 
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
         <Text style={styles.pageTitle}>Subscription Plan</Text>
+
+        {gate && !isActive && (
+          <Text style={styles.gateNote}>
+            A subscription is required to guide seekers. Subscribe to unlock
+            your mentor dashboard.
+          </Text>
+        )}
 
         {/* Plan card */}
         <View style={styles.planCard}>
@@ -137,16 +242,16 @@ export default function MentorSubscriptionScreen({ navigation }: Props) {
             resizeMode="contain"
           />
           <Text style={styles.planName}>Mentorship Program</Text>
-
           {isActive ? (
             <>
               <View style={styles.activeBadge}>
                 <Text style={styles.activeBadgeText}>✓ Active</Text>
               </View>
-              <Text style={styles.planNote}>
-                Renews on {new Date(subscription!.endDate).toLocaleDateString()}
-                {` · ${subscription!.daysRemaining} days left`}
-              </Text>
+              {!!renewsAt && (
+                <Text style={styles.planNote}>
+                  Renews on {new Date(renewsAt).toLocaleDateString()}
+                </Text>
+              )}
               <AppButton
                 title="Manage Subscription"
                 onPress={() => setAlert({ title: 'Manage Subscription', message: 'To cancel or change your plan, go to your device\'s subscription settings (App Store or Google Play).' })}
@@ -156,14 +261,14 @@ export default function MentorSubscriptionScreen({ navigation }: Props) {
           ) : (
             <>
               <Text style={styles.planPrice}>
-                {PLAN_PRICE}
+                {price}
                 <Text style={styles.planPricePer}>/Month</Text>
               </Text>
               <Text style={styles.planNote}>Cancel Anytime</Text>
               <TouchableOpacity
                 style={styles.planBtn}
                 onPress={handleSubscribe}
-                disabled={loading}
+                disabled={loading || restoring}
                 activeOpacity={0.9}
               >
                 {loading
@@ -174,15 +279,38 @@ export default function MentorSubscriptionScreen({ navigation }: Props) {
           )}
         </View>
 
+        {/* Apple requires a restore path for any non-consumable purchase. */}
+        {isIapSupported && !isActive && (
+          <TouchableOpacity
+            onPress={handleRestore}
+            disabled={loading || restoring}
+            activeOpacity={0.7}
+          >
+            {restoring
+              ? <ActivityIndicator color={Colors.mentor} style={styles.restoreSpinner} />
+              : <Text style={styles.restore}>Restore Purchases</Text>}
+          </TouchableOpacity>
+        )}
+
         <Text style={styles.footerNote}>
           You may cancel your mentor subscription anytime
         </Text>
       </ScrollView>
 
+      <ActivatingSubscriptionModal
+        visible={activating !== null}
+        accent={Colors.mentor}
+        phase={activating ?? 'waiting'}
+        checking={checking}
+        onCheckAgain={handleCheckAgain}
+        onDismiss={() => setActivating(null)}
+      />
+
       <AppAlert
         visible={!!alert}
         title={alert?.title ?? ''}
         message={alert?.message}
+        buttons={alert?.buttons}
         onClose={() => setAlert(null)}
       />
     </SafeAreaView>
@@ -227,6 +355,25 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   activeBadgeText: { fontSize: 14, fontWeight: '700', color: '#065F46' },
+
+  headerGate: { alignItems: 'flex-end' },
+  logoutText: { fontSize: 15, fontWeight: '700', color: Colors.mentor },
+  gateNote: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    lineHeight: 21,
+    marginTop: -12,
+    marginBottom: 20,
+  },
+  restore: {
+    textAlign: 'center',
+    fontSize: 15,
+    fontWeight: '700',
+    color: Colors.mentor,
+    textDecorationLine: 'underline',
+    marginTop: 20,
+  },
+  restoreSpinner: { marginTop: 20 },
 
   footerNote: {
     fontSize: 13,

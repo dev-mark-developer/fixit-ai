@@ -29,7 +29,11 @@ export type MentorDrawerParamList = {
 
 export type MentorStackParamList = {
   MentorProfileSetup: undefined;
-  MentorSubscription: undefined;
+  /**
+   * `gate: true` when this is the mandatory post-signup paywall — no back
+   * button, and the only ways out are subscribing or signing out.
+   */
+  MentorSubscription: { gate?: boolean } | undefined;
   MentorEditProfile: undefined;
   // Mentors can still use the dating module (drawer → Explore Dating)
   MentorDating: NavigatorScreenParams<DatingStackParamList> | undefined;

@@ -65,10 +65,25 @@ export default function LoginScreen({ navigation }: Props) {
           lastName: data.lastName,
           email: data.email,
           role: data.role,
+          // Apple's `appAccountToken` — the GUID the store webhook uses to
+          // resolve a purchase back to this account.
+          appAccountToken: data.identifier,
         },
         data.refreshToken,
       );
     } catch (err: any) {
+      // 307 = the account exists but its email was never verified. The backend
+      // returns it instead of a token, so finish sign-up on the OTP screen —
+      // the password is forwarded so it can log the user straight in once the
+      // code is accepted.
+      if (err.response?.status === 307) {
+        navigation.navigate('Otp', {
+          email: email.trim(),
+          purpose: 'Registration',
+          password,
+        });
+        return;
+      }
       const msg =
         err.response?.data?.message ??
         (!err.response

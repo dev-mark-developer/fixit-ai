@@ -9,6 +9,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { DatingStackParamList } from '../../types/navigation';
 import { Colors } from '../../utils/colors';
 import { useAuth } from '../../store/AuthContext';
+import { useModuleStatus } from '../../store/ModuleStatusContext';
 import { datingApi, SpiritualRequest } from '../../api/dating';
 import { mentorApi, MentorRequest } from '../../api/mentor';
 import AppButton from '../../components/common/AppButton';
@@ -18,12 +19,19 @@ type Props = NativeStackScreenProps<DatingStackParamList, 'SpiritualEntry'>;
 
 type Phase = 'info' | 'loading' | 'gateway' | 'pending' | 'approved';
 
+// The API rejects anything but these two — 'Any' is not accepted.
+const GENDER_OPTIONS = ['Male', 'Female'];
+
 export default function SpiritualEntryScreen({ navigation }: Props) {
   const { logout } = useAuth();
+  const { refresh: refreshModules } = useModuleStatus();
   const [phase, setPhase] = useState<Phase>('info');
   const [request, setRequest] = useState<SpiritualRequest | null>(null);
   const [resolvedPhase, setResolvedPhase] = useState<Phase | null>(null);
   const [starting, setStarting] = useState(false);
+  // Asked on the approved card: the profile endpoint requires Male or Female,
+  // and nothing later in the app lets the user change it.
+  const [interestedIn, setInterestedIn] = useState('Male');
   const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
 
   // Mentor request state (gateway phase)
@@ -111,6 +119,7 @@ export default function SpiritualEntryScreen({ navigation }: Props) {
       const res = await datingApi.getProfile();
       const existing = res.data?.data ?? null;
       if (existing) {
+        await refreshModules();
         navigation.navigate('DatingMain');
         return;
       }
@@ -123,7 +132,10 @@ export default function SpiritualEntryScreen({ navigation }: Props) {
     }
     // No profile yet — create it then go to interest selection
     try {
-      await datingApi.saveProfile({ datingType: 'Spiritual', interestedInGender: 'Any' });
+      await datingApi.saveProfile({ datingType: 'Spiritual', interestedInGender: interestedIn });
+      // The account is Spiritual from this moment — tell the app before the
+      // user can reach any screen that branches on datingType.
+      await refreshModules();
       navigation.navigate('DatingInterestSelection', { datingType: 'Spiritual' });
     } catch {
       setAlert({ title: 'Error', message: 'Could not create your profile. Please try again.' });
@@ -297,6 +309,23 @@ export default function SpiritualEntryScreen({ navigation }: Props) {
                 Approved on {new Date(request.reviewedAt).toLocaleDateString()}
               </Text>
             )}
+
+            <Text style={styles.genderLabel}>I'm interested in</Text>
+            <View style={styles.genderRow}>
+              {GENDER_OPTIONS.map((g) => (
+                <TouchableOpacity
+                  key={g}
+                  style={[styles.genderBtn, interestedIn === g && styles.genderBtnActive]}
+                  onPress={() => setInterestedIn(g)}
+                  activeOpacity={0.75}
+                >
+                  <Text style={[styles.genderBtnText, interestedIn === g && styles.genderBtnTextActive]}>
+                    {g}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
             <AppButton
               title="Start Spiritual Dating"
               onPress={handleStartSpiritual}
@@ -646,6 +675,19 @@ const styles = StyleSheet.create({
   statusBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.spiritualLight, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20 },
   statusDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.spiritual, marginRight: 8 },
   statusText: { fontSize: 13, fontWeight: '600', color: Colors.spiritual },
+
+  genderLabel: { fontSize: 15, fontWeight: '700', color: Colors.text, marginBottom: 12, alignSelf: 'center' },
+  genderRow: { flexDirection: 'row', gap: 12, marginBottom: 24 },
+  genderBtn: {
+    paddingHorizontal: 28,
+    paddingVertical: 14,
+    borderRadius: 28,
+    alignItems: 'center',
+    backgroundColor: '#BDBDBD',
+  },
+  genderBtnActive: { backgroundColor: Colors.spiritual },
+  genderBtnText: { fontSize: 15, fontWeight: '700', color: Colors.white },
+  genderBtnTextActive: { color: Colors.white },
 
   spiritualBtn: { backgroundColor: Colors.spiritual, width: '100%', marginTop: 4 },
 

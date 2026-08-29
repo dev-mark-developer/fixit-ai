@@ -218,7 +218,9 @@ export function registerBackgroundHandler(handler?: PushHandler): void {
       // while we're backgrounded — displaying it again would show it twice.
       // Data-only messages are never drawn, so those we raise ourselves.
       if (!message.notification) {
-        await displayLocalNotification(payload).catch(() => {});
+        await displayLocalNotification(payload).catch((err) => {
+          log(`could not display a background notification — ${(err as Error)?.message ?? err}`);
+        });
       }
       handler?.(payload);
     });
@@ -239,7 +241,13 @@ export function onForegroundMessage(handler?: PushHandler): () => void {
   try {
     return onMessage(getMessaging(), async (message) => {
       const payload = toPushPayload(message);
-      await displayLocalNotification(payload).catch(() => {});
+      log(`foreground message received: ${payload.title ?? '(no title)'}`);
+      // Swallowing this is what made a broken foreground notification look
+      // like a message that never arrived — the re-raise is the only thing
+      // that draws it, so a failure here has to be visible.
+      await displayLocalNotification(payload).catch((err) => {
+        log(`could not display a foreground notification — ${(err as Error)?.message ?? err}`);
+      });
       handler?.(payload);
     });
   } catch {

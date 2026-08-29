@@ -14,6 +14,7 @@ import type { DatingStackParamList } from '../../types/navigation';
 import { datingApi, IceBreakerQuestion } from '../../api/dating';
 import AppAlert from '../../components/common/AppAlert';
 import AppButton from '../../components/common/AppButton';
+import { useModuleStatus } from '../../store/ModuleStatusContext';
 import { Colors } from '../../utils/colors';
 
 type Props = NativeStackScreenProps<DatingStackParamList, 'DatingIceBreakerSelection'>;
@@ -23,6 +24,7 @@ const MAX_SELECTIONS = 3;
 export default function DatingIceBreakerSelectionScreen({ navigation, route }: Props) {
   const { datingType, editMode } = route.params;
   const accentColor = datingType === 'Spiritual' ? Colors.spiritual : Colors.dating;
+  const { refresh } = useModuleStatus();
 
   const [questions, setQuestions] = useState<IceBreakerQuestion[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -70,6 +72,9 @@ export default function DatingIceBreakerSelectionScreen({ navigation, route }: P
       if (editMode) {
         navigation.goBack();
       } else {
+        // Onboarding just finished — pull the new profile in before DatingMain
+        // renders, or it paints the Non-Spiritual palette for a Spiritual user.
+        await refresh();
         navigation.navigate('DatingMain');
       }
     } catch {
@@ -79,10 +84,11 @@ export default function DatingIceBreakerSelectionScreen({ navigation, route }: P
     }
   };
 
-  const handleSkip = () => {
+  const handleSkip = async () => {
     if (editMode) {
       navigation.goBack();
     } else {
+      await refresh();
       navigation.navigate('DatingMain');
     }
   };

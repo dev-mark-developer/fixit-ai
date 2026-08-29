@@ -32,6 +32,8 @@ import CountryPicker from '../../components/common/CountryPicker';
 import DatingTopBar from '../../components/dating/DatingTopBar';
 import DatingBottomBar from '../../components/dating/DatingBottomBar';
 import { Colors } from '../../utils/colors';
+import { useSubscription } from '../../store/SubscriptionContext';
+import DailyLimitOverlay from '../../components/dating/DailyLimitOverlay';
 import { usePrefetchImages } from '../../utils/imageCache';
 import RemoteImage from '../../components/common/RemoteImage';
 import { useModuleStatus } from '../../store/ModuleStatusContext';
@@ -390,6 +392,25 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(true);
   const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
 
+  const { isPremium } = useSubscription();
+
+  const goPremium = useCallback(
+    () => navigation.navigate('DatingPremium', { datingType: datingType ?? 'NonSpiritual' }),
+    [navigation, datingType],
+  );
+
+  /**
+   * Free accounts get a daily swipe allowance the backend enforces: once it is
+   * spent, `POST /dating/swipe` answers 402/403 and the card is covered by the
+   * premium prompt instead of advancing.
+   */
+  const [limitReached, setLimitReached] = useState(false);
+  const limitReachedRef = useRef(false);
+  useEffect(() => { limitReachedRef.current = limitReached; }, [limitReached]);
+
+  // Buying premium clears the block without needing a reload.
+  useEffect(() => { if (isPremium) setLimitReached(false); }, [isPremium]);
+
   // Match overlay
   const [matchVisible, setMatchVisible] = useState(false);
   const [matchedUser, setMatchedUser] = useState<DiscoverUser | null>(null);
@@ -404,8 +425,8 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
   const [filterAge, setFilterAge] = useState(26);
   const [filterGender, setFilterGender] = useState<'Male' | 'Female' | null>(null);
 
-  // Advance Filters (interests) — unlocked while the subscription/IAP work is
-  // on hold; discover already accepts InterestIds (gap #6).
+  // Advance Filters (interests) — premium only; discover accepts InterestIds
+  // (gap #6), so the filter itself works, the entry point is what's gated.
   const [advanceVisible, setAdvanceVisible] = useState(false);
   const [interestCategories, setInterestCategories] = useState<InterestCategory[]>([]);
   const [expandedCategory, setExpandedCategory] = useState<number | null>(null);
@@ -434,6 +455,11 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
 
   // Prevent duplicate swipe calls
   const swipingRef = useRef(false);
+
+  // The card stack advances optimistically, so a swipe the backend refuses has
+  // to be able to put the user back on the card they were looking at.
+  const currentIndexRef = useRef(0);
+  useEffect(() => { currentIndexRef.current = currentIndex; }, [currentIndex]);
 
   // Whether the current deck came from a filtered query — a refresh on focus
   // has to preserve the user's filters instead of silently resetting them.
@@ -502,10 +528,11 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
 
   const handleSwipe = useCallback(
     (user: DiscoverUser, direction: 'left' | 'right' | 'super') => {
-      if (swipingRef.current) return;
+      if (swipingRef.current || limitReachedRef.current) return;
       swipingRef.current = true;
 
       // Advance card stack immediately — don't block on API
+      const swipedAt = currentIndexRef.current;
       setCurrentIndex((prev) => prev + 1);
       swipingRef.current = false;
 
@@ -522,7 +549,14 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
             setMatchVisible(true);
           }
         })
-        .catch(() => {});
+        .catch((err) => {
+          const status = err?.response?.status;
+          if (status !== 402 && status !== 403) return;
+          // Out of free swipes: this one didn't count, so put the card back and
+          // cover it with the premium prompt.
+          setLimitReached(true);
+          setCurrentIndex(swipedAt);
+        });
     },
     [],
   );
@@ -549,12 +583,12 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
 
   const handleActionButton = useCallback(
     (action: 'Like' | 'SuperLike' | 'Ignore') => {
-      if (currentIndex >= users.length) return;
+      if (limitReached || currentIndex >= users.length) return;
       const dir =
         action === 'Like' ? 'right' : action === 'Ignore' ? 'left' : 'super';
       handleSwipe(users[currentIndex], dir);
     },
-    [currentIndex, handleSwipe, users],
+    [currentIndex, handleSwipe, limitReached, users],
   );
 
   const visibleUsers = users.slice(currentIndex, currentIndex + 3);
@@ -618,6 +652,11 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
                 />
               );
             })
+          )}
+
+          {/* Out of free swipes — cover the card with the premium prompt */}
+          {limitReached && visibleUsers.length > 0 && (
+            <DailyLimitOverlay accent={accent} onSubscribe={goPremium} />
           )}
 
           {/* Action pill overlapping the card bottom (Figma) */}
@@ -807,10 +846,20 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
                   })}
                 </View>
 
-                {/* Advance Filters — unlocked while subscription/IAP is on hold */}
+                {/* Advance Filters — premium only; free accounts get the paywall */}
                 <TouchableOpacity
-                  style={[styles.advanceBtn, { backgroundColor: lime, borderColor: lime }]}
-                  onPress={() => setAdvanceVisible(true)}
+                  style={[
+                    styles.advanceBtn,
+                    isPremium && { backgroundColor: lime, borderColor: lime },
+                  ]}
+                  onPress={() => {
+                    if (isPremium) {
+                      setAdvanceVisible(true);
+                      return;
+                    }
+                    setFilterVisible(false);
+                    goPremium();
+                  }}
                   activeOpacity={0.8}
                 >
                   <Image
@@ -818,9 +867,12 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
                     style={styles.advanceCrown}
                     resizeMode="contain"
                   />
-                  <Text style={[styles.advanceBtnText, styles.advanceBtnTextActive]}>
+                  <Text style={[styles.advanceBtnText, isPremium && styles.advanceBtnTextActive]}>
                     Advance Filters
                   </Text>
+                  {!isPremium && (
+                    <Icon name="lock-closed" size={16} color={Colors.textMuted} />
+                  )}
                 </TouchableOpacity>
 
                 <TouchableOpacity

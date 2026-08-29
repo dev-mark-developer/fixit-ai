@@ -9,6 +9,8 @@ import { launchImageLibrary } from 'react-native-image-picker';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { MentorStackParamList } from '../../types/navigation';
 import { Colors } from '../../utils/colors';
+import { useSubscription } from '../../store/SubscriptionContext';
+import { isIapSupported } from '../../services/iap';
 import { resolveImageUrl } from '../../utils/imageUrl';
 import { useAuth } from '../../store/AuthContext';
 import { useModuleStatus } from '../../store/ModuleStatusContext';
@@ -32,6 +34,12 @@ const MAX_DOB = (() => { const d = new Date(); d.setFullYear(d.getFullYear() - 1
 export default function MentorProfileSetupScreen({ navigation }: Props) {
   const { user } = useAuth();
   const { isMentor, refresh } = useModuleStatus();
+  const { isPremium } = useSubscription();
+
+  // Mentors who already pay skip straight to the dashboard; everyone else has
+  // to clear the paywall first.
+  const afterSetupRoute: 'MentorMain' | 'MentorSubscription' =
+    !isIapSupported || isPremium ? 'MentorMain' : 'MentorSubscription';
 
   // API-backed fields (submitted): displayName (first+last) → tagline (title) → bio (about)
   const [firstName, setFirstName] = useState(user?.firstName ?? '');
@@ -146,7 +154,7 @@ export default function MentorProfileSetupScreen({ navigation }: Props) {
 
       if (isMentor) {
         // Already inside the mentor stack — continue to the plan screen
-        navigation.replace('MentorSubscription');
+        navigation.replace(afterSetupRoute);
       } else {
         // refresh() sees role=Mentor and swaps the tree to MentorNavigator
         await refresh();
@@ -177,7 +185,9 @@ export default function MentorProfileSetupScreen({ navigation }: Props) {
         {
           text: 'Leave',
           style: 'destructive',
-          onPress: () => navigation.replace('MentorMain'),
+          // The mentor programme is subscription-only, so leaving profile setup
+          // still lands on the paywall rather than the dashboard.
+          onPress: () => navigation.replace(afterSetupRoute),
         },
       ],
     });

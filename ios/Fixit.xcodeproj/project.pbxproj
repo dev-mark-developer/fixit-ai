@@ -43,6 +43,7 @@
 		8019FD96CBD44944A88E69D6 /* Gilroy-Bold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = "Gilroy-Bold.ttf"; path = "../assets/fonts/Gilroy-Bold.ttf"; sourceTree = "<group>"; };
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = Fixit/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		85A5A9026EFD4903A40DA29D /* Gilroy-Light.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = "Gilroy-Light.ttf"; path = "../assets/fonts/Gilroy-Light.ttf"; sourceTree = "<group>"; };
+		8D5C00E2CB31279178B72CFF /* Fixit.storekit */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text; path = Fixit.storekit; sourceTree = "<group>"; };
 		9467B8B38BA64E0398375EE7 /* Lexend-SemiBold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = "Lexend-SemiBold.ttf"; path = "../assets/fonts/Lexend-SemiBold.ttf"; sourceTree = "<group>"; };
 		965D24A702FBE949B26CBE6B /* GoogleService-Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; name = "GoogleService-Info.plist"; path = "Fixit/GoogleService-Info.plist"; sourceTree = "<group>"; };
 		A428575C3036FF2B00355A5C /* Fixit.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; name = Fixit.entitlements; path = Fixit/Fixit.entitlements; sourceTree = "<group>"; };
@@ -77,6 +78,7 @@
 				81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */,
 				13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */,
 				965D24A702FBE949B26CBE6B /* GoogleService-Info.plist */,
+				8D5C00E2CB31279178B72CFF /* Fixit.storekit */,
 			);
 			name = Fixit;
 			sourceTree = "<group>";
@@ -348,7 +350,7 @@
 				CODE_SIGN_ENTITLEMENTS = Fixit/Fixit.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = N3G3FRS6RK;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Fixit/Info.plist;
@@ -367,9 +369,12 @@
 				PRODUCT_NAME = Fixit;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = Debug;
@@ -383,7 +388,7 @@
 				CODE_SIGN_ENTITLEMENTS = Fixit/Fixit.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = N3G3FRS6RK;
 				INFOPLIST_FILE = Fixit/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
@@ -401,8 +406,11 @@
 				PRODUCT_NAME = Fixit;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = Release;

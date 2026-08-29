@@ -5,6 +5,139 @@ doing UI work on **AIFixitMobileApp**. Newest entries at the top.
 
 ---
 
+## 2026-08-27 — iOS Debug builds fail to link (RN 0.85 prebuilt core)
+
+**Not caused by the IAP work** — the core tarballs are dated 2026-06-04, and
+`react-native-iap` is a Nitro module that defines no Fabric components, so it
+never appears in the undefined-symbol list. Found while verifying the IAP
+build.
+
+**Symptom.** `xcodebuild -configuration Debug` fails at link:
+
+```
+Undefined symbols:
+  facebook::react::Sealable::Sealable()          <- RNScreens, RNGestureHandler,
+  facebook::react::ShadowNode::getDebugName()       RNDateTimePicker
+  facebook::react::ShadowNode::getDebugValue()
+```
+
+**Cause.** RN 0.85 ships React Native core as a **prebuilt** xcframework
+(`RCT_USE_PREBUILT_RNCORE` defaults to `1`) and downloads *both* a Debug and a
+Release tarball into `ios/Pods/ReactNativeCore-artifacts/`. A script phase in
+`React-Core-prebuilt.podspec` swaps in the right one at build time, deciding
+from `ios/Pods/React-Core-prebuilt/.last_build_configuration`.
+
+The trap is in `scripts/replace-rncore-version.js`:
+
+```js
+// Assumption: if there is no stored last build, we assume that it was build for debug.
+if (!fileExists && configuration === 'Debug') return false;  // skips the swap
+```
+
+A fresh install extracts the **Release** framework, but with no marker present
+the script assumes it is already Debug and skips the swap. Release core is
+built with `NDEBUG`, which compiles out `Sealable`'s ctors and the
+`getDebug*` family. Meanwhile RN only adds `-DNDEBUG` to pods in **Release**
+configs (`cocoapods/utils.rb`, `add_ndebug_flag_to_pods_in_release`), so in
+Debug the Fabric pods compile *expecting* those symbols. Hence the mismatch.
+
+Verified with `nm`: the Release framework exports **0** `Sealable` symbols, the
+Debug one exports 13 (arm64) / 15 (x86_64). Sizes give it away too — Release
+binary 23.8 MB vs Debug 132 MB.
+
+**Fix.** Seed the marker with the truth. Added to the Podfile's `post_install`:
+writes `Release` into `.last_build_configuration` when the file is missing, so
+the first Debug build performs the swap. The script maintains it after that.
+In the Podfile so it survives `pod install`, which regenerates `Pods/`.
+
+**Gotcha while diagnosing:** the swap replaces the framework *mid-build*, so
+the build where it first runs can still fail — one arch links against the old
+framework. Just build again; the second run is clean.
+
+**Also worth knowing:** `pod install` once flipped the shared scheme's
+`LaunchAction` from Debug to **Release**. Reverted — Release builds link fine
+even with the wrong core, so if anyone "fixed" the build that way in the past,
+this is why.
+
+---
+
+## 2026-08-27 — In-app purchases (iOS) wired end-to-end
+
+Single auto-renewing product **`com.monthly`** behind every paid surface —
+mentor programme and dating premium share **one** entitlement. iOS only;
+Android deliberately keeps its existing stubs.
+
+**Decisions taken with the client** (asked before starting, per `IAP Document.pdf`):
+
+| Question | Decision |
+|---|---|
+| One product or per-flow? | **One** shared product, one entitlement |
+| How does the backend learn about a purchase? | **Webhook only** — the app posts nothing, it polls `GET /subscription/status` |
+| `appAccountToken` source | `identifier` on the login response (backend added it same day) |
+| Free-swipe limit signal | **402/403 from `POST /dating/swipe`** |
+| Android meanwhile | Keep the current stub (record call / "Coming Soon") |
+| Mentor gate | **Hard** — no back button, only Subscribe / Restore / Sign Out |
+| Free trial | None |
+| Post-purchase UX | Spinner + 30s poll, then success; timeout → "taking longer" + Check Again |
+
+**Library:** `react-native-iap@16.4.0` (StoreKit 2). Picked because it's built on
+`react-native-nitro-modules ^0.36.5` — already a dependency here — so it fits
+RN 0.85 without a version fight. Pods: `NitroIap 16.4.0` + `openiap 3.3.0`.
+
+**New files**
+- `src/services/iap.ts` — StoreKit wrapper. Connection, product fetch, purchase
+  with `appAccountToken`, restore, replayed-transaction handler.
+- `src/api/subscription.ts` — `GET /subscription/status`, `POST /subscription/restore`.
+  Status response is untyped in Swagger, so `normalizeSubscriptionStatus`
+  tolerates the likely field spellings (gap #21).
+- `src/store/SubscriptionContext.tsx` — the one `isPremium` every gated surface reads.
+- `src/utils/appAccountToken.ts` — backend GUID when present, else a
+  deterministic derivation from the int user id (gap #20).
+- `src/components/common/ActivatingSubscriptionModal.tsx`
+- `src/components/dating/DailyLimitOverlay.tsx`
+
+**Two decisions worth remembering**
+
+1. **The StoreKit transaction is finished only after the backend grants
+   entitlement.** Because the design is webhook-only, finishing on Apple's
+   confirmation alone would drop the purchase entirely if the webhook never
+   landed. Leaving it unfinished means StoreKit replays it on the next launch
+   and `onReplayedPurchase` re-checks the status — the purchase self-heals.
+2. **The backend stays the single source of truth for Likes Received.** The
+   client does *not* pre-lock that tab from its own `isPremium`; it still calls
+   the endpoint and locks on 402/403. It only reacts to the *moment* premium is
+   bought, to swap the locked preview for the real list without a refresh.
+
+**Not a real blur.** `DailyLimitOverlay` dims the card with a scrim rather than
+blurring it — a true blur would mean pulling in a native blur module for one
+screen. Flag if the design needs the real thing.
+
+**tsconfig:** added a `paths` entry for `react-native-iap`. Its `exports` map
+aims the `react-native` condition at raw TS source, which dragged the library's
+own type errors into our build; the entry points the type checker at the
+shipped declarations. Metro still bundles the source.
+
+**Left for the account owner** (can't be done from here):
+- Create `com.monthly` in App Store Connect for bundle `com.fixit.mobileapp`,
+  submit for review, and create a Sandbox Tester.
+- Enable App Store Server Notifications **v2** → point at the backend's
+  `POST /api/Subscription/webhook/ios`.
+- `ios/Fixit.storekit` exists for local testing but is **not** in the Xcode
+  project — drag it in, then Edit Scheme → Run → Options → StoreKit
+  Configuration to use it without App Store Connect.
+
+**`appAccountToken` case trap (gap #20).** The backend's `identifier` is
+upper-case (`CF5696FE-…`); StoreKit takes a `UUID` and Apple renders it
+**lower-case** in the signed transaction the webhook receives. The app sends it
+lower-cased so both ends use one spelling, but the webhook's lookup still has
+to be **case-insensitive** — a naive `==` against the stored upper-case value
+fails silently: the purchase goes through and entitlement never arrives.
+
+Open backend gaps logged as #20–#24 in
+[API_CHANGES_NEEDED.md](./API_CHANGES_NEEDED.md).
+
+---
+
 ## 2026-08-20 — Firebase push notifications wired end-to-end
 
 Full setup guide (including the bits only the account owner can do):

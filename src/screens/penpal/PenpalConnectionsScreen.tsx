@@ -30,10 +30,12 @@ import RemoteImage, {
 import {
   penpalApi,
   PenpalConnection,
+  PenpalConnectionStatus,
   PenpalDiscoverItem,
 } from '../../api/penpal';
 import { getUser } from '../../store/auth';
 import ReportModal from '../../components/common/ReportModal';
+import DisabilityBadge from '../../components/penpal/DisabilityBadge';
 
 type Props = CompositeScreenProps<
   DrawerScreenProps<PenpalDrawerParamList, 'PenpalConnections'>,
@@ -42,6 +44,22 @@ type Props = CompositeScreenProps<
 
 type Tab = 'All' | 'Requests' | 'Connected';
 const TABS: Tab[] = ['All', 'Requests', 'Connected'];
+
+/**
+ * All three tabs are one `/penpal/discover` call — the `status` param is the
+ * only thing that differs. Requests and Connected used to hit
+ * `/penpal/connections` instead, which returned a different shape and left the
+ * two halves of the screen out of sync.
+ *
+ * All sends the param empty rather than `None`: `None` reads as "people you
+ * have no connection with", which would hide everyone already connected or
+ * pending from a tab whose whole job is to show everyone.
+ */
+const TAB_STATUS: Record<Tab, PenpalConnectionStatus> = {
+  All: '',
+  Requests: 'Pending',
+  Connected: 'Accepted',
+};
 
 // Two cards per row: screen width − list padding (16×2) − gap (12), split in two.
 const GRID_GAP = 12;
@@ -60,19 +78,60 @@ const timeAgo = (dateStr: string) => {
   return 'just now';
 };
 
+/**
+ * Fills in the connection row behind each Pending/Accepted person.
+ *
+ * Discover is the list; these are the fields the Requests tab acts on — the
+ * connection id, and who sent the request. If discover already carries them
+ * this never runs. It's a stopgap for a discover response that returns the
+ * person but not the connection (gap #26); once the backend includes them the
+ * whole function goes cold on its own.
+ */
+async function withConnectionMeta(
+  items: PenpalDiscoverItem[],
+  status: PenpalConnectionStatus,
+  signal?: AbortSignal,
+): Promise<PenpalDiscoverItem[]> {
+  try {
+    const res = await penpalApi.getConnections(
+      { status, page: 1, pageSize: 100 },
+      signal,
+    );
+    const conns: PenpalConnection[] = res.data?.data ?? [];
+    // Keyed by both ends: the person in the list is whichever end isn't us.
+    const byUserId = new Map<number, PenpalConnection>();
+    conns.forEach(c => {
+      byUserId.set(c.requesterId, c);
+      byUserId.set(c.receiverId, c);
+    });
+    return items.map(p => {
+      const c = byUserId.get(p.userId);
+      if (!c) return p;
+      return {
+        ...p,
+        connectionId: p.connectionId ?? c.id,
+        requesterId: p.requesterId ?? c.requesterId,
+        receiverId: p.receiverId ?? c.receiverId,
+        connectionCreatedAt: p.connectionCreatedAt ?? c.createdAt,
+      };
+    });
+  } catch {
+    // Non-fatal: the list still renders, the action buttons just stay hidden.
+    return items;
+  }
+}
+
 export default function PenpalConnectionsScreen({ navigation }: Props) {
   const [tab, setTab] = useState<Tab>('All');
   const [search, setSearch] = useState('');
-  const [people, setPeople] = useState<PenpalDiscoverItem[]>([]); // All tab
-  const [conns, setConns] = useState<PenpalConnection[]>([]); // Requests/Connected
-  usePrefetchImages([
-    ...people.map(p => p.profileImageUrl),
-    ...conns.flatMap(c => [c.requesterImageUrl, c.receiverImageUrl]),
-  ]);
+  // One list for all three tabs now that they share an endpoint.
+  const [people, setPeople] = useState<PenpalDiscoverItem[]>([]);
+  usePrefetchImages(people.map(p => p.profileImageUrl));
   const [loading, setLoading] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
+  // Keyed by userId — the one id every tab's rows share.
   const [activeAction, setActiveAction] = useState<{
-    id: number;
+    userId: number;
     action: string;
   } | null>(null);
   const [connectingId, setConnectingId] = useState<number | null>(null);
@@ -81,6 +140,7 @@ export default function PenpalConnectionsScreen({ navigation }: Props) {
 
   // Unified accept-confirm modal (digital + physical variants)
   const [confirmModal, setConfirmModal] = useState<{
+    userId: number;
     connectionId: number;
     name: string;
     physical: boolean;
@@ -91,26 +151,48 @@ export default function PenpalConnectionsScreen({ navigation }: Props) {
     getUser().then(u => setCurrentUserId(u?.id ?? null));
   }, []);
 
+  // A tab switch or a keystroke supersedes whatever is still running. Without
+  // this they pile up on one connection, and a stale response can land last
+  // and overwrite the list the user is actually looking at.
+  const inFlight = useRef<AbortController | null>(null);
+  useEffect(() => () => inFlight.current?.abort(), []);
+
   const load = async (which: Tab, searchTerm = '') => {
+    inFlight.current?.abort();
+    const controller = new AbortController();
+    inFlight.current = controller;
+
+    const status = TAB_STATUS[which];
     setLoading(true);
     try {
-      if (which === 'All') {
-        const res = await penpalApi.discover({
+      const res = await penpalApi.discover(
+        {
           search: searchTerm || undefined,
+          status,
           page: 1,
           pageSize: 20,
-        });
-        setPeople(res.data?.data ?? []);
-      } else {
-        const status = which === 'Requests' ? 'Pending' : 'Accepted';
-        const res = await penpalApi.getConnections({ status });
-        setConns(res.data?.data ?? []);
-      }
+        },
+        controller.signal,
+      );
+      const items: PenpalDiscoverItem[] = res.data?.data ?? [];
+      // Only the two connection tabs need the connection row, and only when
+      // discover didn't already supply it.
+      const withMeta =
+        which !== 'All' && items.some(p => p.connectionId === undefined)
+          ? await withConnectionMeta(items, status, controller.signal)
+          : items;
+      if (controller.signal.aborted) return;
+      setPeople(withMeta);
     } catch {
-      if (which === 'All') setPeople([]);
-      else setConns([]);
+      // An abort isn't a failure — a newer load owns the list now.
+      if (!controller.signal.aborted) setPeople([]);
     } finally {
-      setLoading(false);
+      // Only the newest load may clear the spinner; an aborted one bowing out
+      // would otherwise turn it off while its replacement is still running.
+      if (inFlight.current === controller) {
+        inFlight.current = null;
+        setLoading(false);
+      }
     }
   };
 
@@ -119,21 +201,20 @@ export default function PenpalConnectionsScreen({ navigation }: Props) {
   // declining or removing a connection).
   useFocusEffect(
     useCallback(() => {
-      load(tab, tab === 'All' ? search : '');
+      load(tab, search);
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [tab]),
   );
 
-  // Live search on the All tab: refetch (debounced) as the user types.
-  // Requests/Connected filter client-side below, so no fetch is needed there.
+  // Live search: refetch (debounced) as the user types. Every tab now goes
+  // through discover, which takes `search`, so this is no longer All-only.
   const searchMounted = useRef(false);
   useEffect(() => {
     if (!searchMounted.current) {
       searchMounted.current = true; // focus effect covers the initial load
       return;
     }
-    if (tab !== 'All') return;
-    const timer = setTimeout(() => load('All', search), 350);
+    const timer = setTimeout(() => load(tab, search), 350);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search]);
@@ -157,14 +238,16 @@ export default function PenpalConnectionsScreen({ navigation }: Props) {
   };
 
   const handleRespond = async (
+    userId: number,
     connectionId: number,
     status: 'Accepted' | 'Declined',
   ) => {
     setConfirmModal(null);
-    setActiveAction({ id: connectionId, action: status });
+    setActiveAction({ userId, action: status });
     try {
       await penpalApi.respondConnection(connectionId, status);
-      setConns(prev => prev.filter(c => c.id !== connectionId));
+      // Either answer takes the person out of Pending, which is this tab.
+      setPeople(prev => prev.filter(p => p.userId !== userId));
     } catch (err: any) {
       Alert.alert('Error', err.response?.data?.message ?? 'Action failed.');
     } finally {
@@ -172,16 +255,19 @@ export default function PenpalConnectionsScreen({ navigation }: Props) {
     }
   };
 
-  const handleAccept = (item: PenpalConnection) => {
+  const handleAccept = (item: PenpalDiscoverItem, connectionId: number) => {
     setConsentChecked(false);
     setConfirmModal({
-      connectionId: item.id,
-      name: item.requesterPseudoName,
-      physical: item.requesterLetterType === 'Physical',
+      userId: item.userId,
+      connectionId,
+      name: item.pseudoName,
+      // `letterType` is the other person's — they're the one who'd receive
+      // the address, same as the old `requesterLetterType`.
+      physical: item.letterType === 'Physical',
     });
   };
 
-  const handleCancel = (connectionId: number) => {
+  const handleCancel = (userId: number, connectionId: number) => {
     Alert.alert(
       'Cancel Request',
       'Are you sure you want to cancel this connection request?',
@@ -191,10 +277,10 @@ export default function PenpalConnectionsScreen({ navigation }: Props) {
           text: 'Cancel Request',
           style: 'destructive',
           onPress: async () => {
-            setActiveAction({ id: connectionId, action: 'Cancel' });
+            setActiveAction({ userId, action: 'Cancel' });
             try {
               await penpalApi.cancelConnection(connectionId);
-              setConns(prev => prev.filter(c => c.id !== connectionId));
+              setPeople(prev => prev.filter(p => p.userId !== userId));
             } catch (err: any) {
               Alert.alert(
                 'Error',
@@ -210,6 +296,9 @@ export default function PenpalConnectionsScreen({ navigation }: Props) {
   };
 
   // ── Navigation helpers ─────────────────────────────────────
+  // All three tabs hold discover items now, so one helper covers them. The
+  // Requests/Connected rows gained identityVisibility, country and age this
+  // way — the connections response never carried them.
   const openDiscoverProfile = (p: PenpalDiscoverItem) =>
     navigation.navigate('PenpalPublicProfile', {
       userId: p.userId,
@@ -225,23 +314,6 @@ export default function PenpalConnectionsScreen({ navigation }: Props) {
       age: p.age,
     });
 
-  const openConnectionProfile = (item: PenpalConnection) => {
-    const isRequester = item.requesterId === currentUserId;
-    navigation.navigate('PenpalPublicProfile', {
-      userId: isRequester ? item.receiverId : item.requesterId,
-      pseudoName: isRequester
-        ? item.receiverPseudoName
-        : item.requesterPseudoName,
-      letterType: isRequester ? item.receiverLetterType : item.requesterLetterType,
-      identityVisibility: '',
-      city: isRequester ? item.receiverCity : item.requesterCity,
-      state: isRequester ? item.receiverState : item.requesterState,
-      profileImageUrl: isRequester
-        ? item.receiverImageUrl
-        : item.requesterImageUrl,
-    });
-  };
-
   // ── Renderers ──────────────────────────────────────────────
   const renderPerson = ({ item }: { item: PenpalDiscoverItem }) => (
     <TouchableOpacity
@@ -249,15 +321,18 @@ export default function PenpalConnectionsScreen({ navigation }: Props) {
       activeOpacity={0.8}
       onPress={() => openDiscoverProfile(item)}
     >
-      {item.profileImageUrl ? (
-        <RemoteImage uri={item.profileImageUrl} style={styles.rowAvatar} />
-      ) : (
-        <View style={[styles.rowAvatar, styles.rowAvatarFallback]}>
-          <Text style={styles.rowAvatarText}>
-            {item.pseudoName.charAt(0).toUpperCase()}
-          </Text>
-        </View>
-      )}
+      <View style={styles.rowAvatarWrap}>
+        {item.profileImageUrl ? (
+          <RemoteImage uri={item.profileImageUrl} style={styles.rowAvatar} />
+        ) : (
+          <View style={[styles.rowAvatar, styles.rowAvatarFallback]}>
+            <Text style={styles.rowAvatarText}>
+              {item.pseudoName.charAt(0).toUpperCase()}
+            </Text>
+          </View>
+        )}
+        <DisabilityBadge identityVisibility={item.identityVisibility} />
+      </View>
       <View style={styles.rowInfo}>
         <Text style={styles.rowName} numberOfLines={1}>
           {item.pseudoName}
@@ -288,51 +363,59 @@ export default function PenpalConnectionsScreen({ navigation }: Props) {
     </TouchableOpacity>
   );
 
-  const renderRequest = ({ item }: { item: PenpalConnection }) => {
-    const isIncoming = item.receiverId === currentUserId;
-    const otherName = isIncoming
-      ? item.requesterPseudoName
-      : item.receiverPseudoName;
-    const otherImage = isIncoming
-      ? item.requesterImageUrl
-      : item.receiverImageUrl;
-    const busy = activeAction?.id === item.id;
+  const renderRequest = ({ item }: { item: PenpalDiscoverItem }) => {
+    // Which way the request points decides Accept/Decline vs Cancel. Read from
+    // whichever end discover gives us; if it gives neither, treat it as
+    // incoming — the common case, since an outgoing request is one the user
+    // just sent themselves.
+    const isIncoming =
+      item.receiverId !== undefined
+        ? item.receiverId === currentUserId
+        : item.requesterId === undefined || item.requesterId !== currentUserId;
+    const connectionId = item.connectionId;
+    const sentAt = item.connectionCreatedAt ?? item.createdAt;
+    const busy = activeAction?.userId === item.userId;
 
     return (
       <TouchableOpacity
         style={styles.row}
         activeOpacity={0.8}
-        onPress={() => openConnectionProfile(item)}
+        onPress={() => openDiscoverProfile(item)}
       >
-        {otherImage ? (
-          <RemoteImage uri={otherImage} style={styles.rowAvatar} />
-        ) : (
-          <View style={[styles.rowAvatar, styles.rowAvatarFallback]}>
-            <Text style={styles.rowAvatarText}>
-              {otherName.charAt(0).toUpperCase()}
-            </Text>
-          </View>
-        )}
+        <View style={styles.rowAvatarWrap}>
+          {item.profileImageUrl ? (
+            <RemoteImage uri={item.profileImageUrl} style={styles.rowAvatar} />
+          ) : (
+            <View style={[styles.rowAvatar, styles.rowAvatarFallback]}>
+              <Text style={styles.rowAvatarText}>
+                {item.pseudoName.charAt(0).toUpperCase()}
+              </Text>
+            </View>
+          )}
+          <DisabilityBadge identityVisibility={item.identityVisibility} />
+        </View>
         <View style={styles.rowInfo}>
           <Text style={styles.rowName} numberOfLines={1}>
-            {otherName}
+            {item.pseudoName}
           </Text>
-          <Text style={styles.rowMeta}>{timeAgo(item.createdAt)}</Text>
+          {!!sentAt && <Text style={styles.rowMeta}>{timeAgo(sentAt)}</Text>}
         </View>
 
+        {/* No connection id means nothing can be acted on — better a row with
+            no buttons than buttons that fail on tap. */}
         {busy ? (
           <ActivityIndicator color={Colors.penpal} size="small" />
-        ) : isIncoming ? (
+        ) : connectionId === undefined ? null : isIncoming ? (
           <View style={styles.reqActions}>
             <TouchableOpacity
               style={[styles.circleBtn, styles.circleDecline]}
-              onPress={() => handleRespond(item.id, 'Declined')}
+              onPress={() => handleRespond(item.userId, connectionId, 'Declined')}
             >
               <Text style={styles.circleGlyph}>✕</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.circleBtn, styles.circleAccept]}
-              onPress={() => handleAccept(item)}
+              onPress={() => handleAccept(item, connectionId)}
             >
               <Text style={styles.circleGlyph}>✓</Text>
             </TouchableOpacity>
@@ -340,7 +423,7 @@ export default function PenpalConnectionsScreen({ navigation }: Props) {
         ) : (
           <TouchableOpacity
             style={styles.cancelPill}
-            onPress={() => handleCancel(item.id)}
+            onPress={() => handleCancel(item.userId, connectionId)}
           >
             <Text style={styles.cancelPillText}>Cancel</Text>
           </TouchableOpacity>
@@ -349,19 +432,11 @@ export default function PenpalConnectionsScreen({ navigation }: Props) {
     );
   };
 
-  const renderConnected = ({ item }: { item: PenpalConnection }) => {
-    const isRequester = item.requesterId === currentUserId;
-    const otherName = isRequester
-      ? item.receiverPseudoName
-      : item.requesterPseudoName;
-    const otherId = isRequester ? item.receiverId : item.requesterId;
-    const otherImageUrl = isRequester
-      ? item.receiverImageUrl
-      : item.requesterImageUrl;
-    const otherLetterType = isRequester
-      ? item.receiverLetterType
-      : item.requesterLetterType;
-    const isPhysical = otherLetterType === 'Physical';
+  const renderConnected = ({ item }: { item: PenpalDiscoverItem }) => {
+    const otherName = item.pseudoName;
+    const otherId = item.userId;
+    const otherImageUrl = item.profileImageUrl;
+    const isPhysical = item.letterType === 'Physical';
 
     const CardOverlay = (
       <>
@@ -410,7 +485,7 @@ export default function PenpalConnectionsScreen({ navigation }: Props) {
       <TouchableOpacity
         style={styles.photoCard}
         activeOpacity={0.9}
-        onPress={() => openConnectionProfile(item)}
+        onPress={() => openDiscoverProfile(item)}
       >
         {otherImageUrl ? (
           <RemoteImageBackground
@@ -432,17 +507,9 @@ export default function PenpalConnectionsScreen({ navigation }: Props) {
     );
   };
 
-  // Client-side name filter for the Requests/Connected tabs.
-  const filteredConns = search
-    ? conns.filter(c => {
-        const isRequester = c.requesterId === currentUserId;
-        const name = isRequester ? c.receiverPseudoName : c.requesterPseudoName;
-        return name.toLowerCase().includes(search.toLowerCase());
-      })
-    : conns;
-
-  // Instant client-side filter for the All tab while the debounced server
-  // search is in flight (also covers servers that ignore the search param).
+  // Instant client-side filter while the debounced server search is in flight
+  // (also covers servers that ignore the search param). One list, so this now
+  // covers all three tabs.
   const q = search.trim().toLowerCase();
   const filteredPeople = q
     ? people.filter(p =>
@@ -532,8 +599,8 @@ export default function PenpalConnectionsScreen({ navigation }: Props) {
         />
       ) : tab === 'Requests' ? (
         <FlatList
-          data={filteredConns}
-          keyExtractor={item => item.id.toString()}
+          data={filteredPeople}
+          keyExtractor={item => item.userId.toString()}
           extraData={activeAction}
           renderItem={renderRequest}
           contentContainerStyle={styles.list}
@@ -544,8 +611,8 @@ export default function PenpalConnectionsScreen({ navigation }: Props) {
       ) : (
         <FlatList
           key="connected-grid"
-          data={filteredConns}
-          keyExtractor={item => item.id.toString()}
+          data={filteredPeople}
+          keyExtractor={item => item.userId.toString()}
           renderItem={renderConnected}
           numColumns={2}
           columnWrapperStyle={styles.gridRow}
@@ -629,7 +696,11 @@ export default function PenpalConnectionsScreen({ navigation }: Props) {
                 disabled={!!confirmModal?.physical && !consentChecked}
                 onPress={() =>
                   confirmModal &&
-                  handleRespond(confirmModal.connectionId, 'Accepted')
+                  handleRespond(
+                    confirmModal.userId,
+                    confirmModal.connectionId,
+                    'Accepted',
+                  )
                 }
               >
                 <Text style={styles.modalConfirmText}>Confirm</Text>
@@ -741,6 +812,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
   },
+  rowAvatarWrap: { width: 44, height: 44 },
   rowAvatar: { width: 44, height: 44, borderRadius: 22 },
   rowAvatarFallback: {
     backgroundColor: Colors.penpal,

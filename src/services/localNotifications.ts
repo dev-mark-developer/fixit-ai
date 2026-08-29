@@ -60,7 +60,13 @@ export interface LocalNotification {
 
 function toNotifeeNotification(notification: LocalNotification) {
   return {
-    id: notification.id,
+    // Spread rather than `id: notification.id`: notifee validates with
+    // `hasOwnProperty`, so a present-but-undefined `id` is rejected outright
+    // ("invalid notification ID, expected a unique string value") — where an
+    // absent one just gets generated. Notifications raised from a push never
+    // carry an id, so writing the key unconditionally threw on every one.
+    // `title`, `body` and `data` tolerate undefined, so only `id` needs this.
+    ...(notification.id !== undefined && { id: notification.id }),
     title: notification.title,
     body: notification.body,
     data: notification.data,

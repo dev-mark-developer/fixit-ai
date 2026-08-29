@@ -10,6 +10,16 @@ export interface AuthUser {
   lastName: string;
   email: string;
   role: string;
+  /**
+   * Per-user GUID Apple's `appAccountToken` carries into the purchase, which is
+   * how the store webhook resolves a transaction back to this account. Comes
+   * from `identifier` on the login response.
+   *
+   * Still optional: sessions saved before this field existed have no value for
+   * it until the user signs in again, so `resolveAppAccountToken` keeps its
+   * derived fallback for them.
+   */
+  appAccountToken?: string;
 }
 
 export async function saveSession(token: string, user: AuthUser, refreshToken?: string): Promise<void> {

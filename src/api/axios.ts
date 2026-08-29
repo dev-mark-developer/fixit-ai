@@ -117,4 +117,49 @@ api.interceptors.response.use(
   },
 );
 
+// ── Response: retry a read once when the connection drops ────────────────────
+/**
+ * `error.response === undefined` means nothing came back — the request never
+ * reached a server that answered. On iOS the usual cause is a keep-alive
+ * connection the OS reused at the moment the server closed it
+ * (`NSURLErrorNetworkConnectionLost`), which surfaces here as axios's generic
+ * "Network Error" after an arbitrary delay. It's why a call can fail once for
+ * no visible reason and succeed immediately after — the retry opens a fresh
+ * connection.
+ *
+ * Only GET and HEAD are retried: they have no side effects, so a request that
+ * did reach the server before the connection died costs nothing to repeat.
+ * Timeouts (`ECONNABORTED`) and cancellations are left alone — retrying a
+ * timeout just makes the user wait twice as long.
+ */
+const MAX_NETWORK_RETRIES = 1;
+const RETRY_DELAY_MS = 400;
+
+type RetriedConfig = { _netRetries?: number; method?: string };
+
+api.interceptors.response.use(undefined, async error => {
+  const config = error.config as (typeof error.config & RetriedConfig) | undefined;
+  const isTransport =
+    !error.response && (error.code === 'ERR_NETWORK' || error.code === undefined);
+  const method = (config?.method ?? 'get').toLowerCase();
+  const isRead = method === 'get' || method === 'head';
+
+  if (!config || !isTransport || !isRead) return Promise.reject(error);
+
+  const attempt = (config._netRetries ?? 0) + 1;
+  if (attempt > MAX_NETWORK_RETRIES) return Promise.reject(error);
+  config._netRetries = attempt;
+
+  if (__DEV__) {
+    console.log(
+      `🔁 [API] retrying ${method.toUpperCase()} ${config.url} ` +
+      `(attempt ${attempt + 1}) after ${error.message}`,
+    );
+  }
+  await new Promise<void>(resolve =>
+    setTimeout(() => resolve(), RETRY_DELAY_MS * attempt),
+  );
+  return api(config);
+});
+
 export default api;

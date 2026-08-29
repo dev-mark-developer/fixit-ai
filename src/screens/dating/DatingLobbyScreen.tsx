@@ -15,7 +15,7 @@ type Props = NativeStackScreenProps<DatingStackParamList, 'DatingLobby'>;
 
 export default function DatingLobbyScreen({ navigation }: Props) {
   const { logout } = useAuth();
-  const { isMentor } = useModuleStatus();
+  const { isMentor, datingType } = useModuleStatus();
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [alert, setAlert] = useState<{ title: string; message: string; buttons?: AlertButton[] } | null>(null);
@@ -39,7 +39,19 @@ export default function DatingLobbyScreen({ navigation }: Props) {
     );
   }
 
+  // A Spiritual account is permanent: the only way to Non-Spiritual is to
+  // delete the account and register again.
+  const isSpiritual = datingType === 'Spiritual';
+
   const handleNonSpiritual = () => {
+    if (isSpiritual) {
+      setAlert({
+        title: 'Switching Not Available',
+        message:
+          'Your account is registered for Spiritual Dating and cannot be switched to Non-Spiritual Dating.\n\nTo use Non-Spiritual Dating you need to delete this account and register again.',
+      });
+      return;
+    }
     navigation.navigate('NonSpiritualEntry');
   };
 
@@ -75,11 +87,14 @@ export default function DatingLobbyScreen({ navigation }: Props) {
 
         {/* Non-Spiritual Dating Card */}
         <TouchableOpacity
-          style={[styles.card, styles.datingCard]}
+          style={[styles.card, styles.datingCard, isSpiritual && styles.cardLocked]}
           onPress={handleNonSpiritual}
           activeOpacity={0.9}
         >
           <Text style={[styles.cardLabel, styles.datingLabel]}>Non-Spiritual{'\n'}Dating</Text>
+          {isSpiritual && (
+            <Icon name="lock-closed" size={18} color={Colors.dating} style={styles.cardLock} />
+          )}
           <Image
             source={require('../../assets/nonSpiritual.png')}
             style={styles.cardImage}
@@ -102,7 +117,9 @@ export default function DatingLobbyScreen({ navigation }: Props) {
         </TouchableOpacity>
 
         <Text style={styles.disclaimer}>
-          You can only be active in one dating type at a time.
+          {isSpiritual
+            ? 'Spiritual accounts cannot be switched to Non-Spiritual. Switching requires deleting your account and registering again.'
+            : 'You can only be active in one dating type at a time.'}
         </Text>
       </ScrollView>
 
@@ -166,6 +183,8 @@ const styles = StyleSheet.create({
     paddingLeft: 24,
   },
   datingCard: { backgroundColor: '#FDEEF1' },
+  cardLocked: { opacity: 0.55 },
+  cardLock: { marginRight: 8 },
   spiritualCard: { backgroundColor: '#EEEEFF' },
 
   cardLabel: {

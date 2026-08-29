@@ -47,5 +47,23 @@ target 'Fixit' do
       :mac_catalyst_enabled => false,
       # :ccache_enabled => true
     )
+
+    # RN 0.85 ships React Native core as a prebuilt xcframework and swaps the
+    # Debug/Release variant at build time from a marker file, via
+    # `scripts/replace-rncore-version.js`. A fresh install extracts the
+    # *Release* framework, but that script assumes "no marker means Debug" and
+    # skips the swap — so a Debug build links Debug-compiled Fabric pods
+    # (Screens, GestureHandler, DateTimePicker) against Release core, which has
+    # the debug-only symbols compiled out under NDEBUG. It fails at link with
+    # `Sealable::Sealable()`, `ShadowNode::getDebugName()` and friends.
+    #
+    # Seeding the marker with the truth — Release — makes the first Debug build
+    # perform the swap. The script maintains the file from then on.
+    rncore_dir = File.join(installer.sandbox.root, 'React-Core-prebuilt')
+    rncore_marker = File.join(rncore_dir, '.last_build_configuration')
+    if Dir.exist?(rncore_dir) && !File.exist?(rncore_marker)
+      File.write(rncore_marker, 'Release')
+      Pod::UI.puts "[RNCore] Seeded .last_build_configuration=Release so Debug builds swap in the Debug core.".green
+    end
   end
 end

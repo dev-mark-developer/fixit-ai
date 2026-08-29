@@ -65,6 +65,7 @@ export default function OtpScreen({ navigation, route }: Props) {
               await login(d.accessToken, {
                 id: d.userId, firstName: d.firstName, lastName: d.lastName,
                 email: d.email, role: d.role,
+                appAccountToken: d.identifier,
               }, d.refreshToken);
               return; // AuthContext state change navigates to Home automatically
             }

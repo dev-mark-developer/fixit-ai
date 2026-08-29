@@ -77,8 +77,14 @@ export function attachApiLogger(api: AxiosInstance) {
           { response: printable(error.response.data) },
         );
       } else {
+        // Nothing came back at all. axios says "Network Error" for every
+        // one of these, so the code is the only thing that separates a
+        // dropped connection (ERR_NETWORK) from a client timeout
+        // (ECONNABORTED) from a cancelled request (ERR_CANCELED) — worth
+        // printing, since they have completely different causes.
+        const code = error.code ? ` [${error.code}]` : '';
         console.log(
-          `❌ [API ✕] ${method} ${cfg.url} (${ms}) — ${error.message}`,
+          `❌ [API ✕] ${method} ${cfg.url} (${ms}) — ${error.message}${code}`,
         );
       }
       return Promise.reject(error);

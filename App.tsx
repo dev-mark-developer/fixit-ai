@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AuthProvider } from './src/store/AuthContext';
+import { SubscriptionProvider } from './src/store/SubscriptionContext';
 import AppNavigator from './src/navigation/AppNavigator';
 import { requestNotificationPermission } from './src/services/pushNotifications';
 import { ensureNotificationChannel } from './src/services/localNotifications';
@@ -25,7 +26,9 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
-          <AppNavigator />
+          <SubscriptionProvider>
+            <AppNavigator />
+          </SubscriptionProvider>
         </AuthProvider>
       </QueryClientProvider>
     </GestureHandlerRootView>
