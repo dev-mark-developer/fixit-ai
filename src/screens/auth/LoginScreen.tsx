@@ -18,8 +18,8 @@ type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
 
 export default function LoginScreen({ navigation }: Props) {
   const { login } = useAuth();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState('@yopmail.com');
+  const [password, setPassword] = useState('Abcd@1234');
   const [errors, setErrors] = useState<{ email?: string; password?: string }>(
     {},
   );

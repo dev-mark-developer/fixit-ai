@@ -32,7 +32,7 @@ export default function PenpalEntryScreen({ navigation }: Props) {
             <Image source={require('../../assets/pg1.png')} style={styles.iconImg} resizeMode="contain" />
           </View>
           <Text style={styles.blockText}>
-            Slow down and rediscover the art of intentional connection. Whether through pixels or paper, the Penpal Club is a space for deep thoughts.
+            Slow down and rediscover the art of intentional connection. Whether through pixels or paper, the Penpal Group is a space for deep thoughts.
           </Text>
         </View>
 
@@ -40,7 +40,7 @@ export default function PenpalEntryScreen({ navigation }: Props) {
         <View style={styles.bulletRow}>
           <Text style={styles.bullet}>•</Text>
           <Text style={styles.bulletText}>
-            Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna.
+            Choose a pen name and write as your truest self — other members see the name you pick, not your account details.
           </Text>
         </View>
 
@@ -50,14 +50,14 @@ export default function PenpalEntryScreen({ navigation }: Props) {
             <Image source={require('../../assets/pg2.png')} style={styles.iconImg} resizeMode="contain" />
           </View>
           <Text style={[styles.blockText, { flex: 1 }]}>
-            Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
+            Send a connection request to someone whose profile speaks to you. Letters begin once you have both said yes.
           </Text>
         </View>
 
         {/* Pink card */}
         <View style={styles.pinkCard}>
           <Text style={styles.cardText}>
-            Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna nisi ut aliquip ex ea commodo consequat.
+            No swiping, no read receipts, no pressure to reply within the hour. A letter arrives when it arrives — and that is exactly the point.
           </Text>
         </View>
 
@@ -67,7 +67,7 @@ export default function PenpalEntryScreen({ navigation }: Props) {
             <Image source={require('../../assets/pg3.png')} style={styles.iconImg} resizeMode="contain" />
           </View>
           <Text style={styles.blockText}>
-            Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
+            We will let you know the moment a letter lands. Read it when you have time to sit with it, and answer when the words are ready.
           </Text>
         </View>
 
@@ -75,14 +75,14 @@ export default function PenpalEntryScreen({ navigation }: Props) {
         <View style={styles.bulletRow}>
           <Text style={styles.bullet}>•</Text>
           <Text style={styles.bulletText}>
-            Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna.
+            Prefer paper? Choose Physical letters, and your mailing address is shared with a penpal only after you connect and agree to it.
           </Text>
         </View>
 
         {/* Dark card */}
         <View style={styles.darkCard}>
           <Text style={styles.cardText}>
-            Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna nisi ut aliquip ex ea commodo consequat.
+            Every letter is written to one person, by one person. No feeds, no audience, no performing for strangers — just two people writing honestly.
           </Text>
         </View>
 
@@ -92,7 +92,7 @@ export default function PenpalEntryScreen({ navigation }: Props) {
             <Image source={require('../../assets/pg4.png')} style={styles.iconImg} resizeMode="contain" />
           </View>
           <Text style={styles.blockText}>
-            Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
+            Every penpal has their own thread, so the whole correspondence — each letter, in the order it was written — stays in one place.
           </Text>
         </View>
 
@@ -100,7 +100,7 @@ export default function PenpalEntryScreen({ navigation }: Props) {
         <View style={styles.bulletRow}>
           <Text style={styles.bullet}>•</Text>
           <Text style={styles.bulletText}>
-            Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna.
+            Kindness is the only rule here. Report or block anyone who breaks it — our team reviews every report.
           </Text>
         </View>
 

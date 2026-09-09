@@ -65,6 +65,7 @@ export type PenpalDrawerParamList = {
   PenpalHome: undefined;
   PenpalConnections: undefined;
   PenpalLetters: undefined;
+  PenpalMyProfile: undefined;
 };
 
 export type PenpalStackParamList = {

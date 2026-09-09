@@ -8,7 +8,6 @@ import {
   Modal,
   ScrollView,
   Image,
-  ActivityIndicator,
 } from 'react-native';
 import {
   createDrawerNavigator,
@@ -17,8 +16,6 @@ import {
   useDrawerStatus,
 } from '@react-navigation/drawer';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Icon from 'react-native-vector-icons/Ionicons';
-import { launchImageLibrary } from 'react-native-image-picker';
 import type { PenpalDrawerParamList } from '../types/navigation';
 import { Colors } from '../utils/colors';
 import RemoteImage from '../components/common/RemoteImage';
@@ -27,6 +24,7 @@ import { useAuth } from '../store/AuthContext';
 // import PenpalHomeScreen from '../screens/penpal/PenpalHomeScreen';
 import PenpalConnectionsScreen from '../screens/penpal/PenpalConnectionsScreen';
 import PenpalLettersScreen from '../screens/penpal/PenpalLettersScreen';
+import PenpalMyProfileScreen from '../screens/penpal/PenpalMyProfileScreen';
 
 const Drawer = createDrawerNavigator<PenpalDrawerParamList>();
 
@@ -39,10 +37,10 @@ function PenpalDrawerContent({ navigation }: DrawerContentComponentProps) {
   const insets = useSafeAreaInsets();
   const [legalModal, setLegalModal] = useState<'tc' | 'privacy' | null>(null);
 
-  // Profile image: fetched when the drawer opens, tap the avatar to upload
+  // Profile image: refetched whenever the drawer opens, so a photo changed on
+  // the Profile screen shows here too. Changing it is that screen's job now.
   const drawerStatus = useDrawerStatus();
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
-  const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   useEffect(() => {
     if (drawerStatus !== 'open') return;
@@ -50,35 +48,6 @@ function PenpalDrawerContent({ navigation }: DrawerContentComponentProps) {
       .then(res => setAvatarUrl(res.data?.data?.profileImageUrl ?? null))
       .catch(() => {});
   }, [drawerStatus]);
-
-  const handleAvatarUpload = () => {
-    launchImageLibrary({
-      mediaType: 'photo',
-      quality: 0.8,
-      // Rendered as a small circle everywhere — no reason to ship the
-      // camera's full-resolution original over the wire.
-      maxWidth: 512,
-      maxHeight: 512,
-    }, async response => {
-      const asset = response.assets?.[0];
-      if (!asset?.uri) return;
-      setUploadingAvatar(true);
-      try {
-        const res = await usersApi.uploadProfileImage(asset.uri, asset.type ?? 'image/jpeg');
-        const returned = res.data?.data;
-        const newUrl =
-          typeof returned === 'string' ? returned : returned?.profileImageUrl;
-        // Cache-bust in case the backend reuses the same file path
-        setAvatarUrl(
-          newUrl ? `${newUrl}${newUrl.includes('?') ? '&' : '?'}t=${Date.now()}` : asset.uri,
-        );
-      } catch {
-        Alert.alert('Upload Failed', 'Could not upload the image. Please try again.');
-      } finally {
-        setUploadingAvatar(false);
-      }
-    });
-  };
 
   const initials = user
     ? `${user.firstName.charAt(0)}${user.lastName.charAt(0)}`.toUpperCase()
@@ -108,12 +77,20 @@ function PenpalDrawerContent({ navigation }: DrawerContentComponentProps) {
     ]);
   };
 
-  const items: { label: string; icon: any; onPress: () => void }[] = [
+  // `tinted` recolours a flat glyph to the penpal blue — the other menu assets
+  // are already coloured artwork and must be left alone.
+  const items: { label: string; icon: any; onPress: () => void; tinted?: boolean }[] = [
     // { label: 'Home', icon: require('../assets/home.png'), onPress: () => goDrawer('PenpalHome') },
     {
       label: 'Penpal Group',
       icon: require('../assets/letter.png'),
       onPress: () => goDrawer('PenpalConnections'),
+    },
+    {
+      label: 'Profile',
+      icon: require('../assets/profile.png'),
+      onPress: () => goDrawer('PenpalMyProfile'),
+      tinted: true,
     },
     {
       label: 'Terms & Conditions',
@@ -165,33 +142,19 @@ function PenpalDrawerContent({ navigation }: DrawerContentComponentProps) {
           <Text style={styles.closeArrow}>←</Text>
         </TouchableOpacity>
 
-        {/* Profile header — tap the avatar to change the photo */}
+        {/* Profile header — the photo is changed on the Profile screen */}
         <View style={styles.profileRow}>
-          <TouchableOpacity
-            onPress={handleAvatarUpload}
-            activeOpacity={0.8}
-            disabled={uploadingAvatar}
-          >
-            {avatarUrl ? (
-              <RemoteImage
-                uri={avatarUrl}
-                style={styles.avatarImg}
-                indicatorColor={Colors.penpal}
-              />
-            ) : (
-              <View style={styles.avatar}>
-                <Text style={styles.avatarText}>{initials}</Text>
-              </View>
-            )}
-            {uploadingAvatar && (
-              <View style={styles.avatarOverlay}>
-                <ActivityIndicator color={Colors.white} size="small" />
-              </View>
-            )}
-            <View style={styles.cameraBadge}>
-              <Icon name="camera" size={11} color={Colors.white} />
+          {avatarUrl ? (
+            <RemoteImage
+              uri={avatarUrl}
+              style={styles.avatarImg}
+              indicatorColor={Colors.penpal}
+            />
+          ) : (
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>{initials}</Text>
             </View>
-          </TouchableOpacity>
+          )}
           <View style={styles.profileInfo}>
             <Text style={styles.profileName} numberOfLines={1}>
               {user ? `${user.firstName} ${user.lastName}` : '—'}
@@ -213,7 +176,7 @@ function PenpalDrawerContent({ navigation }: DrawerContentComponentProps) {
             >
               <Image
                 source={item.icon}
-                style={styles.menuIconImg}
+                style={[styles.menuIconImg, item.tinted && styles.menuIconTinted]}
                 resizeMode="contain"
               />
               <Text style={styles.menuItemLabel}>{item.label}</Text>
@@ -326,6 +289,12 @@ export default function PenpalDrawerNavigator() {
         component={PenpalLettersScreen}
         options={{ title: 'Letters' }}
       />
+      {/* Own header (hamburger + bell), like the Penpal Group screen */}
+      <Drawer.Screen
+        name="PenpalMyProfile"
+        component={PenpalMyProfileScreen}
+        options={{ headerShown: false }}
+      />
     </Drawer.Navigator>
   );
 }
@@ -405,6 +374,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   menuIconImg: { width: 24, height: 24, marginRight: 16 },
+  menuIconTinted: { tintColor: Colors.penpal },
   menuItemLabel: { fontSize: 15, fontWeight: '500', color: Colors.text },
 
   logoutWrap: { padding: 20 },

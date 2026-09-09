@@ -33,6 +33,11 @@ export async function saveSession(token: string, user: AuthUser, refreshToken?: 
   await AsyncStorage.multiSet(pairs);
 }
 
+/** Rewrites the cached user, leaving the tokens untouched. */
+export async function saveUser(user: AuthUser): Promise<void> {
+  await AsyncStorage.setItem(USER_KEY, JSON.stringify(user));
+}
+
 export async function getToken(): Promise<string | null> {
   return AsyncStorage.getItem(TOKEN_KEY);
 }

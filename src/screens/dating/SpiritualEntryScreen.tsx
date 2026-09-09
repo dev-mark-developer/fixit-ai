@@ -10,14 +10,14 @@ import type { DatingStackParamList } from '../../types/navigation';
 import { Colors } from '../../utils/colors';
 import { useAuth } from '../../store/AuthContext';
 import { useModuleStatus } from '../../store/ModuleStatusContext';
-import { datingApi, SpiritualRequest } from '../../api/dating';
+import { datingApi, DatingProfile, SpiritualRequest } from '../../api/dating';
 import { mentorApi, MentorRequest } from '../../api/mentor';
 import AppButton from '../../components/common/AppButton';
 import AppAlert from '../../components/common/AppAlert';
 
 type Props = NativeStackScreenProps<DatingStackParamList, 'SpiritualEntry'>;
 
-type Phase = 'info' | 'loading' | 'gateway' | 'pending' | 'approved';
+type Phase = 'info' | 'loading' | 'gateway' | 'pending' | 'approved' | 'declined';
 
 // The API rejects anything but these two — 'Any' is not accepted.
 const GENDER_OPTIONS = ['Male', 'Female'];
@@ -51,6 +51,9 @@ export default function SpiritualEntryScreen({ navigation }: Props) {
         const s = req.status?.toLowerCase();
         if (s === 'approved') { setRequest(req); setResolvedPhase('approved'); }
         else if (s === 'pending') { setRequest(req); setResolvedPhase('pending'); }
+        // A rejected submission gets its own screen here, rather than sending
+        // the user back to the gateway to work out what went wrong.
+        else if (s === 'declined' || s === 'rejected') { setRequest(req); setResolvedPhase('declined'); }
         else { setResolvedPhase('gateway'); }
       } catch {
         setResolvedPhase('gateway');
@@ -72,6 +75,17 @@ export default function SpiritualEntryScreen({ navigation }: Props) {
       .finally(() => setBooting(false));
   }, []);
 
+  // A Non-Spiritual member switching over already has a gender preference —
+  // prefill the picker so starting Spiritual doesn't silently reset it.
+  useEffect(() => {
+    datingApi.getProfile()
+      .then((res) => {
+        const profile: DatingProfile | null = res.data?.data ?? null;
+        if (profile?.interestedInGender) setInterestedIn(profile.interestedInGender);
+      })
+      .catch(() => {});
+  }, []);
+
   // While a mentor request is pending the user can't go back — the only way
   // out of this screen is to log out.
   const mentorPending = mentorRequest?.status?.toLowerCase() === 'pending';
@@ -81,6 +95,10 @@ export default function SpiritualEntryScreen({ navigation }: Props) {
   // that state so the user isn't offered a path around the request they made.
   const mentorRequestSubmitted =
     !!mentorRequest && mentorRequest.status?.toLowerCase() !== 'assigned';
+
+  // Once a mentor has been asked for, vetting is off the table for good — the
+  // member is being guided instead. Uploading a credential stays available.
+  const hasMentorRequest = !!mentorRequest;
 
   const handleLogout = () => {
     Alert.alert('Log Out', 'Are you sure you want to log out?', [
@@ -114,15 +132,13 @@ export default function SpiritualEntryScreen({ navigation }: Props) {
 
   const handleStartSpiritual = async () => {
     setStarting(true);
+
+    // Read the profile fresh: it decides whether this is a first-time setup or
+    // a Non-Spiritual member switching over.
+    let existing: DatingProfile | null = null;
     try {
-      // Check if dating profile already exists
       const res = await datingApi.getProfile();
-      const existing = res.data?.data ?? null;
-      if (existing) {
-        await refreshModules();
-        navigation.navigate('DatingMain');
-        return;
-      }
+      existing = res.data?.data ?? null;
     } catch (err: any) {
       if (err?.response?.status !== 404) {
         setAlert({ title: 'Error', message: 'Could not connect to server. Please try again.' });
@@ -130,15 +146,39 @@ export default function SpiritualEntryScreen({ navigation }: Props) {
         return;
       }
     }
-    // No profile yet — create it then go to interest selection
+
+    // Already Spiritual — nothing to change, go straight in.
+    if (existing?.datingType === 'Spiritual') {
+      await refreshModules();
+      setStarting(false);
+      navigation.navigate('DatingMain');
+      return;
+    }
+
+    // No profile yet, or a Non-Spiritual one being switched over — the same
+    // POST covers both. Existing details are sent back so the switch keeps them.
     try {
-      await datingApi.saveProfile({ datingType: 'Spiritual', interestedInGender: interestedIn });
+      await datingApi.saveProfile({
+        datingType: 'Spiritual',
+        interestedInGender: interestedIn,
+        about: existing?.about,
+        displayImageId: existing?.displayImageId,
+        pseudoName: existing?.pseudoName,
+        dateOfBirth: existing?.dateOfBirth,
+        country: existing?.country,
+        city: existing?.city,
+        state: existing?.state,
+      });
       // The account is Spiritual from this moment — tell the app before the
       // user can reach any screen that branches on datingType.
       await refreshModules();
+      // Interests are per dating type, so a switched-over member picks a new set.
       navigation.navigate('DatingInterestSelection', { datingType: 'Spiritual' });
-    } catch {
-      setAlert({ title: 'Error', message: 'Could not create your profile. Please try again.' });
+    } catch (err: any) {
+      setAlert({
+        title: 'Error',
+        message: err?.response?.data?.message ?? 'Could not create your profile. Please try again.',
+      });
     } finally {
       setStarting(false);
     }
@@ -295,44 +335,50 @@ export default function SpiritualEntryScreen({ navigation }: Props) {
     return (
       <SafeAreaView style={styles.root} edges={['top']}>
         {backHeader}
-        <ScrollView contentContainerStyle={styles.centeredContent}>
-          <View style={styles.card}>
-            <View style={[styles.iconCircle, { backgroundColor: '#D1FAE5' }]}>
-              <Text style={styles.iconEmoji}>✅</Text>
-            </View>
-            <Text style={styles.cardTitle}>You're Approved!</Text>
-            <Text style={styles.cardSub}>
-              Your spiritual credentials have been verified. Start connecting with like-minded souls.
-            </Text>
-            {request?.reviewedAt && (
-              <Text style={styles.cardMeta}>
-                Approved on {new Date(request.reviewedAt).toLocaleDateString()}
-              </Text>
-            )}
+        <ScrollView
+          contentContainerStyle={styles.stateContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <Image
+            source={require('../../assets/thumb-up.png')}
+            style={styles.stateImg}
+            resizeMode="contain"
+          />
+          <Text style={styles.approvedTitle}>Congratulations!</Text>
+          <Text style={styles.approvedHeading}>Your Profile is Approved</Text>
+          <Text style={styles.approvedLead}>
+            You have successfully resonated with the sanctuary community.
+          </Text>
+          <Text style={styles.stateDesc}>
+            Your credentials have been verified and the sanctuary is open to you.
+            Take your time here — read with intention, reach out with care, and let
+            each connection unfold at its own pace.
+          </Text>
 
-            <Text style={styles.genderLabel}>I'm interested in</Text>
-            <View style={styles.genderRow}>
-              {GENDER_OPTIONS.map((g) => (
-                <TouchableOpacity
-                  key={g}
-                  style={[styles.genderBtn, interestedIn === g && styles.genderBtnActive]}
-                  onPress={() => setInterestedIn(g)}
-                  activeOpacity={0.75}
-                >
-                  <Text style={[styles.genderBtnText, interestedIn === g && styles.genderBtnTextActive]}>
-                    {g}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <AppButton
-              title="Start Spiritual Dating"
-              onPress={handleStartSpiritual}
-              loading={starting}
-              style={styles.spiritualBtn}
-            />
+          {/* Still asked here: the profile endpoint requires Male or Female, and
+              nothing later in the app lets the user change it. */}
+          <Text style={styles.genderLabel}>I'm interested in</Text>
+          <View style={styles.genderRow}>
+            {GENDER_OPTIONS.map((g) => (
+              <TouchableOpacity
+                key={g}
+                style={[styles.genderBtn, interestedIn === g && styles.genderBtnActive]}
+                onPress={() => setInterestedIn(g)}
+                activeOpacity={0.75}
+              >
+                <Text style={[styles.genderBtnText, interestedIn === g && styles.genderBtnTextActive]}>
+                  {g}
+                </Text>
+              </TouchableOpacity>
+            ))}
           </View>
+
+          <AppButton
+            title="Start Connecting"
+            onPress={handleStartSpiritual}
+            loading={starting}
+            style={styles.vettingBtn}
+          />
         </ScrollView>
         <AppAlert
           visible={!!alert}
@@ -344,30 +390,75 @@ export default function SpiritualEntryScreen({ navigation }: Props) {
     );
   }
 
+  // ── Declined — the submission was rejected ────────────
+  if (phase === 'declined') {
+    return (
+      <SafeAreaView style={styles.root} edges={['top']}>
+        {backHeader}
+        <ScrollView
+          contentContainerStyle={styles.stateContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <Image
+            source={require('../../assets/docDecline.png')}
+            style={styles.stateImg}
+            resizeMode="contain"
+          />
+          <Text style={styles.declinedTitle}>
+            Document <Text style={styles.declinedTitleAccent}>Declined</Text>
+          </Text>
+          <Text style={styles.stateDesc}>
+            Your submission wasn't approved this time. Upload a different credential
+            or certificate and our team will review it again.
+          </Text>
+          {request?.reviewedAt && (
+            <Text style={styles.declinedMeta}>
+              Reviewed on {new Date(request.reviewedAt).toLocaleDateString()}
+            </Text>
+          )}
+
+          {/* Re-uploading a credential is the only way forward from here. */}
+          <TouchableOpacity
+            style={styles.certBtn}
+            onPress={() => navigation.navigate('UploadCertificate')}
+            activeOpacity={0.85}
+          >
+            <Image
+              source={require('../../assets/document-upload.png')}
+              style={styles.certBtnIcon}
+              resizeMode="contain"
+            />
+            <Text style={styles.certBtnText}>Upload Certificate</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
   // ── Pending ───────────────────────────────────────────
   if (phase === 'pending') {
     return (
       <SafeAreaView style={styles.root} edges={['top']}>
         {backHeader}
-        <ScrollView contentContainerStyle={styles.centeredContent}>
-        <View style={styles.card}>
-          <View style={[styles.iconCircle, { backgroundColor: Colors.spiritualLight }]}>
-            <Text style={styles.iconEmoji}>🔍</Text>
-          </View>
-          <Text style={styles.cardTitle}>Under Review</Text>
-          <Text style={styles.cardSub}>
-            Your application is being reviewed by our team. This usually takes 1–3 business days.
+        <ScrollView
+          contentContainerStyle={styles.stateContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <Image
+            source={require('../../assets/load-time.png')}
+            style={styles.stateImg}
+            resizeMode="contain"
+          />
+          <Text style={styles.pendingTitle}>Please Wait!</Text>
+          <Text style={styles.stateDesc}>
+            Your application is with our review team. Verification usually takes
+            1–3 business days — we will let you know as soon as there is an update.
           </Text>
-          {request?.createdAt && (
-            <Text style={styles.cardMeta}>
-              Submitted on {new Date(request.createdAt).toLocaleDateString()}
-            </Text>
-          )}
-          <View style={styles.statusBadge}>
-            <View style={styles.statusDot} />
-            <Text style={styles.statusText}>Pending Review</Text>
-          </View>
-        </View>
+          <AppButton
+            title="Back To Home"
+            onPress={() => (navigation.getParent() as any)?.navigate('Home')}
+            style={styles.vettingBtn}
+          />
         </ScrollView>
       </SafeAreaView>
     );
@@ -489,16 +580,20 @@ export default function SpiritualEntryScreen({ navigation }: Props) {
         {/* Actions scroll with the content */}
         {!mentorRequestSubmitted && (
           <View style={styles.gatewayFooter}>
-            <AppButton
-              title="Begin My Vetting"
-              onPress={() => navigation.navigate('VettingQuiz')}
-              style={styles.vettingBtn}
-            />
-            <View style={styles.orRow}>
-              <View style={styles.orLine} />
-              <Text style={styles.orText}>OR</Text>
-              <View style={styles.orLine} />
-            </View>
+            {!hasMentorRequest && (
+              <>
+                <AppButton
+                  title="Begin My Vetting"
+                  onPress={() => navigation.navigate('VettingQuiz')}
+                  style={styles.vettingBtn}
+                />
+                <View style={styles.orRow}>
+                  <View style={styles.orLine} />
+                  <Text style={styles.orText}>OR</Text>
+                  <View style={styles.orLine} />
+                </View>
+              </>
+            )}
             <TouchableOpacity
               style={styles.certBtn}
               onPress={() => navigation.navigate('UploadCertificate')}
@@ -621,6 +716,60 @@ const styles = StyleSheet.create({
   mentorCardDesc: { fontSize: 12, color: Colors.textSecondary, lineHeight: 17 },
   mentorCardChevron: { fontSize: 22, color: Colors.textMuted, fontWeight: '300' },
 
+  // ── Status screens (declined / under review) ──────────
+  stateContent: { flexGrow: 1, justifyContent: 'center', padding: 24, paddingBottom: 32 },
+  stateImg: { width: 170, height: 170, alignSelf: 'center', marginBottom: 26 },
+  stateDesc: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 28,
+  },
+  declinedTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: Colors.text,
+    textAlign: 'center',
+    marginBottom: 14,
+  },
+  declinedTitleAccent: { color: Colors.spiritual },
+  declinedMeta: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    textAlign: 'center',
+    marginTop: -16,
+    marginBottom: 26,
+  },
+  pendingTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: Colors.spiritual,
+    textAlign: 'center',
+    marginBottom: 14,
+  },
+  approvedTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: Colors.spiritual,
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  approvedHeading: {
+    fontSize: 21,
+    fontWeight: '800',
+    color: Colors.text,
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  approvedLead: {
+    fontSize: 15,
+    color: Colors.text,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 16,
+  },
+
   // Sits inside the scroll content, which already supplies the side padding.
   gatewayFooter: { marginTop: 24 },
   vettingBtn: { backgroundColor: Colors.spiritual, marginBottom: 0 },
@@ -677,7 +826,7 @@ const styles = StyleSheet.create({
   statusText: { fontSize: 13, fontWeight: '600', color: Colors.spiritual },
 
   genderLabel: { fontSize: 15, fontWeight: '700', color: Colors.text, marginBottom: 12, alignSelf: 'center' },
-  genderRow: { flexDirection: 'row', gap: 12, marginBottom: 24 },
+  genderRow: { flexDirection: 'row', justifyContent: 'center', gap: 12, marginBottom: 24 },
   genderBtn: {
     paddingHorizontal: 28,
     paddingVertical: 14,

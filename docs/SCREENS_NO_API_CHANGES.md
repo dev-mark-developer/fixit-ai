@@ -52,6 +52,7 @@ backend needs to change for them.
 |--------|------|
 | Penpal Entry | `src/screens/penpal/PenpalEntryScreen.tsx` |
 | Penpal Setup (preferences) | `src/screens/penpal/PenpalSetupScreen.tsx` |
+| Penpal My Profile (drawer → Profile) | `src/screens/penpal/PenpalMyProfileScreen.tsx` |
 | Penpal Home (commented out of nav, kept) | `src/screens/penpal/PenpalHomeScreen.tsx` |
 | Letters (inbox/outbox) | `src/screens/penpal/PenpalLettersScreen.tsx` |
 | Compose Letter | `src/screens/penpal/PenpalComposeScreen.tsx` |

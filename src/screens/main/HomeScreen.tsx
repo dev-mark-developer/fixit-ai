@@ -15,12 +15,24 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
 
 export default function HomeScreen({ navigation }: Props) {
   const { logout } = useAuth();
-  const { hasDating, hasPenpal, isMentor } = useModuleStatus();
+  const { hasDating, hasPenpal, isMentor, datingType } = useModuleStatus();
   const [unreadCount, setUnreadCount] = useState(0);
 
   const hasBothModules = hasDating && hasPenpal;
   // Hidden once a module is active, and for users who are already gurus
   const hasNoModule = !hasDating && !hasPenpal && !isMentor;
+
+  // A Non-Spiritual account can still move to Spiritual, so the Dating card
+  // drops them at the lobby to pick a path. Spiritual accounts are permanent —
+  // there is nothing to choose, so they go straight into the module (as do
+  // users with no dating profile, whose lobby is the stack's initial route).
+  const openDating = () => {
+    if (datingType === 'NonSpiritual') {
+      navigation.navigate('Dating', { screen: 'DatingLobby' });
+      return;
+    }
+    navigation.navigate('Dating');
+  };
 
   const fetchUnread = useCallback(() => {
     api.get('/notifications/unread-count')
@@ -80,7 +92,7 @@ export default function HomeScreen({ navigation }: Props) {
         {/* Dating Card */}
         <TouchableOpacity
           style={[styles.card, styles.datingCard]}
-          onPress={() => navigation.navigate('Dating')}
+          onPress={openDating}
           activeOpacity={0.9}
         >
           <Text style={[styles.cardLabel, styles.datingLabel]}>Dating</Text>

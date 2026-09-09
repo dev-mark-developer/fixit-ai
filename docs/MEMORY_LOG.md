@@ -5,6 +5,77 @@ doing UI work on **AIFixitMobileApp**. Newest entries at the top.
 
 ---
 
+## 2026-09-08 — Penpal "My Profile" + public profile header fixes
+
+- **New screen `PenpalMyProfileScreen`** (drawer route `PenpalMyProfile`, menu
+  item **Profile**). Penpal members had no way to change anything after
+  sign-up: `PenpalSetupScreen` prefills from the profile and upserts, but it
+  is only reachable before `PenpalMain` exists and ends in
+  `replace('PenpalMain')`. The new screen edits the same field set —
+  pen name (with the same availability check, skipping the member's own
+  current name), letter type, mailing address + consent for Physical, and the
+  disability-visibility answer — through `POST /penpal/profile`, and saves in
+  place instead of navigating away. Own header (hamburger + bell) with
+  `headerShown: false`, matching the Penpal Group screen.
+  - **First/last name are editable** and save through `PATCH /users/me`, only
+    sending the ones that actually changed. Email stays read-only. The avatar
+    uploads via `POST /users/me/profile-image`.
+  - Letter type, the address-sharing consent and the disability question are
+    **commented out, not deleted** (per request). Their values are still
+    loaded from the profile and re-sent on save, since `POST /penpal/profile`
+    is an upsert that wants the whole record. The consent *validation* is
+    commented out along with the checkbox — it would otherwise permanently
+    block saving for anyone whose stored answer is `false`, with no way to
+    tick it.
+  - The **drawer avatar no longer uploads** — that moved here. The drawer
+    still refetches the photo each time it opens.
+- **`AuthContext.updateUser(patch)`** (new) — merges a patch into the
+  signed-in user and rewrites the cached session (`saveUser` in `store/auth`,
+  which leaves the tokens alone). Without it a name changed on the profile
+  screen would keep showing the old value in every drawer and header until the
+  next sign-in. `EditProfileScreen` still doesn't call it — worth wiring up
+  when that screen is next touched.
+- **`PenpalPublicProfileScreen`** — removed the dark 40 % scrim over the photo
+  header; the top back/report buttons now sit on translucent circles so they
+  keep contrast without it. The container also painted `Colors.navy`, which
+  showed as black wedges through the photo's rounded bottom corners — it is
+  now the page colour and rounded with `overflow: 'hidden'`. Location line
+  shows the **country only** (was city, state, country).
+
+## 2026-09-08 — Non-Spiritual members can reach the lobby to switch
+
+Product rule restated: **Non-Spiritual → Spiritual is allowed, Spiritual →
+Non-Spiritual is never**. The app enforced the second half already but gave a
+Non-Spiritual member no way to exercise the first — `DatingNavigator` sends any
+account with a dating profile straight to `DatingMain`, so the lobby was
+unreachable after setup.
+
+- **`HomeScreen`** — the Dating card now routes on `datingType`: a
+  `NonSpiritual` account goes to `Dating → DatingLobby` (nested navigate, so
+  back from the lobby exits to Home), Spiritual and profile-less accounts keep
+  the old `navigate('Dating')`. The lobby is deliberately *not* the module's
+  initial route: that would make every launch of a single-module account start
+  on a "choose your path" screen.
+- **`DatingLobbyScreen`** — tapping Non-Spiritual with a profile already in
+  place now goes straight to `DatingMain` instead of bouncing through
+  `NonSpiritualEntryScreen`'s load-then-replace. Disclaimer for that case warns
+  the move to Spiritual is one-way.
+- **`SpiritualEntryScreen`** — the real gap. `handleStartSpiritual` used to see
+  *any* existing profile and just `navigate('DatingMain')`, so a vetted
+  Non-Spiritual member pressing "Start Spiritual Dating" landed back in the
+  Non-Spiritual feed and nothing changed. It now re-POSTs the profile with
+  `datingType: 'Spiritual'`, sending back about / display image / pseudo name /
+  DOB / country / city / state so the switch doesn't wipe them, then goes to
+  Spiritual interest selection (`/dating/interests` is per dating type). The
+  gender picker is prefilled from the existing profile on mount for the same
+  reason. Only a profile that is *already* Spiritual short-circuits to
+  `DatingMain`, and server errors now surface `response.data.message`.
+
+Backend still to confirm that `POST /dating/profile` accepts the type change and
+what it does with the old `interestIds` — logged as gap #27 in
+[API_CHANGES_NEEDED.md](./API_CHANGES_NEEDED.md). (The `.xlsx` exports have been
+stale since row 13; not regenerated here.)
+
 ## 2026-08-27 — iOS Debug builds fail to link (RN 0.85 prebuilt core)
 
 **Not caused by the IAP work** — the core tarballs are dated 2026-06-04, and

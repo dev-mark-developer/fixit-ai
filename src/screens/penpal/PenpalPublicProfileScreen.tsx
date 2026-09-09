@@ -63,8 +63,6 @@ export default function PenpalPublicProfileScreen({ route, navigation }: Props) 
     userId,
     pseudoName,
     letterType,
-    city,
-    state,
     country,
     profileImageUrl,
     age,
@@ -313,8 +311,8 @@ export default function PenpalPublicProfileScreen({ route, navigation }: Props) 
 
   // ── Derived display values ─────────────────────────────────
   const initials = pseudoName.charAt(0).toUpperCase();
-  const locationText =
-    [city, state, country].filter(Boolean).join(', ') || null;
+  // Country only — city/state stay out of a public profile header.
+  const locationText = country || null;
 
   // Age now comes from the discover API via route params (gap #2 resolved)
   const nameAge = age != null ? `${pseudoName}, ${age}` : pseudoName;
@@ -400,14 +398,20 @@ export default function PenpalPublicProfileScreen({ route, navigation }: Props) 
               <Text style={styles.headerFallbackText}>{initials}</Text>
             </View>
           )}
-          <View style={styles.headerScrim} pointerEvents="none" />
-
           {/* Top row: back + report */}
           <View style={[styles.topRow, { top: insets.top + 8 }]}>
-            <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={8}>
-              <Text style={styles.backArrow}>←</Text>
+            <TouchableOpacity
+              style={styles.headerIconBtn}
+              onPress={() => navigation.goBack()}
+              hitSlop={8}
+            >
+              <Icon name="arrow-back" size={22} color={Colors.white} />
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => setReportVisible(true)} hitSlop={8}>
+            <TouchableOpacity
+              style={styles.headerIconBtn}
+              onPress={() => setReportVisible(true)}
+              hitSlop={8}
+            >
               <Image
                 source={require('../../assets/flag.png')}
                 style={styles.flagIcon}
@@ -739,7 +743,16 @@ function AddressField({ label, value }: { label: string; value?: string }) {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },
 
-  header: { justifyContent: 'flex-end', backgroundColor: Colors.navy },
+  // The photo and the fallback are rounded at the bottom, so whatever the
+  // container paints shows through those two corners — keep it the page colour,
+  // and round the container itself so nothing can peek out at all.
+  header: {
+    justifyContent: 'flex-end',
+    backgroundColor: Colors.background,
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
+    overflow: 'hidden',
+  },
   headerImg: {
     borderBottomLeftRadius: 28,
     borderBottomRightRadius: 28,
@@ -757,16 +770,6 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 28,
   },
   headerFallbackText: { fontSize: 96, fontWeight: '800', color: Colors.white, opacity: 0.85 },
-  headerScrim: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: '40%',
-    backgroundColor: 'rgba(0,0,0,0.32)',
-    borderBottomLeftRadius: 28,
-    borderBottomRightRadius: 28,
-  },
 
   topRow: {
     position: 'absolute',
@@ -776,8 +779,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  backArrow: { fontSize: 26, color: Colors.white, fontWeight: '600' },
-  flagIcon: { width: 22, height: 22, tintColor: Colors.white },
+  // Translucent pill behind the icons — the photo has no scrim, so the buttons
+  // carry their own contrast.
+  headerIconBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  flagIcon: { width: 20, height: 20, tintColor: Colors.white },
 
   nameOverlay: { position: 'absolute', left: 20, bottom: 26 },
   nameText: {

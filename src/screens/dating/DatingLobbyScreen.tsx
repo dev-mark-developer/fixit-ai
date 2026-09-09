@@ -15,7 +15,7 @@ type Props = NativeStackScreenProps<DatingStackParamList, 'DatingLobby'>;
 
 export default function DatingLobbyScreen({ navigation }: Props) {
   const { logout } = useAuth();
-  const { isMentor, datingType } = useModuleStatus();
+  const { isMentor, hasDating, datingType } = useModuleStatus();
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [alert, setAlert] = useState<{ title: string; message: string; buttons?: AlertButton[] } | null>(null);
@@ -50,6 +50,12 @@ export default function DatingLobbyScreen({ navigation }: Props) {
         message:
           'Your account is registered for Spiritual Dating and cannot be switched to Non-Spiritual Dating.\n\nTo use Non-Spiritual Dating you need to delete this account and register again.',
       });
+      return;
+    }
+    // Already set up as Non-Spiritual — this card just means "stay where I am",
+    // so skip the entry/setup screen and go back into the module.
+    if (hasDating) {
+      navigation.navigate('DatingMain');
       return;
     }
     navigation.navigate('NonSpiritualEntry');
@@ -119,7 +125,9 @@ export default function DatingLobbyScreen({ navigation }: Props) {
         <Text style={styles.disclaimer}>
           {isSpiritual
             ? 'Spiritual accounts cannot be switched to Non-Spiritual. Switching requires deleting your account and registering again.'
-            : 'You can only be active in one dating type at a time.'}
+            : hasDating
+              ? 'You can move to Spiritual Dating at any time, but the move is permanent — a Spiritual account can never go back to Non-Spiritual.'
+              : 'You can only be active in one dating type at a time.'}
         </Text>
       </ScrollView>
 

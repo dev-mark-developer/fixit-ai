@@ -42,7 +42,7 @@ export default function DatingNavigator() {
       <Stack.Screen name="DatingPremium" component={DatingPremiumScreen} options={{ headerShown: false }} />
       <Stack.Screen name="SpiritualEntry" component={SpiritualEntryScreen} options={{ headerShown: false }} />
       <Stack.Screen name="VettingQuiz" component={VettingQuizScreen} options={{ headerShown: false }} />
-      <Stack.Screen name="UploadCertificate" component={UploadCertificateScreen} options={{ title: '' }} />
+      <Stack.Screen name="UploadCertificate" component={UploadCertificateScreen} options={{ headerShown: false }} />
       <Stack.Screen name="SpiritualMentors" component={SpiritualMentorsScreen} options={{ title: 'External Mentors' }} />
     </Stack.Navigator>
   );
