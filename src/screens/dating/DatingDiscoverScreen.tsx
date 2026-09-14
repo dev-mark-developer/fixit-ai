@@ -28,6 +28,7 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import type { DatingDrawerParamList, DatingStackParamList } from '../../types/navigation';
 import { datingApi, DiscoverUser, InterestCategory } from '../../api/dating';
 import AppAlert from '../../components/common/AppAlert';
+import type { AlertButton } from '../../components/common/AppAlert';
 import CountryPicker from '../../components/common/CountryPicker';
 import DatingTopBar from '../../components/dating/DatingTopBar';
 import DatingBottomBar from '../../components/dating/DatingBottomBar';
@@ -37,6 +38,8 @@ import DailyLimitOverlay from '../../components/dating/DailyLimitOverlay';
 import { usePrefetchImages } from '../../utils/imageCache';
 import RemoteImage from '../../components/common/RemoteImage';
 import { useModuleStatus } from '../../store/ModuleStatusContext';
+import { isLimitRefusal, limitFor, useSwipeLimits } from '../../utils/swipeLimits';
+import type { SwipeLimit } from '../../utils/swipeLimits';
 
 type Props = CompositeScreenProps<
   DrawerScreenProps<DatingDrawerParamList, 'DatingDiscover'>,
@@ -50,6 +53,20 @@ const AGE_MAX = 80;
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 const CARD_W = SCREEN_W - 32;
 const CARD_H = SCREEN_H * 0.56;
+/**
+ * The action pill sits over the card's bottom edge and hangs below it. On a
+ * short screen 56% of the height plus that overhang is more room than the deck
+ * actually has, and the buttons ended up under the bottom bar (QA: iPhone 11
+ * Pro). The deck measures itself and the card shrinks to fit; on a tall phone
+ * nothing changes, because 56% is still the smaller of the two.
+ */
+const PILL_OVERHANG = 42;
+const DECK_BOTTOM_GAP = 8;
+const MIN_CARD_H = 280;
+
+/** Filter defaults — the values "Clear Filters" restores. */
+const DEFAULT_DISTANCE_KM = 30;
+const DEFAULT_MAX_AGE = 26;
 const SWIPE_THRESHOLD = 120;
 const ROTATION_FACTOR = 15;
 
@@ -255,11 +272,19 @@ const sliderStyles = StyleSheet.create({
 interface SwipeCardProps {
   user: DiscoverUser;
   index: number;  // 0 = top, 1 = second, 2 = third
-  onSwipe: (user: DiscoverUser, direction: 'left' | 'right' | 'super') => void;
+  /** Sized by the deck rather than the screen — see PILL_OVERHANG. */
+  cardHeight: number;
+  /** Today's likes / super likes are used up: that swipe settles back instead of throwing the card. */
+  likeLocked: boolean;
+  superLikeLocked: boolean;
+  /** False when the screen refused the swipe, which brings the card back. */
+  onSwipe: (user: DiscoverUser, direction: 'left' | 'right' | 'super') => boolean;
   onInfo: (user: DiscoverUser) => void;
 }
 
-function SwipeCard({ user, index, onSwipe, onInfo }: SwipeCardProps) {
+function SwipeCard({
+  user, index, cardHeight, likeLocked, superLikeLocked, onSwipe, onInfo,
+}: SwipeCardProps) {
   const translateX = useSharedValue(0);
   const translateY = useSharedValue(0);
   const isTop = index === 0;
@@ -268,9 +293,13 @@ function SwipeCard({ user, index, onSwipe, onInfo }: SwipeCardProps) {
 
   const commitSwipe = useCallback(
     (direction: 'left' | 'right' | 'super') => {
-      onSwipe(user, direction);
+      if (onSwipe(user, direction)) return;
+      // Refused — typically an allowance that ran out while the card was in
+      // flight. Bring it back rather than leave it off-screen.
+      translateX.value = withSpring(0, { damping: 15 });
+      translateY.value = withSpring(0, { damping: 15 });
     },
-    [onSwipe, user],
+    [onSwipe, user, translateX, translateY],
   );
 
   const pan = Gesture.Pan()
@@ -280,19 +309,27 @@ function SwipeCard({ user, index, onSwipe, onInfo }: SwipeCardProps) {
       translateY.value = e.translationY;
     })
     .onEnd((e) => {
-      if (Math.abs(e.translationX) > SWIPE_THRESHOLD) {
-        const dir = e.translationX > 0 ? 'right' : 'left';
+      const dir =
+        Math.abs(e.translationX) > SWIPE_THRESHOLD
+          ? (e.translationX > 0 ? 'right' : 'left')
+          : e.translationY < -SWIPE_THRESHOLD ? 'super' : null;
+      const locked = (dir === 'right' && likeLocked) || (dir === 'super' && superLikeLocked);
+
+      if (dir === 'left' || (dir === 'right' && !locked)) {
         const exitX = dir === 'right' ? SCREEN_W * 1.5 : -SCREEN_W * 1.5;
         translateX.value = withTiming(exitX, { duration: 250 }, () => {
           runOnJS(commitSwipe)(dir);
         });
-      } else if (e.translationY < -SWIPE_THRESHOLD) {
+      } else if (dir === 'super' && !locked) {
         translateY.value = withTiming(-SCREEN_H, { duration: 250 }, () => {
           runOnJS(commitSwipe)('super');
         });
       } else {
         translateX.value = withSpring(0, { damping: 15 });
         translateY.value = withSpring(0, { damping: 15 });
+        // Out of that allowance: the card stays, and the screen still hears
+        // about the attempt so it can say why.
+        if (locked && dir) runOnJS(commitSwipe)(dir);
       }
     });
 
@@ -327,7 +364,7 @@ function SwipeCard({ user, index, onSwipe, onInfo }: SwipeCardProps) {
 
   return (
     <GestureDetector gesture={pan}>
-      <Animated.View style={[styles.card, { zIndex: 10 - index }, animatedStyle]}>
+      <Animated.View style={[styles.card, { height: cardHeight, zIndex: 10 - index }, animatedStyle]}>
         {/* Photo */}
         {imageUri ? (
           <RemoteImage
@@ -390,7 +427,9 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
   usePrefetchImages(users.map(u => u.displayImageUrl ?? u.profileImageUrl));
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
+  const [alert, setAlert] = useState<
+    { title: string; message: string; buttons?: AlertButton[] } | null
+  >(null);
 
   const { isPremium } = useSubscription();
 
@@ -400,16 +439,40 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
   );
 
   /**
-   * Free accounts get a daily swipe allowance the backend enforces: once it is
-   * spent, `POST /dating/swipe` answers 402/403 and the card is covered by the
-   * premium prompt instead of advancing.
+   * Likes and super likes each have a daily allowance (admin-set, different
+   * for free and premium) that the backend enforces: once one is spent,
+   * `POST /dating/swipe` refuses that action (see `isLimitRefusal`). Only that
+   * action stops — running out of super likes doesn't stop likes (verified
+   * live), and passing is never limited.
    */
-  const [limitReached, setLimitReached] = useState(false);
-  const limitReachedRef = useRef(false);
-  useEffect(() => { limitReachedRef.current = limitReached; }, [limitReached]);
+  const {
+    likeLimitReached, superLikeLimitReached, isReached, markReached, clearExpired,
+  } = useSwipeLimits(isPremium);
 
-  // Buying premium clears the block without needing a reload.
-  useEffect(() => { if (isPremium) setLimitReached(false); }, [isPremium]);
+  // The "daily limit" cover answers an attempt to like, so a fresh deck starts
+  // uncovered and the user can see who they're looking at.
+  const [limitOverlayVisible, setLimitOverlayVisible] = useState(false);
+
+  /** Tells the user which allowance stopped the swipe. */
+  const explainLimit = useCallback((limit: SwipeLimit) => {
+    if (limit === 'like') {
+      setLimitOverlayVisible(true);
+      return;
+    }
+    setAlert(isPremium
+      ? {
+          title: 'Out of Super Likes',
+          message: "You've used all of today's super likes. They'll be back tomorrow.",
+        }
+      : {
+          title: 'Out of Super Likes',
+          message: "You've used all of today's super likes. Go Premium to get more.",
+          buttons: [
+            { text: 'Not Now', style: 'cancel' },
+            { text: 'Go Premium', onPress: goPremium },
+          ],
+        });
+  }, [isPremium, goPremium]);
 
   // Match overlay
   const [matchVisible, setMatchVisible] = useState(false);
@@ -418,11 +481,17 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
 
   // Filter sheet — server-side since the discover API gained filter params
   // (gap #6 resolved)
+  /** Measured height of the deck area; drives the card size (see PILL_OVERHANG). */
+  const [deckHeight, setDeckHeight] = useState(0);
+  const cardHeight = deckHeight > 0
+    ? Math.max(MIN_CARD_H, Math.min(CARD_H, deckHeight - PILL_OVERHANG - DECK_BOTTOM_GAP))
+    : CARD_H;
+
   const [filterVisible, setFilterVisible] = useState(false);
   const [filterCountry, setFilterCountry] = useState('');
   const [countryPickerVisible, setCountryPickerVisible] = useState(false);
-  const [filterDistance, setFilterDistance] = useState(30);
-  const [filterAge, setFilterAge] = useState(26);
+  const [filterDistance, setFilterDistance] = useState(DEFAULT_DISTANCE_KM);
+  const [filterAge, setFilterAge] = useState(DEFAULT_MAX_AGE);
   const [filterGender, setFilterGender] = useState<'Male' | 'Female' | null>(null);
 
   // Advance Filters (interests) — premium only; discover accepts InterestIds
@@ -496,6 +565,7 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
       if (requestId !== requestIdRef.current) return;
       setUsers(res.data?.data ?? []);
       setCurrentIndex(0);
+      setLimitOverlayVisible(false);
     } catch {
       if (requestId !== requestIdRef.current) return;
       // A silent refresh keeps whatever deck is already on screen — interrupting
@@ -517,27 +587,58 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
   const loadUsersRef = useRef(loadUsers);
   useEffect(() => { loadUsersRef.current = loadUsers; }, [loadUsers]);
 
+  /**
+   * Back to an unfiltered deck in one tap. Interests go too — they are part of
+   * the same filter, just behind the Advance Filters screen, so leaving them
+   * set would make "Clear" a lie.
+   */
+  const clearFilters = useCallback(() => {
+    setFilterCountry('');
+    setFilterDistance(DEFAULT_DISTANCE_KM);
+    setFilterAge(DEFAULT_MAX_AGE);
+    setFilterGender(null);
+    setSelectedInterests(new Set());
+    setAdvanceVisible(false);
+    setFilterVisible(false);
+    loadUsersRef.current(false);
+  }, []);
+
+
   // Refresh on every focus so returning from a profile, a chat or the drawer
   // shows a fresh deck. Only the first load blocks with a spinner; later ones
   // swap the deck in underneath the user.
   useFocusEffect(
     useCallback(() => {
+      // Discover stays mounted in the drawer, so a limit from yesterday would
+      // otherwise still be blocking today.
+      clearExpired();
       loadUsersRef.current(filtersAppliedRef.current, hasLoadedRef.current);
-    }, []),
+    }, [clearExpired]),
   );
 
+  /** Returns false when the swipe is refused here, so the card comes back. */
   const handleSwipe = useCallback(
-    (user: DiscoverUser, direction: 'left' | 'right' | 'super') => {
-      if (swipingRef.current || limitReachedRef.current) return;
+    (user: DiscoverUser, direction: 'left' | 'right' | 'super'): boolean => {
+      if (swipingRef.current) return false;
+
+      const action =
+        direction === 'right' ? 'Like' : direction === 'super' ? 'SuperLike' : 'Ignore';
+
+      // An allowance already known to be spent: nothing goes out and the card
+      // stays put.
+      const limit = limitFor(action);
+      if (limit && isReached(limit)) {
+        explainLimit(limit);
+        return false;
+      }
+
       swipingRef.current = true;
 
       // Advance card stack immediately — don't block on API
       const swipedAt = currentIndexRef.current;
       setCurrentIndex((prev) => prev + 1);
+      setLimitOverlayVisible(false);
       swipingRef.current = false;
-
-      const action =
-        direction === 'right' ? 'Like' : direction === 'super' ? 'SuperLike' : 'Ignore';
 
       // Fire API in background; show match overlay when response arrives
       datingApi.swipe(user.userId, action)
@@ -550,15 +651,16 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
           }
         })
         .catch((err) => {
-          const status = err?.response?.status;
-          if (status !== 402 && status !== 403) return;
-          // Out of free swipes: this one didn't count, so put the card back and
-          // cover it with the premium prompt.
-          setLimitReached(true);
+          if (!limit || !isLimitRefusal(err)) return;
+          // That allowance just ran out: this swipe didn't count, so put the
+          // card back and say why.
+          markReached(limit);
           setCurrentIndex(swipedAt);
+          explainLimit(limit);
         });
+      return true;
     },
-    [],
+    [explainLimit, isReached, markReached],
   );
 
   const handleInfo = useCallback(
@@ -583,12 +685,12 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
 
   const handleActionButton = useCallback(
     (action: 'Like' | 'SuperLike' | 'Ignore') => {
-      if (limitReached || currentIndex >= users.length) return;
+      if (currentIndex >= users.length) return;
       const dir =
         action === 'Like' ? 'right' : action === 'Ignore' ? 'left' : 'super';
       handleSwipe(users[currentIndex], dir);
     },
-    [currentIndex, handleSwipe, limitReached, users],
+    [currentIndex, handleSwipe, users],
   );
 
   const visibleUsers = users.slice(currentIndex, currentIndex + 3);
@@ -620,7 +722,10 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
         </View>
 
         {/* Card stack */}
-        <View style={styles.cardStack}>
+        <View
+          style={styles.cardStack}
+          onLayout={(e) => setDeckHeight(e.nativeEvent.layout.height)}
+        >
           {visibleUsers.length === 0 ? (
             <View style={styles.emptyState}>
               <Image
@@ -647,6 +752,9 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
                   key={user.userId}
                   user={user}
                   index={index}
+                  cardHeight={cardHeight}
+                  likeLocked={likeLimitReached}
+                  superLikeLocked={superLikeLimitReached}
                   onSwipe={handleSwipe}
                   onInfo={handleInfo}
                 />
@@ -654,14 +762,21 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
             })
           )}
 
-          {/* Out of free swipes — cover the card with the premium prompt */}
-          {limitReached && visibleUsers.length > 0 && (
-            <DailyLimitOverlay accent={accent} onSubscribe={goPremium} />
+          {/* Out of likes — cover the card (Figma pg 26). Pass and super like
+              stay available from the pill, which sits above it. */}
+          {likeLimitReached && limitOverlayVisible && visibleUsers.length > 0 && (
+            <DailyLimitOverlay
+              accent={accent}
+              height={cardHeight}
+              isPremium={isPremium}
+              onSubscribe={goPremium}
+              onDismiss={() => setLimitOverlayVisible(false)}
+            />
           )}
 
           {/* Action pill overlapping the card bottom (Figma) */}
           {visibleUsers.length > 0 && (
-            <View style={styles.actionPill}>
+            <View style={[styles.actionPill, { top: cardHeight - 36 }]}>
               <TouchableOpacity
                 style={[styles.actionBtn, styles.actionGhost]}
                 onPress={() => handleActionButton('Ignore')}
@@ -671,7 +786,11 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.actionBtn, { backgroundColor: limeLight }]}
+                style={[
+                  styles.actionBtn,
+                  { backgroundColor: limeLight },
+                  superLikeLimitReached && styles.actionBtnSpent,
+                ]}
                 onPress={() => handleActionButton('SuperLike')}
                 activeOpacity={0.8}
               >
@@ -679,7 +798,11 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.actionBtn, { backgroundColor: accent }]}
+                style={[
+                  styles.actionBtn,
+                  { backgroundColor: accent },
+                  likeLimitReached && styles.actionBtnSpent,
+                ]}
                 onPress={() => handleActionButton('Like')}
                 activeOpacity={0.8}
               >
@@ -875,16 +998,25 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
                   )}
                 </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={[styles.applyBtn, { backgroundColor: accent }]}
-                  onPress={() => {
-                    setFilterVisible(false);
-                    loadUsers(true);
-                  }}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.applyBtnText}>Apply</Text>
-                </TouchableOpacity>
+                <View style={styles.sheetActions}>
+                  <TouchableOpacity
+                    style={[styles.clearBtn, { borderColor: accent }]}
+                    onPress={clearFilters}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={[styles.clearBtnText, { color: accent }]}>Clear Filters</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.applyBtn, styles.sheetActionBtn, { backgroundColor: accent }]}
+                    onPress={() => {
+                      setFilterVisible(false);
+                      loadUsers(true);
+                    }}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.applyBtnText}>Apply</Text>
+                  </TouchableOpacity>
+                </View>
               </ScrollView>
               )}
             </View>
@@ -920,6 +1052,7 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
           visible={!!alert}
           title={alert?.title ?? ''}
           message={alert?.message}
+          buttons={alert?.buttons}
           onClose={() => setAlert(null)}
         />
       </SafeAreaView>
@@ -959,7 +1092,6 @@ const styles = StyleSheet.create({
   card: {
     position: 'absolute',
     width: CARD_W,
-    height: CARD_H,
     borderRadius: 28,
     overflow: 'hidden',
     backgroundColor: Colors.surface,
@@ -1042,7 +1174,6 @@ const styles = StyleSheet.create({
   // Action pill
   actionPill: {
     position: 'absolute',
-    top: CARD_H - 36,
     alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',
@@ -1066,6 +1197,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   actionGhost: { backgroundColor: Colors.white },
+  // Today's allowance for this action is used up. Still tappable, so a tap
+  // can say why.
+  actionBtnSpent: { opacity: 0.4 },
 
   // Empty state
   emptyState: {
@@ -1156,5 +1290,15 @@ const styles = StyleSheet.create({
   },
   interestChipText: { fontSize: 14, fontWeight: '500' },
   applyBtn: { borderRadius: 14, paddingVertical: 16, alignItems: 'center' },
+  sheetActions: { flexDirection: 'row', gap: 12 },
+  sheetActionBtn: { flex: 1 },
+  clearBtn: {
+    flex: 1,
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: 'center',
+    borderWidth: 1.5,
+  },
+  clearBtnText: { fontSize: 16, fontWeight: '700' },
   applyBtnText: { fontSize: 16, fontWeight: '700', color: Colors.white },
 });

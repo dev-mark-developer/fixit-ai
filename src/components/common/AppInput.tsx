@@ -12,10 +12,18 @@ interface Props extends TextInputProps {
   hint?: string;
   secureToggle?: boolean;
   containerStyle?: ViewStyle;
+  /**
+   * The counter appears automatically whenever `maxLength` is set, which is
+   * right for a bio or a report reason but noise on a short field — QA flagged
+   * it on the Login and Forgot Password email inputs, where `maxLength` is
+   * only a sanity cap the user never needs to see. Pass false there.
+   */
+  showCounter?: boolean;
 }
 
 export default function AppInput({
-  label, required, error, hint, secureToggle, containerStyle, secureTextEntry, maxLength, value, ...rest
+  label, required, error, hint, secureToggle, containerStyle, secureTextEntry, maxLength, value,
+  showCounter = true, ...rest
 }: Props) {
   const [visible, setVisible] = useState(false);
   const charCount = value ? String(value).length : 0;
@@ -30,7 +38,7 @@ export default function AppInput({
             {required && <Text style={styles.required}> *</Text>}
           </Text>
         )}
-        {maxLength !== undefined && (
+        {showCounter && maxLength !== undefined && (
           <Text style={[styles.counter, nearLimit && styles.counterNear]}>
             {charCount}/{maxLength}
           </Text>

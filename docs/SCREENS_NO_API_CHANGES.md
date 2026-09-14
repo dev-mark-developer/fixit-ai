@@ -37,7 +37,6 @@ backend needs to change for them.
 | Screen | File |
 |--------|------|
 | Dating Lobby ("Choose Your Path") | `src/screens/dating/DatingLobbyScreen.tsx` |
-| Non-Spiritual Entry (profile setup) | `src/screens/dating/NonSpiritualEntryScreen.tsx` |
 | Spiritual Entry (Purpose + Path to Alignment) | `src/screens/dating/SpiritualEntryScreen.tsx` |
 | Interest Selection ("Discover Your Resonance") | `src/screens/dating/DatingInterestSelectionScreen.tsx` |
 | Ice Breaker Selection ("Configure Ice Breaker") | `src/screens/dating/DatingIceBreakerSelectionScreen.tsx` |

@@ -97,7 +97,16 @@ export default function OtpScreen({ navigation, route }: Props) {
       setCountdown(60);
       setOtp('');
       setSubmitted(false);
-      setTimeout(() => inputRef.current?.focus(), 100);
+      // Resending looked identical to doing nothing: the field cleared and the
+      // countdown restarted, but nothing said a new code was on its way. Focus
+      // returns to the input on dismiss rather than racing the modal for it.
+      showAlert('Code Sent', `A new verification code has been sent to ${email}.`, [
+        {
+          text: 'OK',
+          style: 'default',
+          onPress: () => setTimeout(() => inputRef.current?.focus(), 100),
+        },
+      ]);
     } catch (err: any) {
       showAlert('Error', err.response?.data?.message ?? 'Failed to resend code. Please try again.');
     } finally {

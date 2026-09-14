@@ -119,6 +119,7 @@ export default function LoginScreen({ navigation }: Props) {
         autoCorrect={false}
         error={errors.email}
         maxLength={100}
+        showCounter={false}
       />
       <AppInput
         label="Password"

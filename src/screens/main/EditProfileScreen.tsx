@@ -17,26 +17,13 @@ import AppButton from '../../components/common/AppButton';
 import AppAlert, { AlertButton } from '../../components/common/AppAlert';
 import CountryPicker from '../../components/common/CountryPicker';
 import KeyboardAwareScrollView from '../../components/common/KeyboardAwareScrollView';
+import { extractApiError } from '../../utils/apiError';
+import { imageRejectionReason } from '../../utils/imageUpload';
+import { canonicalMime } from '../../utils/mime';
 
 type Props = NativeStackScreenProps<ProfileStackParamList, 'EditProfile'>;
 
 const GENDERS = ['Male', 'Female'];
-
-const extractError = (err: any): string => {
-  const data = err?.response?.data;
-  if (!err?.response) return 'Unable to connect to server. Please check your network.';
-  if (data?.message) return data.message;
-  if (data?.errors) {
-    if (Array.isArray(data.errors)) {
-      return data.errors.map((e: any) => e.description || e.message || String(e)).join('\n');
-    }
-    if (typeof data.errors === 'object') {
-      return Object.values(data.errors).flat().join('\n');
-    }
-  }
-  if (data?.title) return data.title;
-  return `Server error (${err.response?.status}). Please try again.`;
-};
 
 export default function EditProfileScreen({ navigation }: Props) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -79,7 +66,7 @@ export default function EditProfileScreen({ navigation }: Props) {
         setGender(data.gender ?? '');
       }
     } catch (err: any) {
-      showAlert('Error', extractError(err));
+      showAlert('Error', extractApiError(err, 'Could not load your profile. Please try again.'));
     } finally {
       setFetching(false);
     }
@@ -105,14 +92,24 @@ export default function EditProfileScreen({ navigation }: Props) {
         maxHeight: 512,
       },
       async (response) => {
-        const uri = response.assets?.[0]?.uri;
-        if (!uri) return;
-        setProfileImageUri(uri);
+        const asset = response.assets?.[0];
+        if (!asset?.uri) return;
+        const rejection = imageRejectionReason(asset);
+        if (rejection) {
+          showAlert('Photo Not Supported', rejection);
+          return;
+        }
+        setProfileImageUri(asset.uri);
         setUploadingImage(true);
         try {
-          await usersApi.uploadProfileImage(uri);
+          // The endpoint matches its allow-list exactly, so send the picked
+          // type rather than letting a PNG default to `image/jpeg`.
+          await usersApi.uploadProfileImage(asset.uri, canonicalMime(asset.type) || 'image/jpeg');
         } catch (err: any) {
-          showAlert('Image Upload Failed', extractError(err));
+          showAlert(
+            'Image Upload Failed',
+            extractApiError(err, 'Could not upload the image. Please try again.'),
+          );
           setProfileImageUri(null);
         } finally {
           setUploadingImage(false);
@@ -153,7 +150,7 @@ export default function EditProfileScreen({ navigation }: Props) {
         },
       ]);
     } catch (err: any) {
-      showAlert('Save Failed', extractError(err));
+      showAlert('Save Failed', extractApiError(err, 'Could not save your profile. Please try again.'));
     } finally {
       setLoading(false);
     }

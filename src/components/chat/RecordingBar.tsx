@@ -69,14 +69,16 @@ export default function RecordingBar({ positionMs, metering, accent, onCancel, o
         )}
       </View>
 
+      {/* A paper plane, not a tick: this button sends the voice note straight
+          away rather than confirming it into the composer. */}
       <TouchableOpacity
         onPress={onStop}
         hitSlop={10}
         accessibilityRole="button"
-        accessibilityLabel="Stop recording"
+        accessibilityLabel="Send voice note"
         style={[styles.stopBtn, { backgroundColor: accent }]}
       >
-        <Icon name="checkmark" size={20} color={Colors.white} />
+        <Icon name="paper-plane" size={18} color={Colors.white} />
       </TouchableOpacity>
     </View>
   );

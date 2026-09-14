@@ -8,6 +8,7 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import type { DatingStackParamList } from '../../types/navigation';
 import { Colors } from '../../utils/colors';
 import RemoteImage from '../../components/common/RemoteImage';
+import { resolveImageUrl } from '../../utils/imageUrl';
 import { datingApi, DatingUserDetail } from '../../api/dating';
 import ReportModal from '../../components/common/ReportModal';
 import { useModuleStatus } from '../../store/ModuleStatusContext';
@@ -74,10 +75,30 @@ export default function DatingProfileDetailScreen({ route, navigation }: Props) 
     ? profile.images.map((img) => (typeof img === 'string' ? img : img?.imageUrl ?? '')).filter(Boolean)
     : seed.images;
 
+  /**
+   * The account's profile picture is what this header is meant to show — the
+   * photo the member uploaded as their profile image, not whichever gallery
+   * shot happened to be flagged as the dating display image. The display image
+   * stays as a fallback for accounts that set one and never uploaded a profile
+   * picture.
+   */
   const headerUri =
-    profile?.displayImageUrl ?? profile?.profileImageUrl ??
-    seed.displayImageUrl ?? seed.profileImageUrl ?? images[0];
-  const galleryImages = images.filter((img) => img !== headerUri);
+    profile?.profileImageUrl ?? profile?.displayImageUrl ??
+    seed.profileImageUrl ?? seed.displayImageUrl ?? images[0];
+  /**
+   * Every uploaded photo, the display one included. It used to be filtered out
+   * because it already appears as the header, which meant a profile with four
+   * images showed three tiles and looked like photos were missing (QA, and
+   * confirmed against the API response). The header repeating in the grid is
+   * the lesser surprise.
+   *
+   * Duplicates are still collapsed by resolved URL: the same picture can
+   * arrive twice, relative in `images` and absolute as `displayImageUrl`.
+   */
+  const galleryImages = images.filter((img, i) => {
+    const resolved = resolveImageUrl(img);
+    return images.findIndex((other) => resolveImageUrl(other) === resolved) === i;
+  });
 
   const handleBlock = () => {
     setFlagMenuVisible(false);
@@ -228,7 +249,21 @@ export default function DatingProfileDetailScreen({ route, navigation }: Props) 
               <Text style={styles.sectionTitle}>Gallery</Text>
               <View style={styles.galleryGrid}>
                 {galleryImages.map((uri, i) => (
-                  <RemoteImage key={i} uri={uri} style={styles.galleryTile} />
+                  <RemoteImage
+                    key={i}
+                    uri={uri}
+                    style={styles.galleryTile}
+                    /* Without this a photo that fails to download renders
+                       nothing at all, so the tile silently disappears and the
+                       grid looks short — which is what QA reported. A
+                       placeholder keeps the slot and makes the failure
+                       visible. See gap #12. */
+                    fallback={
+                      <View style={[styles.galleryTile, styles.galleryTileEmpty]}>
+                        <Icon name="image-outline" size={22} color={Colors.textMuted} />
+                      </View>
+                    }
+                  />
                 ))}
               </View>
             </View>
@@ -311,4 +346,5 @@ const styles = StyleSheet.create({
     width: TILE_W, height: TILE_W * 1.25, borderRadius: 12,
     backgroundColor: Colors.surface,
   },
+  galleryTileEmpty: { alignItems: 'center', justifyContent: 'center' },
 });

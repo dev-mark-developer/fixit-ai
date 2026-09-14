@@ -1,19 +1,13 @@
 import type { ChatAttachment, ChatFileType, ChatMessage } from '../api/dating';
+import { parseApiDate } from './datetime';
 
 /**
- * Chat timestamps arrive in two shapes (see docs/CHAT_API.md):
- *   - SignalR hub payloads end in `Z`   → "2026-08-17T13:02:18.198Z"
- *   - REST history has NO zone marker   → "2026-08-17T12:55:56.601"
- *
- * `new Date()` reads the second one as *local* time, which shifts every
- * message in the history by the device's UTC offset. Both are UTC, so tag
- * the bare ones before parsing.
+ * Chat timestamps arrive in two shapes (see docs/CHAT_API.md): SignalR hub
+ * payloads end in `Z`, REST history has no zone marker. That is true of the
+ * whole API, not just chat, so the handling lives in {@link parseApiDate} —
+ * kept here under its original name for the chat call sites.
  */
-export function parseChatDate(value?: string | null): Date {
-  if (!value) return new Date(NaN);
-  const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value.trim());
-  return new Date(hasZone ? value : `${value}Z`);
-}
+export const parseChatDate = parseApiDate;
 
 /** "Just Now" / "12 mins ago" / "14:35" — used under every bubble. */
 export function formatMessageTime(value?: string | null): string {

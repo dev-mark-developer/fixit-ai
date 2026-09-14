@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Image, Dimensions,
   ActivityIndicator, Platform, SafeAreaView,
@@ -7,6 +7,9 @@ import { useFocusEffect } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { launchImageLibrary } from 'react-native-image-picker';
+import { extractApiError } from '../../utils/apiError';
+import { imageRejectionReason, uploadOutcomeAlert } from '../../utils/imageUpload';
+import { canonicalMime } from '../../utils/mime';
 import { datingApi, DatingProfile, DatingImage } from '../../api/dating';
 import { usersApi } from '../../api/users';
 import { Colors } from '../../utils/colors';
@@ -20,6 +23,7 @@ import CountryPicker from '../../components/common/CountryPicker';
 import KeyboardAwareScrollView from '../../components/common/KeyboardAwareScrollView';
 import DatingTopBar from '../../components/dating/DatingTopBar';
 import DatingBottomBar from '../../components/dating/DatingBottomBar';
+import { toApiDate } from '../../utils/datetime';
 
 const GRID_GAP = 10;
 const TILE_W = (Dimensions.get('window').width - 48 - GRID_GAP * 2) / 3;
@@ -39,7 +43,7 @@ const MAX_DOB = (() => { const d = new Date(); d.setFullYear(d.getFullYear() - 1
  * existing endpoints.
  */
 export default function DatingMyProfileScreen() {
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const { datingType } = useModuleStatus();
   const isSpiritual = datingType === 'Spiritual';
   const accent = isSpiritual ? Colors.spiritual : Colors.dating;
@@ -49,10 +53,23 @@ export default function DatingMyProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  /** "2/5" under the tile while a multi-photo pick uploads one by one. */
+  const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  /** Shows the new photo immediately after upload, before the profile refetch. */
+  const [avatarOverride, setAvatarOverride] = useState<string | null>(null);
   const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
 
   // Editable fields — all persisted via POST /dating/profile (gap #8 resolved)
+  /**
+   * First and last name belong to the account, not the dating profile, so they
+   * save through `PATCH /users/me` alongside it. They used to be read-only
+   * here, which left no way to correct a name from this screen at all — the
+   * only other place is Profile › Edit Profile, which a dating user never
+   * passes through.
+   */
+  const [firstName, setFirstName] = useState(user?.firstName ?? '');
+  const [lastName, setLastName] = useState(user?.lastName ?? '');
   const [pseudoName, setPseudoName] = useState('');
   const [bio, setBio] = useState('');
   const [dob, setDob] = useState<Date | null>(null);
@@ -63,11 +80,17 @@ export default function DatingMyProfileScreen() {
   const [showCountryPicker, setShowCountryPicker] = useState(false);
   // Gender for the avatar badge — from the account profile (gap #8)
   const [gender, setGender] = useState<string | null>(null);
+  /** The account's profile picture, which is what the avatar shows. */
+  const [accountImageUrl, setAccountImageUrl] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    // Gender for the avatar badge lives on the account profile
+    // The avatar badge's gender and the profile picture itself both live on
+    // the account, not the dating profile.
     usersApi.getProfile()
-      .then((r) => setGender(r.data?.data?.gender ?? null))
+      .then((r) => {
+        setGender(r.data?.data?.gender ?? null);
+        setAccountImageUrl(r.data?.data?.profileImageUrl ?? null);
+      })
       .catch(() => {});
     try {
       const res = await datingApi.getProfile();
@@ -90,6 +113,12 @@ export default function DatingMyProfileScreen() {
     }
   }, []);
 
+  useEffect(() => {
+    if (!user) return;
+    setFirstName((current) => current || user.firstName);
+    setLastName((current) => current || user.lastName);
+  }, [user]);
+
   useFocusEffect(
     useCallback(() => {
       load();
@@ -99,49 +128,105 @@ export default function DatingMyProfileScreen() {
   const handleUpload = () => {
     launchImageLibrary({
       mediaType: 'photo',
+      // 0 = pick as many as you like. There is no client-side cap because the
+      // gallery ceiling is an admin-panel setting with no endpoint to read it
+      // from (see docs/API_CHANGES_NEEDED.md gap #28) — the server enforces it
+      // and names it when it refuses, which is handled below.
+      selectionLimit: 0,
       quality: 0.8,
       // Gallery shots are viewed full-screen, so they keep more detail than
       // an avatar — but still nowhere near a 4032px camera original.
       maxWidth: 1440,
       maxHeight: 1440,
     }, async (res) => {
-      const asset = res.assets?.[0];
-      if (!asset?.uri) return;
+      const picked = (res.assets ?? []).filter((a) => a.uri);
+      if (picked.length === 0) return;
+
+      // One unsupported file in a multi-pick shouldn't stop the rest.
+      const skipped: string[] = [];
+      const accepted = picked.filter((asset) => {
+        const reason = imageRejectionReason(asset);
+        if (reason) skipped.push(reason);
+        return !reason;
+      });
+
       setUploading(true);
+      setUploadProgress(accepted.length > 1 ? { done: 0, total: accepted.length } : null);
+      let uploaded = 0;
+      let failure: string | null = null;
       try {
-        await datingApi.uploadImage(asset.uri, asset.type ?? 'image/jpeg');
-        await load();
-      } catch {
-        setAlert({ title: 'Error', message: 'Could not upload the photo. Please try again.' });
+        // Sequential, because the endpoint takes one file per call and the
+        // ceiling is enforced server-side: uploading in parallel would fire
+        // every request before the first refusal could come back.
+        for (const asset of accepted) {
+          try {
+            await datingApi.uploadImage(asset.uri!, canonicalMime(asset.type) || 'image/jpeg');
+            uploaded += 1;
+            setUploadProgress((p) => (p ? { ...p, done: uploaded } : null));
+          } catch (err) {
+            failure = extractApiError(err, 'Could not upload the photo. Please try again.');
+            break;
+          }
+        }
+        if (uploaded > 0) await load();
       } finally {
         setUploading(false);
+        setUploadProgress(null);
       }
+
+      const outcome = uploadOutcomeAlert({
+        uploaded,
+        attempted: accepted.length,
+        skipped,
+        failure,
+      });
+      if (outcome) setAlert(outcome);
     });
   };
 
-  // Tap the avatar → pick a photo, upload it to the dating gallery and make
-  // it the display image (existing upload + set-display endpoints).
+  /**
+   * Tap the avatar → set the **account's profile picture**, via
+   * `POST /users/me/profile-image`.
+   *
+   * This used to push the photo into the dating gallery and mark it the
+   * display image, which conflated two separate things: My Gallery is the
+   * dating photo set, the profile picture is the account's own photo — the one
+   * the sign-up flow collects and the one other people see in a profile
+   * header. Uploading an avatar no longer adds a gallery tile.
+   */
   const handleAvatarUpload = () => {
     launchImageLibrary({
       mediaType: 'photo',
       quality: 0.8,
-      // Gallery shots are viewed full-screen, so they keep more detail than
-      // an avatar — but still nowhere near a 4032px camera original.
-      maxWidth: 1440,
-      maxHeight: 1440,
+      // Shown as a circle, so there is no reason to ship a 4032px original.
+      maxWidth: 512,
+      maxHeight: 512,
     }, async (res) => {
       const asset = res.assets?.[0];
       if (!asset?.uri) return;
+      const rejection = imageRejectionReason(asset);
+      if (rejection) {
+        setAlert({ title: 'Photo Not Supported', message: rejection });
+        return;
+      }
       setUploadingAvatar(true);
       try {
-        const uploadRes = await datingApi.uploadImage(asset.uri, asset.type ?? 'image/jpeg');
-        const newImage: DatingImage | undefined = uploadRes.data?.data;
-        if (newImage?.id) {
-          await datingApi.setDisplayImage(newImage.id);
-        }
+        const uploadRes = await usersApi.uploadProfileImage(
+          asset.uri,
+          canonicalMime(asset.type) || 'image/jpeg',
+        );
+        const returned = uploadRes.data?.data;
+        const newUrl = typeof returned === 'string' ? returned : returned?.profileImageUrl;
+        // Cache-bust: the backend reuses the path, so the old bitmap would win.
+        setAvatarOverride(
+          newUrl ? `${newUrl}${newUrl.includes('?') ? '&' : '?'}t=${Date.now()}` : asset.uri,
+        );
         await load();
-      } catch {
-        setAlert({ title: 'Error', message: 'Could not update your profile photo. Please try again.' });
+      } catch (err) {
+        setAlert({
+          title: 'Upload Failed',
+          message: extractApiError(err, 'Could not update your profile photo. Please try again.'),
+        });
       } finally {
         setUploadingAvatar(false);
       }
@@ -152,15 +237,31 @@ export default function DatingMyProfileScreen() {
     try {
       await datingApi.deleteImage(img.id);
       await load();
-    } catch {
-      setAlert({ title: 'Error', message: 'Could not remove the photo. Please try again.' });
+    } catch (err) {
+      setAlert({
+        title: 'Error',
+        message: extractApiError(err, 'Could not remove the photo. Please try again.'),
+      });
     }
   };
 
   const handleSave = async () => {
     if (!profile) return;
+    if (!firstName.trim() || !lastName.trim()) {
+      setAlert({ title: 'Name Required', message: 'Please enter both your first and last name.' });
+      return;
+    }
     setSaving(true);
     try {
+      // Account fields first: if this fails the dating profile is untouched,
+      // so a retry cannot half-apply the form.
+      const nameChanged =
+        firstName.trim() !== user?.firstName || lastName.trim() !== user?.lastName;
+      if (nameChanged) {
+        await usersApi.updateProfile({ firstName: firstName.trim(), lastName: lastName.trim() });
+        // Patches the session copy the drawers and headers read from.
+        await updateUser({ firstName: firstName.trim(), lastName: lastName.trim() });
+      }
       // Full field set now accepted by the backend (gap #8 resolved)
       await datingApi.saveProfile({
         datingType: profile.datingType,
@@ -168,21 +269,28 @@ export default function DatingMyProfileScreen() {
         interestedInGender: profile.interestedInGender,
         displayImageId: profile.displayImageId,
         pseudoName: pseudoName.trim() || undefined,
-        dateOfBirth: dob ? dob.toISOString().slice(0, 10) : undefined,
+        dateOfBirth: dob ? toApiDate(dob) : undefined,
         country: country || undefined,
         city: city.trim() || undefined,
         state: stateVal.trim() || undefined,
       });
       await load();
       setAlert({ title: 'Saved', message: 'Your profile changes have been saved.' });
-    } catch {
-      setAlert({ title: 'Error', message: 'Could not save your profile. Please try again.' });
+    } catch (err) {
+      setAlert({
+        title: 'Error',
+        message: extractApiError(err, 'Could not save your profile. Please try again.'),
+      });
     } finally {
       setSaving(false);
     }
   };
 
-  const avatarUri = profile?.displayImageUrl ?? profile?.profileImageUrl;
+  // The account's profile picture first: that is what the avatar now sets, and
+  // what other people see in a profile header. The dating display image is
+  // only a fallback for accounts that set one before the two were separated.
+  const avatarUri =
+    avatarOverride ?? accountImageUrl ?? profile?.profileImageUrl ?? profile?.displayImageUrl;
   // Gender badge (Figma) — gender now comes from GET /users/me (gap #8 resolved)
   const genderIcon =
     gender?.toLowerCase() === 'female'
@@ -249,10 +357,12 @@ export default function DatingMyProfileScreen() {
 
         {/* Names (owned by the account, not the dating profile) */}
         <View style={styles.row}>
-          <AppInput label="First Name" value={user?.firstName ?? ''} editable={false}
-            placeholder="First name" containerStyle={styles.rowField} />
-          <AppInput label="Last Name" value={user?.lastName ?? ''} editable={false}
-            placeholder="Last name" containerStyle={styles.rowField} />
+          <AppInput label="First Name" value={firstName} onChangeText={setFirstName}
+            placeholder="First name" maxLength={50} showCounter={false}
+            containerStyle={styles.rowField} />
+          <AppInput label="Last Name" value={lastName} onChangeText={setLastName}
+            placeholder="Last name" maxLength={50} showCounter={false}
+            containerStyle={styles.rowField} />
         </View>
 
         {isSpiritual && (
@@ -332,11 +442,18 @@ export default function DatingMyProfileScreen() {
             disabled={uploading}
           >
             {uploading ? (
-              <ActivityIndicator color={accent} />
+              <>
+                <ActivityIndicator color={accent} />
+                {uploadProgress && (
+                  <Text style={styles.uploadTileText}>
+                    {uploadProgress.done}/{uploadProgress.total}
+                  </Text>
+                )}
+              </>
             ) : (
               <>
                 <Icon name="image-outline" size={30} color={accent} />
-                <Text style={styles.uploadTileText}>Upload Photo</Text>
+                <Text style={styles.uploadTileText}>Upload Photos</Text>
               </>
             )}
           </TouchableOpacity>

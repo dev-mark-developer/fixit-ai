@@ -14,6 +14,7 @@ import { datingApi, DatingProfile, SpiritualRequest } from '../../api/dating';
 import { mentorApi, MentorRequest } from '../../api/mentor';
 import AppButton from '../../components/common/AppButton';
 import AppAlert from '../../components/common/AppAlert';
+import { parseApiDate } from '../../utils/datetime';
 
 type Props = NativeStackScreenProps<DatingStackParamList, 'SpiritualEntry'>;
 
@@ -413,7 +414,7 @@ export default function SpiritualEntryScreen({ navigation }: Props) {
           </Text>
           {request?.reviewedAt && (
             <Text style={styles.declinedMeta}>
-              Reviewed on {new Date(request.reviewedAt).toLocaleDateString()}
+              Reviewed on {parseApiDate(request.reviewedAt).toLocaleDateString()}
             </Text>
           )}
 

@@ -2,35 +2,49 @@ import React from 'react';
 import { Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Colors } from '../../utils/colors';
 
-const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
+const { width: SCREEN_W } = Dimensions.get('window');
 const CARD_W = SCREEN_W - 32;
-const CARD_H = SCREEN_H * 0.56;
 
 interface Props {
   accent: string;
+  /** The card's height — the deck sizes cards to fit, so a fixed one overhangs on short screens. */
+  height: number;
+  /**
+   * Premium accounts have their own daily allowance. Offering them the upgrade
+   * they already have would be wrong, so they get a way back to the deck.
+   */
+  isPremium: boolean;
   onSubscribe: () => void;
+  onDismiss: () => void;
 }
 
 /**
- * Covers the swipe card once the free daily swipes are used up. The card stays
+ * Covers the swipe card once the day's likes are used up. The card stays
  * underneath, dimmed rather than blurred — a real blur would mean pulling in a
- * native blur module for one screen.
+ * native blur module for one screen. Pass and super like stay usable from the
+ * action pill, which sits above this.
  */
-export default function DailyLimitOverlay({ accent, onSubscribe }: Props) {
+export default function DailyLimitOverlay({
+  accent, height, isPremium, onSubscribe, onDismiss,
+}: Props) {
   return (
-    <View style={styles.card} pointerEvents="box-none">
+    <View style={[styles.card, { height }]} pointerEvents="box-none">
       <View style={styles.scrim} />
       <View style={styles.content}>
         <Text style={styles.title}>You Have Reached{'\n'}Your Daily Limit!</Text>
         <Text style={styles.subtitle}>
-          Try Premium subscription for{'\n'}unlimited swaps and filters
+          {isPremium
+            ? "You've used all of today's likes.\nCome back tomorrow for more."
+            : 'Try Premium subscription for\nunlimited swaps and filters'}
         </Text>
         <TouchableOpacity
           style={[styles.btn, { backgroundColor: accent }]}
-          onPress={onSubscribe}
+          onPress={isPremium ? onDismiss : onSubscribe}
           activeOpacity={0.85}
         >
-          <Text style={styles.btnText}>Subscribe To Premium</Text>
+          <Text style={styles.btnText}>
+            {isPremium ? 'Keep Browsing' : 'Subscribe To Premium'}
+          </Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -41,10 +55,13 @@ const styles = StyleSheet.create({
   card: {
     position: 'absolute',
     width: CARD_W,
-    height: CARD_H,
     borderRadius: 28,
     overflow: 'hidden',
     justifyContent: 'center',
+    // Above the cards (zIndex up to 10, elevation 8) and below the action pill
+    // (20 / 9). Without it the overlay drew underneath the top card.
+    zIndex: 15,
+    elevation: 8.5,
   },
   scrim: {
     position: 'absolute',

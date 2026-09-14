@@ -4,6 +4,9 @@ import {
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { launchImageLibrary } from 'react-native-image-picker';
+import { extractApiError, fieldErrors } from '../../utils/apiError';
+import { imageRejectionReason } from '../../utils/imageUpload';
+import { isValidEmail } from '../../utils/validation';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { AuthStackParamList } from '../../types/navigation';
 import { Colors } from '../../utils/colors';
@@ -16,6 +19,7 @@ import CountryPicker from '../../components/common/CountryPicker';
 import KeyboardAwareScrollView from '../../components/common/KeyboardAwareScrollView';
 import api from '../../api/axios';
 import { usersApi } from '../../api/users';
+import { toApiDate } from '../../utils/datetime';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Register'>;
 
@@ -39,22 +43,6 @@ const PASSWORD_RULES = [
   { label: 'Number (0–9)', test: (p: string) => /\d/.test(p) },
   { label: 'Special character (!@#...)', test: (p: string) => /[^a-zA-Z\d]/.test(p) },
 ];
-
-const extractError = (err: any): string => {
-  const data = err.response?.data;
-  if (!err.response) return 'Unable to connect to server. Please check your network.';
-  if (data?.message) return data.message;
-  if (data?.errors) {
-    if (Array.isArray(data.errors)) {
-      return data.errors.map((e: any) => e.description || e.message || String(e)).join('\n');
-    }
-    if (typeof data.errors === 'object') {
-      return Object.values(data.errors).flat().join('\n');
-    }
-  }
-  if (data?.title) return data.title;
-  return `Server error (${err.response?.status}). Please try again.`;
-};
 
 export default function RegisterScreen({ navigation }: Props) {
   const [form, setForm] = useState({
@@ -88,7 +76,7 @@ export default function RegisterScreen({ navigation }: Props) {
     if (!form.firstName.trim()) e.firstName = 'First name is required';
     if (!form.lastName.trim()) e.lastName = 'Last name is required';
     if (!form.email.trim()) e.email = 'Email is required';
-    else if (!/\S+@\S+\.\S+/.test(form.email)) e.email = 'Enter a valid email';
+    else if (!isValidEmail(form.email)) e.email = 'Please enter a valid email address';
     if (!form.password) e.password = 'Password is required';
     else if (!allPasswordRulesMet) e.password = 'Password does not meet requirements';
     if (form.password !== form.confirmPassword) e.confirmPassword = 'Passwords do not match';
@@ -114,10 +102,14 @@ export default function RegisterScreen({ navigation }: Props) {
       maxHeight: 512,
     }, (response) => {
       const asset = response.assets?.[0];
-      if (asset?.uri) {
-        setProfileImageUri(asset.uri);
-        setProfileImageType(asset.type ?? 'image/jpeg');
+      if (!asset?.uri) return;
+      const rejection = imageRejectionReason(asset);
+      if (rejection) {
+        showAlert('Photo Not Supported', rejection);
+        return;
       }
+      setProfileImageUri(asset.uri);
+      setProfileImageType(asset.type ?? 'image/jpeg');
     });
   };
 
@@ -150,7 +142,7 @@ export default function RegisterScreen({ navigation }: Props) {
         lastName: form.lastName.trim(),
         email: form.email.trim(),
         password: form.password,
-        dateOfBirth: dob!.toISOString().split('T')[0],
+        dateOfBirth: toApiDate(dob!),
         country: form.country,
         city: form.city.trim(),
         state: form.state.trim(),
@@ -164,7 +156,15 @@ export default function RegisterScreen({ navigation }: Props) {
       });
       navigation.navigate('Otp', { email: form.email.trim(), purpose: 'Registration', password: form.password });
     } catch (err: any) {
-      showAlert('Registration Failed', extractError(err));
+      // A rejected field (an email the server considers invalid, most often)
+      // belongs under that input — the alert alone used to be the boilerplate
+      // wrapper message, which named neither the field nor the reason.
+      const fields = fieldErrors(err);
+      if (Object.keys(fields).length > 0) setErrors((e) => ({ ...e, ...fields }));
+      showAlert(
+        'Registration Failed',
+        extractApiError(err, 'Could not create your account. Please try again.'),
+      );
     } finally {
       setLoading(false);
     }
@@ -304,11 +304,11 @@ export default function RegisterScreen({ navigation }: Props) {
         </View>
 
         <View style={styles.row}>
-          <AppInput label="City" placeholder="Enter your city" value={form.city}
-            onChangeText={(v) => set('city', v)} error={errors.city} maxLength={50}
-            containerStyle={styles.rowField} />
           <AppInput label="State" placeholder="Enter your state" value={form.state}
             onChangeText={(v) => set('state', v)} error={errors.state} maxLength={50}
+            containerStyle={styles.rowField} />
+          <AppInput label="City" placeholder="Enter your city" value={form.city}
+            onChangeText={(v) => set('city', v)} error={errors.city} maxLength={50}
             containerStyle={styles.rowField} />
         </View>
 

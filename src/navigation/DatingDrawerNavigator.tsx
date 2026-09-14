@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Alert, Modal, ScrollView, Image,
 } from 'react-native';
@@ -6,6 +6,7 @@ import {
   createDrawerNavigator,
   DrawerContentScrollView,
   DrawerContentComponentProps,
+  useDrawerStatus,
 } from '@react-navigation/drawer';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -14,6 +15,8 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Colors } from '../utils/colors';
 import { useAuth } from '../store/AuthContext';
 import { useModuleStatus } from '../store/ModuleStatusContext';
+import { usersApi } from '../api/users';
+import RemoteImage from '../components/common/RemoteImage';
 import DatingDiscoverScreen from '../screens/dating/DatingDiscoverScreen';
 import DatingMatchesScreen from '../screens/dating/DatingMatchesScreen';
 import DatingChatsScreen from '../screens/dating/DatingChatsScreen';
@@ -65,6 +68,28 @@ function DatingDrawerContent({ navigation }: DrawerContentComponentProps) {
     ? `${user.firstName.charAt(0)}${user.lastName.charAt(0)}`.toUpperCase()
     : '–';
 
+  /**
+   * The account's photo, refetched each time the drawer opens so a picture
+   * changed on the profile screen shows here straight away. Initials remain
+   * the fallback — for a user who has no photo, and for one whose photo fails
+   * to load (see gap #12).
+   */
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const drawerStatus = useDrawerStatus();
+
+  useEffect(() => {
+    if (drawerStatus !== 'open') return;
+    let active = true;
+    usersApi.getProfile()
+      .then((res) => {
+        if (active) setAvatarUrl(res.data?.data?.profileImageUrl ?? null);
+      })
+      .catch(() => {
+        // Keep whatever is already there; initials show if that is nothing.
+      });
+    return () => { active = false; };
+  }, [drawerStatus]);
+
   // One level up → DatingNavigator stack; two levels up → Root stack
   const parentNav = navigation.getParent<NativeStackNavigationProp<DatingStackParamList>>();
   const rootNav = navigation.getParent()?.getParent<NativeStackNavigationProp<RootStackParamList>>();
@@ -77,6 +102,17 @@ function DatingDrawerContent({ navigation }: DrawerContentComponentProps) {
   const goToIceBreakers = () => {
     navigation.closeDrawer();
     parentNav?.navigate('DatingIceBreakerSelection', { datingType: datingType ?? 'NonSpiritual', editMode: true });
+  };
+  /**
+   * The Non-Spiritual member's way over to Spiritual Dating. It lands on the
+   * entry screen rather than the lobby — the lobby only exists to pick a path,
+   * and that choice is already made by tapping this row. Vetting still gates
+   * the move; SpiritualEntryScreen carries the profile across and finishes in
+   * the Discover deck.
+   */
+  const goToSpiritualSwitch = () => {
+    navigation.closeDrawer();
+    parentNav?.navigate('SpiritualEntry');
   };
   const goToRoot = (screen: keyof RootStackParamList, params?: any) => {
     navigation.closeDrawer();
@@ -91,8 +127,12 @@ function DatingDrawerContent({ navigation }: DrawerContentComponentProps) {
   };
 
   const items: { label: string; icon: string; onPress: () => void }[] = [
-    { label: 'Home', icon: 'home', onPress: () => goToRoot('Home') },
-    { label: 'Penpal', icon: 'create', onPress: () => goToRoot('Penpal') },
+    // A Spiritual account is permanent — there is nowhere to switch to, so the
+    // row is left out entirely for those users (see DatingLobbyScreen).
+    ...(isSpiritual
+      ? []
+      : [{ label: 'Switch to Spiritual Dating', icon: 'sync-circle', onPress: goToSpiritualSwitch }]),
+    { label: 'Switch to Penpal', icon: 'create', onPress: () => goToRoot('Penpal') },
     { label: 'My Subscription', icon: 'cash', onPress: goToPremium },
     { label: 'Configure Ice Breaker', icon: 'chatbox-ellipses', onPress: goToIceBreakers },
     { label: 'Block List', icon: 'remove-circle', onPress: () => goDrawer('DatingBlockList') },
@@ -126,9 +166,16 @@ function DatingDrawerContent({ navigation }: DrawerContentComponentProps) {
 
         {/* Profile header */}
         <View style={styles.profileRow}>
-          <View style={[styles.avatar, { backgroundColor: accent }]}>
-            <Text style={styles.avatarText}>{initials}</Text>
-          </View>
+          <RemoteImage
+            uri={avatarUrl}
+            style={styles.avatar}
+            indicatorColor={Colors.white}
+            fallback={
+              <View style={[styles.avatar, { backgroundColor: accent }]}>
+                <Text style={styles.avatarText}>{initials}</Text>
+              </View>
+            }
+          />
           <View style={styles.profileInfo}>
             <Text style={styles.profileName} numberOfLines={1}>
               {user ? `${user.firstName} ${user.lastName}` : '—'}

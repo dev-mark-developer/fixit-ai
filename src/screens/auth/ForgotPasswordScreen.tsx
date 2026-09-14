@@ -74,6 +74,7 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
         autoCapitalize="none"
         error={error}
         maxLength={100}
+        showCounter={false}
       />
 
       <AppButton title="Send Code" onPress={handleSend} loading={loading} style={styles.btn} />

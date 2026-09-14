@@ -13,6 +13,7 @@ import type { PenpalStackParamList } from '../../types/navigation';
 import { Colors } from '../../utils/colors';
 import { penpalApi, PenpalLetter } from '../../api/penpal';
 import { getUser } from '../../store/auth';
+import { parseApiDate } from '../../utils/datetime';
 
 type Props = NativeStackScreenProps<PenpalStackParamList, 'PenpalLetterDetail'>;
 
@@ -32,7 +33,7 @@ export default function PenpalLetterDetailScreen({ route, navigation }: Props) {
   }, [letterId]);
 
   const formatDate = (dateStr: string) =>
-    new Date(dateStr).toLocaleDateString('en-US', {
+    parseApiDate(dateStr).toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'long',
       day: 'numeric',

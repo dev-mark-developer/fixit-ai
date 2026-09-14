@@ -10,6 +10,7 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
+  Linking,
   SafeAreaView,
   StyleSheet,
 } from 'react-native';
@@ -29,6 +30,7 @@ import {
   unsupportedMessage,
   uploadStagedAttachments,
   StagedAttachment,
+  PickFailure,
 } from '../../services/chatAttachments';
 import {
   MIN_VOICE_NOTE_MS,
@@ -49,6 +51,7 @@ import RecordingBar from '../../components/chat/RecordingBar';
 import AttachmentViewer from '../../components/chat/AttachmentViewer';
 import ReportModal from '../../components/common/ReportModal';
 import { useModuleStatus } from '../../store/ModuleStatusContext';
+import { useBlockedUsers } from '../../utils/blockedUsers';
 
 type Props = NativeStackScreenProps<DatingStackParamList, 'DatingChatDetail'>;
 
@@ -93,6 +96,12 @@ export default function DatingChatDetailScreen({ route, navigation }: Props) {
   const [attachMenuVisible, setAttachMenuVisible] = useState(false);
   const [matchedAvatar, setMatchedAvatar] = useState<string | null>(null);
   const [openingMoves, setOpeningMoves] = useState<string[]>([]);
+
+  // Blocking doesn't delete the thread — the history stays readable, the
+  // composer goes away. QA: "should display a 'This user is blocked' type
+  // message instead of allowing further conversation".
+  const { blockedIds } = useBlockedUsers();
+  const isBlocked = blockedIds.has(matchedUserId);
 
   // Composer attachments (local until send)
   const [staged, setStaged] = useState<StagedAttachment[]>([]);
@@ -313,6 +322,41 @@ export default function DatingChatDetailScreen({ route, navigation }: Props) {
     }
   }, [sending, matchId, matchedUserId]);
 
+  /**
+   * A finished voice note goes out as its own message the moment recording
+   * stops, rather than waiting in the composer tray.
+   *
+   * This is the fix for "voice notes sent as empty message when sending
+   * multiple at once": a voice note is never staged, so a message can never
+   * carry two of them. One recording, one message, always.
+   *
+   * A failure is not parked in the tray for the same reason — a retry sitting
+   * alongside the next recording would put two in one message again. The
+   * recording is lost and the user records it afresh, which is the price of
+   * the guarantee.
+   *
+   * Any typed text is deliberately left alone in the composer: the user was
+   * writing it before they hit record, and folding it into the voice note
+   * would lose their place.
+   */
+  const sendVoiceNote = useCallback(async (note: StagedAttachment) => {
+    setSending(true);
+    setUploading(true);
+    try {
+      const uploaded = await uploadStagedAttachments(matchId, [note]);
+      setUploading(false);
+      await chatHub.sendMessageWithAttachments(matchId, matchedUserId, null, uploaded);
+    } catch (err) {
+      Alert.alert(
+        'Not sent',
+        `${errorMessage(err, 'Your voice note could not be sent.')}\n\nPlease record it again.`,
+      );
+    } finally {
+      setUploading(false);
+      setSending(false);
+    }
+  }, [matchId, matchedUserId]);
+
   const handleSend = useCallback(async () => {
     const text = inputText.trim();
     const files = stagedRef.current;
@@ -361,15 +405,45 @@ export default function DatingChatDetailScreen({ route, navigation }: Props) {
     });
   }, []);
 
+  /**
+   * Says why nothing opened. Denying camera access used to leave the button
+   * doing nothing at all, which reads as a broken app rather than a choice the
+   * user made — and the only way back is Settings, so offer to go there.
+   */
+  const showPickFailure = useCallback((failure: PickFailure, source: PickSource) => {
+    const what = source === 'library' ? 'your photos' : 'the camera';
+    if (failure === 'permission') {
+      Alert.alert(
+        'Permission needed',
+        `Fixit needs access to ${what} to attach a file. You can turn it on in Settings.`,
+        [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Open Settings', onPress: () => Linking.openSettings() },
+        ],
+      );
+      return;
+    }
+    Alert.alert(
+      failure === 'unavailable' ? 'Camera unavailable' : 'Could not attach',
+      failure === 'unavailable'
+        ? 'No camera is available on this device.'
+        : `Something went wrong opening ${what}. Please try again.`,
+    );
+  }, []);
+
   const openPicker = useCallback(async (source: PickSource) => {
     if (remainingSlots <= 0) {
       Alert.alert('Too many files', `A message may carry at most ${MAX_CHAT_ATTACHMENTS} attachments.`);
       return;
     }
     try {
-      const { accepted, rejected } = source === 'library'
+      const { accepted, rejected, failure } = source === 'library'
         ? await pickFromLibrary(remainingSlots)
         : await pickFromCamera(source === 'video' ? 'video' : 'photo');
+      if (failure) {
+        showPickFailure(failure, source);
+        return;
+      }
       addStaged(accepted);
       if (rejected.length > 0) {
         Alert.alert('Unsupported file', unsupportedMessage(rejected));
@@ -377,7 +451,7 @@ export default function DatingChatDetailScreen({ route, navigation }: Props) {
     } catch (err) {
       Alert.alert('Could not attach', errorMessage(err, 'That file could not be attached.'));
     }
-  }, [remainingSlots, addStaged]);
+  }, [remainingSlots, addStaged, showPickFailure]);
 
   /**
    * Runs the choice the user made in the attach sheet. This is deliberately
@@ -421,15 +495,13 @@ export default function DatingChatDetailScreen({ route, navigation }: Props) {
       Alert.alert('Too short', 'Hold the mic a little longer to record a voice note.');
       return;
     }
-    addStaged([stageVoiceNote(recordingToUpload(result), result.durationMs)]);
-  }, [addStaged]);
+    sendVoiceNote(stageVoiceNote(recordingToUpload(result), result.durationMs));
+  }, [sendVoiceNote]);
 
   const startRecording = useCallback(async () => {
+    // No tray-capacity check: a voice note is sent on its own, so a full
+    // attachment tray has nothing to do with whether one can be recorded.
     if (recording || sending) return;
-    if (remainingSlots <= 0) {
-      Alert.alert('Too many files', `A message may carry at most ${MAX_CHAT_ATTACHMENTS} attachments.`);
-      return;
-    }
 
     const granted = await voiceRecorder.ensurePermission();
     if (!granted) {
@@ -457,7 +529,7 @@ export default function DatingChatDetailScreen({ route, navigation }: Props) {
       setRecording(false);
       Alert.alert('Cannot record', errorMessage(err, 'The microphone is unavailable.'));
     }
-  }, [recording, sending, remainingSlots, stopRecording]);
+  }, [recording, sending, stopRecording]);
 
   const cancelRecording = useCallback(async () => {
     await voiceRecorder.cancel();
@@ -559,7 +631,7 @@ export default function DatingChatDetailScreen({ route, navigation }: Props) {
   }
 
   const showOpeningMove = messages.length === 0;
-  const canSend = (!!inputText.trim() || staged.length > 0) && !sending;
+  const canSend = (!!inputText.trim() || staged.length > 0) && !sending && !isBlocked;
 
   return (
     <SafeAreaView style={styles.root}>
@@ -725,7 +797,15 @@ export default function DatingChatDetailScreen({ route, navigation }: Props) {
           onClear={() => setStaged([])}
         />
 
-        {recording ? (
+        {isBlocked ? (
+          <View style={styles.blockedBar}>
+            <Icon name="ban-outline" size={18} color={Colors.textMuted} />
+            <Text style={styles.blockedBarText}>
+              You blocked {matchedUserName}. Unblock them from Blocked Users to
+              start chatting again.
+            </Text>
+          </View>
+        ) : recording ? (
           <RecordingBar
             positionMs={recordMs}
             metering={metering}
@@ -798,6 +878,17 @@ const DEFAULT_OPENING_MOVES = [
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },
+  blockedBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: Colors.surface,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Colors.border,
+  },
+  blockedBarText: { flex: 1, fontSize: 13, color: Colors.textMuted },
   flex: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.background },
 

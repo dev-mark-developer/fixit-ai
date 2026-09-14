@@ -5,6 +5,56 @@ doing UI work on **AIFixitMobileApp**. Newest entries at the top.
 
 ---
 
+## 2026-09-11 — Discover: like and super-like limits split
+
+The admin panel sets separate daily allowances for **likes** and **super
+likes**, with different numbers for free and premium. The app treated them as
+one generic limit.
+
+- **`src/utils/swipeLimits.ts` (new)** — `useSwipeLimits(isPremium)` tracks
+  which allowance ran out and on which local day; `limitFor(action)` maps
+  Like → likes, SuperLike → super likes, Ignore → none. Pure helpers tested in
+  `__tests__/swipeLimits.test.ts`.
+- A refused **Like** → card back, Figma "daily limit" cover, ♥ dimmed.
+  A refused **SuperLike** → card back, "Out of Super Likes" alert, ⭐ dimmed;
+  likes keep working. **Pass is never blocked**, and a pass or super like from
+  the pill lifts the cover. A fresh deck (focus, filters) starts uncovered.
+- **Premium users** who hit their own limit get "come back tomorrow" + Keep
+  Browsing instead of "Subscribe To Premium".
+- **Day reset:** Discover stays mounted in the drawer, so limits from an earlier
+  local day are dropped on focus and when the app returns to the foreground.
+  The server's reset rule isn't published — local midnight is a guess, and the
+  server simply refuses again if it's early.
+- **The overlay was drawn under the top card** (cards carry zIndex 8–10 /
+  elevation 8; the overlay had neither). It now sits at 15 / 8.5, below the
+  pill (20 / 9), and takes the measured card height instead of 56% of the
+  screen.
+- `SwipeCard.onSwipe` now returns false when the screen refuses a swipe, and
+  the card springs back — covers a limit that lands while a card is mid-flight.
+- Backend asks written up in [BACKEND_LIKE_LIMITS.md](./BACKEND_LIKE_LIMITS.md)
+  (gap #33; #21, #22, #23, #28 updated), with an Excel copy for sharing in
+  `BACKEND_LIKE_LIMITS.xlsx`. Update it when the md changes.
+- **Live test (`sp3@yopmail.com`, free Spiritual):** limits *are* enforced, but
+  a refusal is a **400** with only a message ("You have reached your daily
+  limit of 1 super likes…"), not the agreed 402/403. So `isLimitRefusal` also
+  accepts a 400 whose message says "daily limit" — a stopgap until an error
+  code exists. Free = 10 swipes (super likes count toward them) + 1 super like;
+  the swipe response carries `dailySwipeLimit` / `swipesUsedToday` /
+  `swipesRemainingToday` / `isPremium`. A refused swipe doesn't count, and a
+  like right after the super-like refusal went through. The deck had 2 people,
+  so the 10-swipe limit, passes and the reset time are untested. Side effects
+  on beta: sp3 super-liked Dev (84) and liked Sp1 (189) → match #26.
+- Also seen live: `GET /Dating/likes/received` returns the full list to a
+  **free** account (gap #23: not gated); `GET /Dating/config` returns
+  `{ maxGalleryImages }` (gap #28's value is exposed); `GET /Subscription/status`
+  returns `isEntitled`, `status`, `expirationDate`, `accessUntil`, … (gap #21).
+- **Left for later:** the hardcoded "10 free swipes / 1 super like per day" on
+  `NonSpiritualEntryScreen` (needs #33), and the Figma "Unlimited Likes" /
+  "unlimited swaps" copy, which is only true if premium is uncapped (a client
+  question).
+
+---
+
 ## 2026-09-08 — Penpal "My Profile" + public profile header fixes
 
 - **New screen `PenpalMyProfileScreen`** (drawer route `PenpalMyProfile`, menu

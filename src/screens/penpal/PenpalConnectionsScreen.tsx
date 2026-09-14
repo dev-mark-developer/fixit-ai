@@ -36,6 +36,7 @@ import {
 import { getUser } from '../../store/auth';
 import ReportModal from '../../components/common/ReportModal';
 import DisabilityBadge from '../../components/penpal/DisabilityBadge';
+import { timeAgo } from '../../utils/datetime';
 
 type Props = CompositeScreenProps<
   DrawerScreenProps<PenpalDrawerParamList, 'PenpalConnections'>,
@@ -64,19 +65,6 @@ const TAB_STATUS: Record<Tab, PenpalConnectionStatus> = {
 // Two cards per row: screen width − list padding (16×2) − gap (12), split in two.
 const GRID_GAP = 12;
 const CARD_W = (Dimensions.get('window').width - 32 - GRID_GAP) / 2;
-
-const timeAgo = (dateStr: string) => {
-  const then = new Date(dateStr).getTime();
-  if (Number.isNaN(then)) return '';
-  const sec = Math.max(1, Math.floor((Date.now() - then) / 1000));
-  const min = Math.floor(sec / 60);
-  const hr = Math.floor(min / 60);
-  const day = Math.floor(hr / 24);
-  if (day > 0) return `${day} day${day > 1 ? 's' : ''} ago`;
-  if (hr > 0) return `${hr} hour${hr > 1 ? 's' : ''} ago`;
-  if (min > 0) return `${min} min${min > 1 ? 's' : ''} ago`;
-  return 'just now';
-};
 
 /**
  * Fills in the connection row behind each Pending/Accepted person.

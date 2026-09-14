@@ -5,9 +5,13 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  Pressable,
   StyleSheet,
   ScrollView,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Keyboard,
+  Platform,
 } from 'react-native';
 import { Colors } from '../../utils/colors';
 import { sharedApi } from '../../api/shared';
@@ -30,7 +34,12 @@ const REASONS = [
   'Other',
 ];
 
-const REASON_MAX = 500;
+/**
+ * QA asked for ~300 characters on the free-text reason. It is a report, not a
+ * letter — the reviewer needs the gist, and a shorter cap keeps the box from
+ * growing tall enough to bury the Report button.
+ */
+const REASON_MAX = 300;
 
 export default function ReportModal({
   visible,
@@ -66,6 +75,7 @@ export default function ReportModal({
       setError('Please describe the reason for your report.');
       return;
     }
+    Keyboard.dismiss();
     setSubmitting(true);
     setError('');
     try {
@@ -83,7 +93,14 @@ export default function ReportModal({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
-      <View style={styles.overlay}>
+      <KeyboardAvoidingView
+        style={styles.overlay}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        {/* Tapping the dimmed area puts the keyboard away — with a multiline
+            field there is no return key to do it, which is what left the
+            keypad covering the Report button. */}
+        <Pressable style={StyleSheet.absoluteFill} onPress={Keyboard.dismiss} />
         <View style={styles.card}>
           {done ? (
             <>
@@ -161,6 +178,11 @@ export default function ReportModal({
                     textAlignVertical="top"
                   />
                 )}
+                {isOther && (
+                  <Text style={styles.counter}>
+                    {otherText.length}/{REASON_MAX}
+                  </Text>
+                )}
               </ScrollView>
 
               {!!error && <Text style={styles.errorText}>{error}</Text>}
@@ -179,12 +201,13 @@ export default function ReportModal({
             </>
           )}
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
+  counter: { alignSelf: 'flex-end', fontSize: 11, color: Colors.textMuted, marginTop: 4 },
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',

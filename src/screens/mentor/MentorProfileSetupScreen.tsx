@@ -23,6 +23,8 @@ import AppButton from '../../components/common/AppButton';
 import AppAlert, { AlertButton } from '../../components/common/AppAlert';
 import CountryPicker from '../../components/common/CountryPicker';
 import KeyboardAwareScrollView from '../../components/common/KeyboardAwareScrollView';
+import { formatPhoneInput, phoneDigits } from '../../utils/validation';
+import { toApiDate } from '../../utils/datetime';
 
 type Props = NativeStackScreenProps<MentorStackParamList, 'MentorProfileSetup'>;
 
@@ -140,8 +142,8 @@ export default function MentorProfileSetupScreen({ navigation }: Props) {
         tagline: title.trim() || undefined,
         firstName: firstName.trim(),
         lastName: lastName.trim(),
-        phone: phone.trim() || undefined,
-        dateOfBirth: dob ? dob.toISOString().slice(0, 10) : undefined,
+        phone: phoneDigits(phone) || undefined,
+        dateOfBirth: dob ? toApiDate(dob) : undefined,
         country: country || undefined,
         city: city.trim() || undefined,
         state: stateVal.trim() || undefined,
@@ -240,8 +242,9 @@ export default function MentorProfileSetupScreen({ navigation }: Props) {
           onChangeText={(v) => { setTitle(v); clearError('title'); }}
           error={errors.title} maxLength={150} />
 
-        <AppInput label="Phone Number*" placeholder="Enter your phone number here" value={phone}
-          onChangeText={setPhone} keyboardType="phone-pad" maxLength={20} />
+        <AppInput label="Phone Number*" placeholder="(555) 123-4567" value={phone}
+          onChangeText={(v) => setPhone(formatPhoneInput(v))} keyboardType="phone-pad"
+          maxLength={20} showCounter={false} />
 
         <AppInput label="About You*" placeholder="Enter you spiritual journey" value={about}
           onChangeText={(v) => { setAbout(v); clearError('about'); }}

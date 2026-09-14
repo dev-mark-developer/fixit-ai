@@ -8,6 +8,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { PenpalDrawerParamList, PenpalStackParamList } from '../../types/navigation';
 import { Colors } from '../../utils/colors';
 import { penpalApi, PenpalProfile } from '../../api/penpal';
+import { usersApi } from '../../api/users';
 import AppButton from '../../components/common/AppButton';
 
 type Props = CompositeScreenProps<
@@ -17,12 +18,30 @@ type Props = CompositeScreenProps<
 
 export default function PenpalHomeScreen({ navigation }: Props) {
   const [profile, setProfile] = useState<PenpalProfile | null>(null);
+  /**
+   * Country lives on the account, not the penpal profile, which carries only
+   * city/state/postal code for mailing. The card used to print city and state
+   * under the pen name — part of a mailing address, on a screen where only the
+   * country belongs.
+   */
+  const [country, setCountry] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const loadProfile = async () => {
     try {
-      const res = await penpalApi.getProfile();
-      setProfile(res.data?.data ?? null);
+      const [penpalResult, accountResult] = await Promise.allSettled([
+        penpalApi.getProfile(),
+        usersApi.getProfile(),
+      ]);
+      setProfile(
+        penpalResult.status === 'fulfilled' ? penpalResult.value.data?.data ?? null : null,
+      );
+      // A missing country just hides the line; it never blocks the screen.
+      setCountry(
+        accountResult.status === 'fulfilled'
+          ? accountResult.value.data?.data?.country ?? null
+          : null,
+      );
     } catch {
       setProfile(null);
     } finally {
@@ -53,7 +72,15 @@ export default function PenpalHomeScreen({ navigation }: Props) {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <View style={styles.profileCard}>
+      {/* Tapping the card opens the profile — the side menu's Profile item was
+          the only way in, which QA read as there being no way at all. */}
+      <TouchableOpacity
+        style={styles.profileCard}
+        onPress={() => navigation.navigate('PenpalMyProfile')}
+        activeOpacity={0.8}
+        accessibilityRole="button"
+        accessibilityLabel="View and edit your penpal profile"
+      >
         <View style={styles.avatarCircle}>
           <Text style={styles.avatarText}>{profile.pseudoName.charAt(0).toUpperCase()}</Text>
         </View>
@@ -64,13 +91,10 @@ export default function PenpalHomeScreen({ navigation }: Props) {
               ? `${profile.firstName} ${profile.lastName}`
               : 'Anonymous'}
           </Text>
-          {(profile.city || profile.state) && (
-            <Text style={styles.profileLocation}>
-              📍 {[profile.city, profile.state].filter(Boolean).join(', ')}
-            </Text>
-          )}
+          {!!country && <Text style={styles.profileLocation}>📍 {country}</Text>}
         </View>
-      </View>
+        <Text style={styles.profileEdit}>Edit</Text>
+      </TouchableOpacity>
 
       <Text style={styles.sectionTitle}>What would you like to do?</Text>
 
@@ -125,6 +149,7 @@ const styles = StyleSheet.create({
   profileInfo: { flex: 1, marginLeft: 12 },
   pseudoName: { fontSize: 17, fontWeight: '700', color: Colors.text },
   profileMeta: { fontSize: 13, color: Colors.textSecondary, marginTop: 2 },
+  profileEdit: { fontSize: 13, fontWeight: '700', color: Colors.penpal },
   profileLocation: { fontSize: 13, color: Colors.textMuted, marginTop: 2 },
   editBtn: {
     paddingHorizontal: 14, paddingVertical: 6, borderRadius: 8,

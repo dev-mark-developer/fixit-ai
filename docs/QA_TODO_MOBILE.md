@@ -1,0 +1,89 @@
+# QA Backlog — To Do (Mobile)
+
+Source: Asana project **Fixit iOS** ([board](https://app.asana.com/1/1155251214161547/project/1218322747677637)), section **To Do (Mobile)**.
+Pulled 2026-09-09 · 34 tasks · no assignees, due dates, or subtasks on any of them.
+
+> Note: there is a second, empty Asana project also named "Fixit iOS" (`1218321923731477`). This file tracks the real one (`1218322747677637`).
+
+---
+
+## Already completed (still sitting in To Do)
+
+- [x] **Penpal viewing page – black background display issue** — a black background appears on the lower half of the screen, in front of the profile picture. ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218322747541990))
+
+---
+
+## Non-Spiritual Dating — media & uploads
+
+- [x] **Gallery images not fully visible on other users' profiles** — user `josh1@yopmail.com` uploaded 4 images; viewing that profile from `ellse1@yopmail.com` does not show all of them on the details page. ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218321976706489)) _Fixed 2026-09-11 — confirmed against the API response: 4 images returned, 3 tiles rendered. The display photo was filtered out of the grid because it already appears as the header; the grid now shows every image, de-duplicated by resolved URL. Failed tiles also show a placeholder now instead of vanishing._
+- [ ] **Profile picture upload error** — shows "An error occurred" and the upload never succeeds. ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218323160729445))
+- [x] **Gallery image upload error (e.g. GIF files)** — "An error occurred, could not upload the photo." Add proper image type + size validation with a clear message explaining what is wrong. ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218330301425723)) _Fixed 2026-09-09 — type + 5 MB size checked at pick time (`utils/imageUpload.ts`), and a refusal now shows the server's own reason._
+- [ ] **Max Gallery Images limit not properly enforced** — admin panel sets "Max Gallery Images"; with a limit of 3, the 4th upload fails with a generic error. Should show e.g. "Maximum 3 images are allowed" or disable the upload button once the limit is hit, synced with the admin setting. ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218322094115140)) _Partly fixed 2026-09-09 — the server's message ("Maximum 3 images are allowed") now reaches the user instead of a blanket error. Disabling the Add button up front needs the limit exposed by the API — logged as gap #28 in [API_CHANGES_NEEDED.md](./API_CHANGES_NEEDED.md)._
+- [x] **Allow multiple image selection in gallery upload** — only one image can be selected at a time today. ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218323160654989)) _Fixed 2026-09-09 — the picker is now unlimited (`selectionLimit: 0`); photos upload one by one with a `2/5` progress count, unsupported files are skipped rather than stopping the batch, and a part-succeeded batch reports how far it got plus the server's reason._
+
+## Non-Spiritual Dating — blocking & notifications
+
+- [x] **Blocked user still appears in Matches and chat remains active** — blocked users are correctly removed from "Likes Received" and "My Likes", but stay in "Matches" and the chat is still usable. ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218323256400930)) _Fixed 2026-09-09 (client-side) — `useBlockedUsers` cross-references `GET /blocks`, blocked people are filtered out of Matches, and the chat composer is replaced by a notice. Server-side filtering + enforcement raised as gap #29._
+- [x] **Blocked user chat should show blocked status instead of being deleted** — chat should remain in the list with a "This user is blocked" state rather than disappearing. ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218323376273277)) _Fixed 2026-09-09 — the thread stays in the chat list, dimmed, reading "You blocked this user"; opening it shows the history with a notice in place of the composer. Whether the backend deletes the match on block is still unconfirmed — gap #29._
+- [x] **Notification dot reappears after being read** — the dot clears on tap, then comes back even though the notification was read. ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218321976341999)) _Fixed 2026-09-10 — the endpoint is a toggle, so a second tap was re-marking it unread; reading is now one-way. Idempotent endpoint requested as gap #31._
+- [x] **Notification counter missing inside notification screen** — the Home icon shows the unread count, but the Notifications screen itself does not. ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218323256147072)) _Fixed 2026-09-10 — an unread badge beside the screen title, from the same endpoint as the Home bell so the two agree, decrementing live as rows are read._
+- [ ] **Profile picture not shown in side menu (hamburger menu)** — shows name initials even when a profile picture has been uploaded. ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218323256749892)) _Client work done 2026-09-10, left open — the drawer now fetches and renders the photo (initials stay as the fallback), but it cannot display until gap #12 is resolved: uploaded `profileImageUrl` paths still 404._
+
+## Non-Spiritual Dating — navigation & layout
+
+- [ ] **Side menu Home button redirects to wrong screen** — goes to the Dating/Penpal selection screen instead of Home (Matching screen). ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218323376387174))
+- [x] **Buttons cut off on smaller screens (e.g. iPhone 11 Pro)** — needs to display correctly across smaller screen sizes. ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218321925479193)) _Fixed 2026-09-10 — the card was a flat 56% of screen height, so on a short screen the action pill hanging below it fell under the bottom bar. The deck now measures itself and the card shrinks to fit; tall phones are unchanged._
+- [x] **Missing "Clear Filters" button** — the Filters section has no way to clear them. ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218322034963416)) _Fixed 2026-09-10 — a Clear Filters button beside Apply; it resets country, distance, age, gender and the Advance Filters interests, then reloads an unfiltered deck._
+- [x] **First/Last name not editable in profile** — needs confirmation whether these fields are meant to be editable. ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218322747835315)) _Fixed 2026-09-10 — the fields were deliberately read-only (they belong to the account, not the dating profile); they now save through `PATCH /users/me` alongside the dating profile, and the session copy is patched so drawers and headers update._
+- [x] **Loader missing on Logout** — show a loader while the logout action processes. ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218323160718122)) _Fixed 2026-09-10 — a blocking "Signing out…" overlay now lives in `AuthContext`, so every logout entry point (both drawers, lobby, profile, subscription, and forced sign-out) gets it, not just this one._
+
+## Non-Spiritual Dating — chat
+
+- [x] **Camera permission denial not handled properly (Chat › Take Photo)** — denying camera permission leaves the camera screen open on black, and a blank picture can still be captured and sent. ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218322747575659)) _Fixed 2026-09-10 — Android now requests CAMERA at runtime (the manifest declares it, which is what left a dead black viewfinder), and a denied or failed pick is explained instead of silently doing nothing, with an Open Settings action._
+- [x] **Voice notes sent as empty message when sending multiple at once** — 2+ voice notes in a single message send empty; one at a time works. ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218322033991634)) _Fixed 2026-09-11 — a finished recording now sends as its own message on Done instead of joining the attachment tray, so two voice notes can never share a message. Structural: the broken case no longer exists rather than being worked around._
+
+## Penpal
+
+- [x] **Zip Code field – missing validation (min 5, max 10)** — on the penpal form. ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218323160125424)) _Fixed 2026-09-10 — 5–10 character rule on both the setup and profile forms, and the field itself now caps at 10._
+- [x] **Missing option to view/update profile information** — no such option exists in the penpal section. ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218321976807096)) _Fixed 2026-09-10 — the penpal home profile card now opens the profile screen (a Profile item already existed in the side menu, which is likely what was missed)._
+- [x] **Profile view – show only country, not full address** — the full address currently appears after the username. ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218321976312962)) _Fixed 2026-09-10 — the penpal home card showed city and state under the pen name; it now shows the account's country. The public profile header was already country-only._
+- [x] **Profile image upload error message + 5MB size limit** — replace the generic "Upload failed, could not upload the image" with a specific message (e.g. "Unsupported file format" / "File size too large") and cap uploads at 5 MB. ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218322035055669)) _Fixed 2026-09-09 — same pick-time check; upload failures show the specific server message._
+- [x] **Add loader on Accept/Reject penpal request action** — from the detail page, while the action processes. ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218322094045728)) _Fixed 2026-09-10 — the detail page's Accept / Decline / Cancel Request buttons now spin. Tracked as which action is running, not just that one is, so pressing Accept doesn't also spin Decline. The Requests list already had per-row loaders._
+- [x] **Error message shown too late on Send Request to pending penpal** — the "already pending" error appears only after tapping Send; it should appear when the Send Message icon is tapped. ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218322094063511)) _Fixed 2026-09-10 — the letter icon now explains why on tap instead of opening the composer and failing on Send._
+
+## Auth & forms
+
+- [x] **Resend OTP – missing confirmation message** — confirm to the user that the OTP was re-sent to their email. ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218321976809661)) _Fixed 2026-09-10 — a "Code Sent" confirmation naming the email address; focus returns to the code field when it is dismissed._
+- [x] **Change Password – incorrect current password shows generic error** — "One or more validation errors occurred." should become e.g. "Current password is incorrect". ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218322035216137)) _Fixed 2026-09-09 — the reason now appears under the Current Password field; the ProblemDetails boilerplate is never shown._
+- [x] **Sign Up – invalid email shows generic "unexpected error"** — should be e.g. "Please enter a valid email address". ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218323160813424)) _Fixed 2026-09-09 — anchored client-side email check, and server field errors land under the input._
+- [x] **Sign Up form – field order (State before City)** ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218322747775820)) _Fixed 2026-09-10._
+- [x] **Remove character counter on Login/Forgot Password email field** — apply to both screens. ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218323160588530)) _Fixed 2026-09-10 — `AppInput` grew a `showCounter` prop (default on, so bio and report fields keep theirs); both email fields opt out._
+- [x] **Dating Guru Sign Up – add proper masking to phone number field** ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218322035266775)) _Fixed 2026-09-10 — progressive `(555) 123-4567` mask; a number typed with a leading `+` stays unformatted, and the API is sent digits rather than the mask._
+
+## Misc UI
+
+- [x] **Static timestamp in Requests section ("5 hours ago")** — always shows the same value; confirm what the timestamp represents, then show the real time. ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218322035084969)) _Fixed 2026-09-09 — root cause was the API sending zone-less UTC, parsed as local on a +05:00 device; `utils/datetime.ts` now tags it before parsing. Backend follow-up logged as gap #30._
+- [x] **Static timestamp in Notifications and Online Letter Exchange ("5 hours ago")** — same fix, all instances. ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218322747835251)) _Fixed 2026-09-09 — same root cause and fix, applied to every screen showing an API timestamp (Notifications, Letters, Letter detail, Matches, Blocked list, Mentor dashboard)._
+- [x] **Radio button alignment – Choose Your Medium** — options are not center-aligned. ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218322033885814)) _Fixed 2026-09-10 — the circle was pinned to the top of each option; it is now centred against the whole title-plus-subtitle block, on both radio groups on that screen._
+- [x] **Keypad not closing on "Other" reason in Reporting + add 300 char limit** — the keypad stays open and hides the Submit button; also cap the reason field at ~300 characters. ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218323160187092)) _Fixed 2026-09-10 — limit cut from 500 to 300 with a visible counter; the dialog now lifts above the keyboard, tapping the dimmed area dismisses it, and submitting closes it._
+
+## Web-Admin (tracked in the board's other column, fixed here)
+
+- [x] **Date of Birth mismatch (Registration vs Admin panel)** — DOB entered at registration does not match what the admin panel shows. ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218322034009733)) _Fixed 2026-09-11 — filed under Web-Admin but the cause was in the app: `toISOString()` turned the picked local midnight into the previous UTC day, so a 14 May birthday was sent as 13 May. `toApiDate` now formats the local calendar date. Applies to sign-up, dating profile and mentor sign-up._
+
+---
+
+## Suggested batches
+
+| Batch | Tasks | Why together |
+| --- | --- | --- |
+| ~~Generic error messages~~ ✅ | Change Password, Sign Up email, profile image (Penpal), gallery upload, max gallery images | Done 2026-09-09 — one `utils/apiError.ts` now maps API failures for every screen; max-gallery is partial pending gap #28 |
+| ~~Image upload validation~~ ✅ | Gallery GIF error, max images limit, 5MB Penpal limit, multi-select | Done 2026-09-09 — one `utils/imageUpload.ts` guards type, size and batch reporting; max-images stays partial pending gap #28 |
+| ~~Blocked-user behavior~~ ✅ | Matches + active chat, blocked chat status | Done 2026-09-09 — one `utils/blockedUsers.ts` hook; server-side filtering/enforcement pending gap #29 |
+| ~~Relative timestamps~~ ✅ | Requests, Notifications, Online Letter Exchange | Done 2026-09-09 — one `utils/datetime.ts`; the bug was UTC parsing, not formatting. Backend gap #30 |
+| ~~Loaders~~ ✅ | Logout, Accept/Reject penpal request | Done 2026-09-10 — `LoadingOverlay` in `AuthContext` for sign-out; per-action spinners on the penpal detail page |
+| ~~Auth & form fields~~ ✅ | Resend OTP message, State/City order, email character counter, phone masking | Done 2026-09-10 — all four touch the auth forms and `AppInput` |
+| ~~Notifications~~ ✅ | Dot reappears after read, counter missing in screen | Done 2026-09-10 — one screen, one endpoint; idempotent read requested as gap #31 |
+| ~~Penpal profile & requests~~ ✅ | Zip validation, view/update profile, country-only, late Send Request error | Done 2026-09-10 |
+| ~~Discover filters & layout~~ ✅ | Clear Filters, buttons cut off on small screens | Done 2026-09-10 — both in the Discover screen |
+| ~~Form UI~~ ✅ | Radio alignment, report keypad + 300 char limit | Done 2026-09-10 |

@@ -24,6 +24,8 @@ import { penpalApi, PenpalConnection, PenpalLetter } from '../../api/penpal';
 import { getUser } from '../../store/auth';
 import AppAlert, { AlertButton } from '../../components/common/AppAlert';
 import ReportModal from '../../components/common/ReportModal';
+import { extractApiError } from '../../utils/apiError';
+import { parseApiDate, timeAgo } from '../../utils/datetime';
 
 type Props = NativeStackScreenProps<PenpalStackParamList, 'PenpalPublicProfile'>;
 
@@ -37,26 +39,7 @@ type ConnectionState =
 const { height: SCREEN_H } = Dimensions.get('window');
 const HEADER_H = Math.round(SCREEN_H * 0.52);
 
-const extractError = (err: any): string => {
-  const data = err?.response?.data;
-  if (!err?.response) return 'Unable to connect to server. Please check your network.';
-  if (data?.message) return data.message;
-  if (data?.title) return data.title;
-  return `Server error (${err.response?.status}). Please try again.`;
-};
-
-const timeAgo = (dateStr: string) => {
-  const then = new Date(dateStr).getTime();
-  if (Number.isNaN(then)) return '';
-  const sec = Math.max(1, Math.floor((Date.now() - then) / 1000));
-  const min = Math.floor(sec / 60);
-  const hr = Math.floor(min / 60);
-  const day = Math.floor(hr / 24);
-  if (day > 0) return `${day} day${day > 1 ? 's' : ''} ago`;
-  if (hr > 0) return `${hr} hour${hr > 1 ? 's' : ''} ago`;
-  if (min > 0) return `${min} min${min > 1 ? 's' : ''} ago`;
-  return 'just now';
-};
+type PendingAction = 'connect' | 'cancel' | 'decline' | 'accept' | 'remove' | null;
 
 export default function PenpalPublicProfileScreen({ route, navigation }: Props) {
   const {
@@ -75,7 +58,15 @@ export default function PenpalPublicProfileScreen({ route, navigation }: Props) 
   const [connection, setConnection] = useState<PenpalConnection | null>(null);
   const [connState, setConnState] = useState<ConnectionState>('none');
   const [loading, setLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState(false);
+  /**
+   * Which action is in flight, not merely whether one is — the Accept and
+   * Decline buttons sit side by side, so a single boolean would spin both
+   * when only one was pressed (QA: "a loader should be shown while the action
+   * is being processed").
+   */
+  const [pendingAction, setPendingAction] = useState<PendingAction>(null);
+  /** Every action button is disabled while any one of them is running. */
+  const actionLoading = pendingAction !== null;
   const [alert, setAlert] = useState<{
     title: string;
     message: string;
@@ -184,8 +175,8 @@ export default function PenpalPublicProfileScreen({ route, navigation }: Props) 
             .slice()
             .sort(
               (a, b) =>
-                new Date(a.createdAt).getTime() -
-                new Date(b.createdAt).getTime(),
+                parseApiDate(a.createdAt).getTime() -
+                parseApiDate(b.createdAt).getTime(),
             );
           if (!cancelled) setLetters(thread);
         } catch {
@@ -202,7 +193,7 @@ export default function PenpalPublicProfileScreen({ route, navigation }: Props) 
 
   // ── Actions ────────────────────────────────────────────────
   const handleAddPenpal = async () => {
-    setActionLoading(true);
+    setPendingAction('connect');
     try {
       const res = await penpalApi.sendConnection(userId);
       const newConn: PenpalConnection = res.data?.data ?? res.data;
@@ -210,9 +201,9 @@ export default function PenpalPublicProfileScreen({ route, navigation }: Props) 
       setConnState('sent');
       showToast(`Connection request sent to ${pseudoName}!`);
     } catch (err: any) {
-      showAlert('Error', extractError(err));
+      showAlert('Error', extractApiError(err));
     } finally {
-      setActionLoading(false);
+      setPendingAction(null);
     }
   };
 
@@ -224,15 +215,15 @@ export default function PenpalPublicProfileScreen({ route, navigation }: Props) 
         text: 'Cancel Request',
         style: 'destructive',
         onPress: async () => {
-          setActionLoading(true);
+          setPendingAction('cancel');
           try {
             await penpalApi.cancelConnection(connection.id);
             setConnection(null);
             setConnState('none');
           } catch (err: any) {
-            showAlert('Error', extractError(err));
+            showAlert('Error', extractApiError(err));
           } finally {
-            setActionLoading(false);
+            setPendingAction(null);
           }
         },
       },
@@ -242,21 +233,21 @@ export default function PenpalPublicProfileScreen({ route, navigation }: Props) 
   const handleDecline = async () => {
     if (!connection) return;
     setConfirmModal(null);
-    setActionLoading(true);
+    setPendingAction('decline');
     try {
       await penpalApi.respondConnection(connection.id, 'Declined');
       setConnection(prev => (prev ? { ...prev, status: 'Declined' } : null));
       setConnState('inactive');
     } catch (err: any) {
-      showAlert('Error', extractError(err));
+      showAlert('Error', extractApiError(err));
     } finally {
-      setActionLoading(false);
+      setPendingAction(null);
     }
   };
 
   const handleAccept = async (connectionId: number) => {
     setConfirmModal(null);
-    setActionLoading(true);
+    setPendingAction('accept');
     try {
       const res = await penpalApi.respondConnection(connectionId, 'Accepted');
       const updated: PenpalConnection = res.data?.data ?? res.data;
@@ -267,9 +258,9 @@ export default function PenpalPublicProfileScreen({ route, navigation }: Props) 
       // immediately (physical penpals).
       loadConnectionStatus(true);
     } catch (err: any) {
-      showAlert('Error', extractError(err));
+      showAlert('Error', extractApiError(err));
     } finally {
-      setActionLoading(false);
+      setPendingAction(null);
     }
   };
 
@@ -287,27 +278,43 @@ export default function PenpalPublicProfileScreen({ route, navigation }: Props) 
         text: 'Remove',
         style: 'destructive',
         onPress: async () => {
-          setActionLoading(true);
+          setPendingAction('remove');
           try {
             await penpalApi.removeConnection(connection.id);
             setConnection(null);
             setConnState('none');
             setLetters([]);
           } catch (err: any) {
-            showAlert('Error', extractError(err));
+            showAlert('Error', extractApiError(err));
           } finally {
-            setActionLoading(false);
+            setPendingAction(null);
           }
         },
       },
     ]);
   };
 
-  const handleWriteLetter = () =>
+  /**
+   * Letters can only go to an accepted connection. The composer used to open
+   * regardless and the request was refused on Send — after the user had
+   * written the letter. Say so on the tap instead (QA).
+   */
+  const handleWriteLetter = () => {
+    if (connState !== 'connected') {
+      const message =
+        connState === 'sent'
+          ? `Your request to ${pseudoName} is still pending. You can exchange letters once it is accepted.`
+          : connState === 'received'
+            ? `Accept ${pseudoName}'s request first — then you can exchange letters.`
+            : `You need to connect with ${pseudoName} before you can send a letter.`;
+      showAlert('Not connected yet', message);
+      return;
+    }
     navigation.navigate('PenpalCompose', {
       receiverId: userId,
       receiverPseudoName: pseudoName,
     });
+  };
 
   // ── Derived display values ─────────────────────────────────
   const initials = pseudoName.charAt(0).toUpperCase();
@@ -362,7 +369,7 @@ export default function PenpalPublicProfileScreen({ route, navigation }: Props) 
             onPress={handleRemove}
             disabled={actionLoading}
           >
-            {actionLoading ? (
+            {pendingAction === 'remove' ? (
               <ActivityIndicator color={Colors.white} size="small" />
             ) : (
               <>
@@ -541,16 +548,28 @@ export default function PenpalPublicProfileScreen({ route, navigation }: Props) 
                 onPress={handleDecline}
                 disabled={actionLoading}
               >
-                <Icon name="close" size={18} color={Colors.white} />
-                <Text style={styles.fullBtnText}>  Decline</Text>
+                {pendingAction === 'decline' ? (
+                  <ActivityIndicator color={Colors.white} />
+                ) : (
+                  <>
+                    <Icon name="close" size={18} color={Colors.white} />
+                    <Text style={styles.fullBtnText}>  Decline</Text>
+                  </>
+                )}
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.fullBtn, styles.acceptFullBtn]}
                 onPress={handleAcceptPress}
                 disabled={actionLoading}
               >
-                <Icon name="checkmark" size={18} color={Colors.white} />
-                <Text style={styles.fullBtnText}>  Accept</Text>
+                {pendingAction === 'accept' ? (
+                  <ActivityIndicator color={Colors.white} />
+                ) : (
+                  <>
+                    <Icon name="checkmark" size={18} color={Colors.white} />
+                    <Text style={styles.fullBtnText}>  Accept</Text>
+                  </>
+                )}
               </TouchableOpacity>
             </View>
           </StateBody>
@@ -567,9 +586,13 @@ export default function PenpalPublicProfileScreen({ route, navigation }: Props) 
               onPress={handleCancelRequest}
               disabled={actionLoading}
             >
-              <Text style={[styles.fullBtnText, { color: Colors.error }]}>
-                Cancel Request
-              </Text>
+              {pendingAction === 'cancel' ? (
+                <ActivityIndicator color={Colors.error} />
+              ) : (
+                <Text style={[styles.fullBtnText, { color: Colors.error }]}>
+                  Cancel Request
+                </Text>
+              )}
             </TouchableOpacity>
           </StateBody>
         )}
@@ -590,7 +613,7 @@ export default function PenpalPublicProfileScreen({ route, navigation }: Props) 
               onPress={handleAddPenpal}
               disabled={actionLoading}
             >
-              {actionLoading ? (
+              {pendingAction === 'connect' ? (
                 <ActivityIndicator color={Colors.white} />
               ) : (
                 <>

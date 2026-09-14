@@ -12,12 +12,13 @@ import { Colors } from '../../utils/colors';
 import RemoteImage from '../../components/common/RemoteImage';
 import { mentorApi, AssignedUser } from '../../api/mentor';
 import AppAlert from '../../components/common/AppAlert';
+import { parseApiDate } from '../../utils/datetime';
 
 type AssignedTab = 'All' | 'Active' | 'Completed';
 const TABS: AssignedTab[] = ['All', 'Active', 'Completed'];
 
 const formatDate = (d: string) =>
-  new Date(d).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+  parseApiDate(d).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
 
 export default function MentorDashboardScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<MentorStackParamList>>();

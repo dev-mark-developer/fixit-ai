@@ -8,6 +8,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { PenpalDrawerParamList, PenpalStackParamList } from '../../types/navigation';
 import { Colors } from '../../utils/colors';
 import { penpalApi, PenpalLetter } from '../../api/penpal';
+import { parseApiDate } from '../../utils/datetime';
 
 type Props = CompositeScreenProps<
   DrawerScreenProps<PenpalDrawerParamList, 'PenpalLetters'>,
@@ -35,7 +36,7 @@ export default function PenpalLettersScreen({ navigation }: Props) {
   useEffect(() => { loadLetters(tab); }, [tab]);
 
   const formatDate = (dateStr: string) => {
-    const d = new Date(dateStr);
+    const d = parseApiDate(dateStr);
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
 

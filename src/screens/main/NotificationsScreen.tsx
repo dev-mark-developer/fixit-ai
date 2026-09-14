@@ -4,11 +4,12 @@ import {
   ActivityIndicator, RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { Colors } from '../../utils/colors';
 import { useModuleStatus } from '../../store/ModuleStatusContext';
 import api from '../../api/axios';
+import { parseApiDate } from '../../utils/datetime';
 
 type Module = 'Dating' | 'Penpal' | 'Mentor';
 
@@ -23,8 +24,11 @@ interface Notification {
 
 const TABS: Module[] = ['Dating', 'Penpal', 'Mentor'];
 
+// Title-case copy here is deliberate (Figma) — the bug was the parsing:
+// `new Date(iso)` read the API's zone-less UTC as local, so every row showed
+// as five hours old on a +05:00 device. See parseApiDate.
 const formatTime = (iso: string) => {
-  const d = new Date(iso);
+  const d = parseApiDate(iso);
   const now = new Date();
   const diffMs = now.getTime() - d.getTime();
   const diffMins = Math.floor(diffMs / 60000);
@@ -52,6 +56,12 @@ export default function NotificationsScreen() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  /**
+   * Same count and same endpoint as the Home screen's bell badge, so the two
+   * always agree — QA: the count was shown on Home but nowhere inside this
+   * screen. Kept in step locally as rows are read, rather than refetched.
+   */
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const fetchNotifications = useCallback(async (mod: Module, isRefresh = false) => {
     if (!isRefresh) setLoading(true);
@@ -66,14 +76,32 @@ export default function NotificationsScreen() {
     }
   }, []);
 
+  const fetchUnreadCount = useCallback(() => {
+    api.get('/notifications/unread-count')
+      .then((res) => setUnreadCount(res.data?.data ?? 0))
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     fetchNotifications(activeTab);
   }, [activeTab, fetchNotifications]);
 
-  const handleToggleRead = async (id: number, isRead: boolean) => {
+  useFocusEffect(fetchUnreadCount);
+
+  /**
+   * Marks an unread notification read — and does nothing to one that already
+   * is. The endpoint is a *toggle*, so the previous version flipped a read
+   * notification back to unread on the next tap: that is exactly the "dot
+   * disappears, then reappears" QA reported. Reading is one-way from the
+   * user's point of view, so the toggle is only ever driven in one direction.
+   */
+  const handleMarkRead = async (id: number, isRead: boolean) => {
+    if (isRead) return;
+
     setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, isRead: !isRead } : n)),
+      prev.map((n) => (n.id === id ? { ...n, isRead: true } : n)),
     );
+    setUnreadCount((c) => Math.max(0, c - 1));
     try {
       await api.patch(`/notifications/${id}/toggle-read`);
     } catch {
@@ -81,6 +109,7 @@ export default function NotificationsScreen() {
       setNotifications((prev) =>
         prev.map((n) => (n.id === id ? { ...n, isRead } : n)),
       );
+      setUnreadCount((c) => c + 1);
     }
   };
 
@@ -92,7 +121,7 @@ export default function NotificationsScreen() {
     <View style={styles.notifBlock}>
       <TouchableOpacity
         style={styles.notifCard}
-        onPress={() => handleToggleRead(item.id, item.isRead)}
+        onPress={() => handleMarkRead(item.id, item.isRead)}
         activeOpacity={0.75}
       >
         {!item.isRead && (
@@ -118,7 +147,16 @@ export default function NotificationsScreen() {
           <Icon name="arrow-back" size={24} color={Colors.text} />
         </TouchableOpacity>
       </View>
-      <Text style={styles.heading}>Notifications</Text>
+      <View style={styles.headingRow}>
+        <Text style={styles.heading}>Notifications</Text>
+        {unreadCount > 0 && (
+          <View style={[styles.headingBadge, { backgroundColor: accentColor }]}>
+            <Text style={styles.headingBadgeText}>
+              {unreadCount > 99 ? '99+' : String(unreadCount)}
+            </Text>
+          </View>
+        )}
+      </View>
 
       {/* Pill tabs */}
       <View style={styles.tabRow}>
@@ -175,6 +213,7 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },
 
   headerBar: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 4 },
+  headingRow: { flexDirection: 'row', alignItems: 'center' },
   heading: {
     fontSize: 26,
     fontWeight: '800',
@@ -183,6 +222,19 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 16,
   },
+  headingBadge: {
+    minWidth: 24,
+    height: 24,
+    borderRadius: 12,
+    paddingHorizontal: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: -8,
+    // The heading carries more bottom padding than top; this keeps the badge
+    // on the text's optical centre rather than the padded box's.
+    marginBottom: 8,
+  },
+  headingBadgeText: { fontSize: 12, fontWeight: '800', color: Colors.white },
 
   tabRow: {
     flexDirection: 'row',

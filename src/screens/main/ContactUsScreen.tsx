@@ -9,24 +9,9 @@ import AppButton from '../../components/common/AppButton';
 import AppAlert from '../../components/common/AppAlert';
 import KeyboardAwareScrollView from '../../components/common/KeyboardAwareScrollView';
 import api from '../../api/axios';
+import { extractApiError } from '../../utils/apiError';
 
 type Props = NativeStackScreenProps<ProfileStackParamList, 'ContactUs'>;
-
-const extractError = (err: any): string => {
-  const data = err?.response?.data;
-  if (!err?.response) return 'Unable to connect to server. Please check your network.';
-  if (data?.message) return data.message;
-  if (data?.errors) {
-    if (Array.isArray(data.errors)) {
-      return data.errors.map((e: any) => e.description || e.message || String(e)).join('\n');
-    }
-    if (typeof data.errors === 'object') {
-      return Object.values(data.errors).flat().join('\n');
-    }
-  }
-  if (data?.title) return data.title;
-  return `Server error (${err.response?.status}). Please try again.`;
-};
 
 export default function ContactUsScreen({ navigation }: Props) {
   const [name, setName] = useState('');
@@ -84,7 +69,7 @@ export default function ContactUsScreen({ navigation }: Props) {
         message: "We've received your message and will get back to you as soon as possible. Thank you for reaching out!",
       });
     } catch (err: any) {
-      setAlert({ title: 'Submission Failed', message: extractError(err) });
+      setAlert({ title: 'Submission Failed', message: extractApiError(err) });
     } finally {
       setLoading(false);
     }

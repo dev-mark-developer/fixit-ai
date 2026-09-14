@@ -90,6 +90,9 @@ export default function PenpalSetupScreen({ navigation }: Props) {
       if (!city.trim()) e.city = 'City is required';
       if (!stateVal.trim()) e.state = 'State / Province is required';
       if (!postalCode.trim()) e.postalCode = 'Postal code is required';
+      else if (postalCode.trim().length < 5 || postalCode.trim().length > 10) {
+        e.postalCode = 'Postal code must be 5 to 10 characters';
+      }
       if (!physicalConsent) e.consent = 'You must consent to share your address for physical letters';
     }
     setErrors(e);
@@ -214,7 +217,7 @@ export default function PenpalSetupScreen({ navigation }: Props) {
                     placeholderTextColor={Colors.textMuted}
                     value={postalCode}
                     onChangeText={v => { setPostalCode(v); clearError('postalCode'); }}
-                    maxLength={20}
+                    maxLength={10}
                     keyboardType="numeric"
                   />
                 </View>
@@ -378,7 +381,10 @@ const styles = StyleSheet.create({
 
   radioOption: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    // Centred against the whole option, not pinned to the top of it: every
+    // option here is a title plus a subtitle, and a circle sitting level with
+    // the first line reads as misaligned (QA, "Choose Your Medium").
+    alignItems: 'center',
     marginBottom: 18,
   },
   radioCircle: {
@@ -390,7 +396,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
-    marginTop: 2,
   },
   radioCircleActive: {
     borderColor: ACCENT,

@@ -8,6 +8,7 @@ import AppButton from '../../components/common/AppButton';
 import AppAlert from '../../components/common/AppAlert';
 import KeyboardAwareScrollView from '../../components/common/KeyboardAwareScrollView';
 import api from '../../api/axios';
+import { apiErrorMessage, fieldErrors } from '../../utils/apiError';
 
 type Props = NativeStackScreenProps<ProfileStackParamList, 'ChangePassword'>;
 
@@ -51,9 +52,24 @@ export default function ChangePasswordScreen({ navigation }: Props) {
       });
       setAlert({ title: 'Password Changed', message: 'Your password has been updated successfully.' });
     } catch (err: any) {
-      const data = err?.response?.data;
-      const msg = data?.message ?? data?.title ?? 'Failed to change password. Please try again.';
-      setAlert({ title: 'Error', message: msg });
+      // Everything except "is the current password right?" is validated above,
+      // so a 400 here is almost always a wrong current password — the server
+      // answers it with the boilerplate "One or more validation errors
+      // occurred.", which told the user nothing. Put the real reason under the
+      // field it belongs to instead.
+      const specific = fieldErrors(err).currentPassword ?? apiErrorMessage(err);
+      const status = err?.response?.status;
+
+      if (status === 400) {
+        const message = specific ?? 'Current password is incorrect. Please check it and try again.';
+        const field = /new password/i.test(message) ? 'newPassword' : 'currentPassword';
+        setErrors((e) => ({ ...e, [field]: message }));
+      } else {
+        setAlert({
+          title: 'Error',
+          message: specific ?? 'Could not change your password. Please try again.',
+        });
+      }
     } finally {
       setLoading(false);
     }

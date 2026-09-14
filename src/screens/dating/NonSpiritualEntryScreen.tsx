@@ -12,18 +12,11 @@ import { datingApi, DatingProfile } from '../../api/dating';
 import { useModuleStatus } from '../../store/ModuleStatusContext';
 import AppButton from '../../components/common/AppButton';
 import AppAlert from '../../components/common/AppAlert';
+import { extractApiError } from '../../utils/apiError';
 
 type Props = NativeStackScreenProps<DatingStackParamList, 'NonSpiritualEntry'>;
 
 const GENDER_OPTIONS = ['Male', 'Female'];
-
-const extractError = (err: any): string => {
-  const data = err?.response?.data;
-  if (!err?.response) return 'Unable to connect to server. Check your network.';
-  if (data?.message) return data.message;
-  if (data?.title) return data.title;
-  return `Error (${err.response?.status}). Please try again.`;
-};
 
 export default function NonSpiritualEntryScreen({ navigation }: Props) {
   const { refresh: refreshModules } = useModuleStatus();
@@ -74,7 +67,7 @@ export default function NonSpiritualEntryScreen({ navigation }: Props) {
       await refreshModules();
       navigation.replace('DatingInterestSelection', { datingType: 'NonSpiritual' });
     } catch (err: any) {
-      setAlert({ title: 'Error', message: extractError(err) });
+      setAlert({ title: 'Error', message: extractApiError(err) });
     } finally {
       setSaving(false);
     }

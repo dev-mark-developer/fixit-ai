@@ -6,6 +6,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { launchImageLibrary } from 'react-native-image-picker';
+import { extractApiError } from '../../utils/apiError';
+import { imageRejectionReason } from '../../utils/imageUpload';
+import { canonicalMime } from '../../utils/mime';
 import type { CompositeScreenProps } from '@react-navigation/native';
 import type { DrawerScreenProps } from '@react-navigation/drawer';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -138,17 +141,27 @@ export default function PenpalMyProfileScreen({ navigation }: Props) {
     }, async (response) => {
       const asset = response.assets?.[0];
       if (!asset?.uri) return;
+      // Type and size are checked here so the user is told which one is wrong;
+      // the endpoint answers both with the same opaque failure.
+      const rejection = imageRejectionReason(asset);
+      if (rejection) {
+        setAlert({ title: 'Photo Not Supported', message: rejection });
+        return;
+      }
       setUploadingAvatar(true);
       try {
-        const res = await usersApi.uploadProfileImage(asset.uri, asset.type ?? 'image/jpeg');
+        const res = await usersApi.uploadProfileImage(asset.uri, canonicalMime(asset.type) || 'image/jpeg');
         const returned = res.data?.data;
         const newUrl = typeof returned === 'string' ? returned : returned?.profileImageUrl;
         // Cache-bust in case the backend reuses the same file path
         setAvatarUrl(
           newUrl ? `${newUrl}${newUrl.includes('?') ? '&' : '?'}t=${Date.now()}` : asset.uri,
         );
-      } catch {
-        setAlert({ title: 'Upload Failed', message: 'Could not upload the image. Please try again.' });
+      } catch (err) {
+        setAlert({
+          title: 'Upload Failed',
+          message: extractApiError(err, 'Could not upload the image. Please try again.'),
+        });
       } finally {
         setUploadingAvatar(false);
       }
@@ -186,6 +199,9 @@ export default function PenpalMyProfileScreen({ navigation }: Props) {
       if (!city.trim()) e.city = 'City is required';
       if (!stateVal.trim()) e.state = 'State / Province is required';
       if (!postalCode.trim()) e.postalCode = 'Postal code is required';
+      else if (postalCode.trim().length < 5 || postalCode.trim().length > 10) {
+        e.postalCode = 'Postal code must be 5 to 10 characters';
+      }
       // Goes with the commented-out consent checkbox — with no way to tick it
       // here, this would block the save on a profile that answered No.
       // if (!physicalConsent) e.consent = 'You must consent to share your address for physical letters';
@@ -228,7 +244,7 @@ export default function PenpalMyProfileScreen({ navigation }: Props) {
     } catch (err: any) {
       setAlert({
         title: 'Error',
-        message: err?.response?.data?.message ?? 'Could not save your profile. Please try again.',
+        message: extractApiError(err, 'Could not save your profile. Please try again.'),
       });
     } finally {
       setSaving(false);
@@ -390,7 +406,8 @@ export default function PenpalMyProfileScreen({ navigation }: Props) {
               placeholder="Enter postal code"
               value={postalCode}
               onChangeText={(v) => { setPostalCode(v); clearError('postalCode'); }}
-              maxLength={20}
+              maxLength={10}
+              showCounter={false}
               keyboardType="numeric"
               error={errors.postalCode}
             />

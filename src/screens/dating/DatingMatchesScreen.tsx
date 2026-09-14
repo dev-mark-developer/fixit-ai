@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Dimensions,
@@ -25,8 +25,10 @@ import DatingBottomBar from '../../components/dating/DatingBottomBar';
 import { Colors } from '../../utils/colors';
 import { useSubscription } from '../../store/SubscriptionContext';
 import { usePrefetchImages } from '../../utils/imageCache';
+import { useBlockedUsers } from '../../utils/blockedUsers';
 import RemoteImage from '../../components/common/RemoteImage';
 import { useModuleStatus } from '../../store/ModuleStatusContext';
+import { parseApiDate } from '../../utils/datetime';
 
 type Props = CompositeScreenProps<
   DrawerScreenProps<DatingDrawerParamList, 'DatingMatches'>,
@@ -115,7 +117,7 @@ function MatchCard({ match, accent, onOpenProfile, onChat, onReport }: MatchCard
         <View style={cardStyles.locationRow}>
           <Icon name="location-outline" size={12} color={Colors.white} />
           <Text style={cardStyles.location} numberOfLines={1}>
-            Matched {new Date(match.matchedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+            Matched {parseApiDate(match.matchedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
           </Text>
         </View>
       </View>
@@ -193,6 +195,16 @@ export default function DatingMatchesScreen({ navigation }: Props) {
 
   const [activeTab, setActiveTab] = useState<TabKey>('matches');
   const [matches, setMatches] = useState<DatingMatch[]>([]);
+  const { blockedIds } = useBlockedUsers();
+  /**
+   * `GET /dating/matches` still returns people this user has blocked (gap
+   * #29), so they are filtered out here — a blocked person must not sit in
+   * Matches with a live chat behind them.
+   */
+  const visibleMatches = useMemo(
+    () => matches.filter((m) => !blockedIds.has(m.otherUserId)),
+    [matches, blockedIds],
+  );
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
@@ -203,7 +215,7 @@ export default function DatingMatchesScreen({ navigation }: Props) {
   const [likesReceived, setLikesReceived] = useState<DatingLike[]>([]);
   const [likesSent, setLikesSent] = useState<DatingLike[]>([]);
   usePrefetchImages([
-    ...matches.map(m => m.otherDisplayImageUrl ?? m.otherProfileImageUrl),
+    ...visibleMatches.map(m => m.otherDisplayImageUrl ?? m.otherProfileImageUrl),
     ...likesReceived.map(likeImage),
     ...likesSent.map(likeImage),
   ]);
@@ -366,7 +378,7 @@ export default function DatingMatchesScreen({ navigation }: Props) {
     }
     return (
       <FlatList
-        data={matches}
+        data={visibleMatches}
         keyExtractor={(item) => String(item.id)}
         numColumns={2}
         columnWrapperStyle={styles.gridRow}

@@ -17,19 +17,13 @@ import { datingApi } from '../../api/dating';
 import AppAlert from '../../components/common/AppAlert';
 import { Colors } from '../../utils/colors';
 import RemoteImage from '../../components/common/RemoteImage';
+import type { BlockedUser } from '../../utils/blockedUsers';
+import { parseApiDate } from '../../utils/datetime';
 
 type Props = CompositeScreenProps<
   DrawerScreenProps<DatingDrawerParamList, 'DatingBlockList'>,
   NativeStackScreenProps<DatingStackParamList>
 >;
-
-interface BlockedUser {
-  blockedId: number;
-  firstName: string;
-  lastName: string;
-  profileImageUrl?: string;
-  blockedAt: string;
-}
 
 export default function DatingBlockListScreen(_props: Props) {
   const [blocked, setBlocked] = useState<BlockedUser[]>([]);
@@ -101,7 +95,7 @@ export default function DatingBlockListScreen(_props: Props) {
             {item.firstName} {item.lastName}
           </Text>
           <Text style={styles.blockedAt}>
-            Blocked {new Date(item.blockedAt).toLocaleDateString()}
+            Blocked {parseApiDate(item.blockedAt).toLocaleDateString()}
           </Text>
         </View>
 

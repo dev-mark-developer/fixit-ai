@@ -3,6 +3,7 @@ import { clearImageCacheRecord } from '../utils/imageCache';
 import { saveSession, saveUser, clearSession, isLoggedIn, getUser, AuthUser } from './auth';
 import { registerForceLogout } from './authEventBridge';
 import { clearPushToken, syncPushToken, watchPushToken } from '../services/pushNotifications';
+import LoadingOverlay from '../components/common/LoadingOverlay';
 
 interface AuthContextType {
   authenticated: boolean;
@@ -24,6 +25,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [authenticated, setAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<AuthUser | null>(null);
+  /**
+   * Sign-out clears the push registration and the stored session before the
+   * navigator swaps trees, which is long enough to look like a dead tap. The
+   * overlay lives here rather than on a screen because six places call
+   * `logout()` — drawers, lobby, profile, subscription — and QA reported the
+   * missing feedback on one of them.
+   */
+  const [loggingOut, setLoggingOut] = useState(false);
 
   useEffect(() => {
     Promise.all([isLoggedIn(), getUser()]).then(([loggedIn, u]) => {
@@ -52,15 +61,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = async () => {
-    // Drop the registration before the session goes, so this device stops
-    // receiving notifications meant for the account signing out.
-    await clearPushToken().catch(() => {});
-    await clearSession();
-    // The next account gets its own images; don't let them inherit a record
-    // saying someone else's avatars are already painted.
-    clearImageCacheRecord();
-    setAuthenticated(false);
-    setUser(null);
+    setLoggingOut(true);
+    try {
+      // Drop the registration before the session goes, so this device stops
+      // receiving notifications meant for the account signing out.
+      await clearPushToken().catch(() => {});
+      await clearSession();
+      // The next account gets its own images; don't let them inherit a record
+      // saying someone else's avatars are already painted.
+      clearImageCacheRecord();
+      setAuthenticated(false);
+      setUser(null);
+    } finally {
+      // Runs on the failure path too: a session that could not be cleared
+      // must not leave the app stuck behind a spinner.
+      setLoggingOut(false);
+    }
   };
 
   useEffect(() => {
@@ -77,6 +93,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   return (
     <AuthContext.Provider value={{ authenticated, loading, user, login, updateUser, logout }}>
       {children}
+      <LoadingOverlay visible={loggingOut} label="Signing out…" />
     </AuthContext.Provider>
   );
 }

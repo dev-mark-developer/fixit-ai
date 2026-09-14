@@ -1,8 +1,10 @@
+import { PermissionsAndroid, Platform } from 'react-native';
 import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
 import type { Asset, CameraOptions, ImageLibraryOptions } from 'react-native-image-picker';
 import { datingApi, MAX_CHAT_ATTACHMENTS } from '../api/dating';
 import type { ChatAttachment, ChatFileType, ChatUploadFile } from '../api/dating';
 import { fileTypeFromMime, normalizeFileType } from '../utils/chatMedia';
+import { canonicalMime } from '../utils/mime';
 
 /**
  * A file chosen (or recorded) on the device and waiting in the composer tray.
@@ -15,34 +17,6 @@ export interface StagedAttachment extends ChatUploadFile {
   sizeBytes?: number;
   /** Voice notes only; drives the tray label before upload. */
   durationMs?: number;
-}
-
-/**
- * Pickers emit non-standard MIME spellings. `react-native-image-picker` builds
- * its type by concatenating a *sniffed extension* onto "image/", so an
- * ordinary JPEG arrives as the bogus `image/jpg` (ImagePickerManager.mm).
- *
- * That matters because `/dating/matches/{id}/uploads` matches its allow-list
- * **exactly and case-sensitively** — verified 2026-08-18, it refuses
- * `image/jpg`, `image/pjpeg` and even `image/JPEG` while accepting
- * `image/jpeg`. Canonicalising here fixes the real upload on Android (where
- * the declared type is what gets sent) as well as the check below.
- */
-const MIME_ALIASES: Record<string, string> = {
-  'image/jpg': 'image/jpeg',
-  'image/pjpeg': 'image/jpeg',
-  'video/mov': 'video/quicktime',
-  'video/mpeg4': 'video/mp4',
-  'audio/mp3': 'audio/mpeg',
-  'audio/x-mpeg': 'audio/mpeg',
-  'audio/x-m4a': 'audio/m4a',
-  'audio/mp4': 'audio/m4a',
-};
-
-/** Lower-cases, strips any `;codecs=…`, and maps known aliases. */
-export function canonicalMime(type?: string | null): string {
-  const base = (type ?? '').toLowerCase().split(';')[0].trim();
-  return MIME_ALIASES[base] ?? base;
 }
 
 /**
@@ -62,10 +36,38 @@ export function isSupportedAttachment(file: { type: string }): boolean {
   return !REJECTED_MIME_TYPES.has(canonicalMime(file.type));
 }
 
+/** Why a pick produced nothing. Cancelling is not a failure and has none. */
+export type PickFailure = 'permission' | 'unavailable' | 'error';
+
 /** A pick, split into what can be sent and what the API would refuse. */
 export interface PickResult {
   accepted: StagedAttachment[];
   rejected: StagedAttachment[];
+  /**
+   * Set when the picker never got as far as returning files. Previously any
+   * `errorCode` was swallowed, so denying camera access made "Take Photo" do
+   * nothing at all — no camera, no explanation.
+   */
+  failure?: PickFailure;
+}
+
+function failureFrom(errorCode: string): PickFailure {
+  if (errorCode === 'permission') return 'permission';
+  if (errorCode === 'camera_unavailable') return 'unavailable';
+  return 'error';
+}
+
+/**
+ * `react-native-image-picker` checks camera permission itself on iOS, but on
+ * Android it deliberately does not: because this app declares CAMERA in its
+ * manifest, the OS requires the runtime grant, and launching the capture
+ * intent without it opens a dead black viewfinder that can still "take" a
+ * blank photo — exactly what QA reported.
+ */
+async function ensureCameraPermission(): Promise<boolean> {
+  if (Platform.OS !== 'android') return true;
+  const status = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.CAMERA);
+  return status === PermissionsAndroid.RESULTS.GRANTED;
 }
 
 function partitionSupported(items: StagedAttachment[]): PickResult {
@@ -130,7 +132,10 @@ export async function pickFromLibrary(remainingSlots: number): Promise<PickResul
   };
 
   const result = await launchImageLibrary(options);
-  if (result.didCancel || result.errorCode) return { accepted: [], rejected: [] };
+  if (result.didCancel) return { accepted: [], rejected: [] };
+  if (result.errorCode) {
+    return { accepted: [], rejected: [], failure: failureFrom(result.errorCode) };
+  }
   return partitionSupported(
     (result.assets ?? [])
       .map(assetToStaged)
@@ -149,8 +154,15 @@ export async function pickFromCamera(mediaType: 'photo' | 'video' = 'photo'): Pr
     saveToPhotos: false,
   };
 
+  if (!(await ensureCameraPermission())) {
+    return { accepted: [], rejected: [], failure: 'permission' };
+  }
+
   const result = await launchCamera(options);
-  if (result.didCancel || result.errorCode) return { accepted: [], rejected: [] };
+  if (result.didCancel) return { accepted: [], rejected: [] };
+  if (result.errorCode) {
+    return { accepted: [], rejected: [], failure: failureFrom(result.errorCode) };
+  }
   return partitionSupported(
     (result.assets ?? [])
       .map(assetToStaged)

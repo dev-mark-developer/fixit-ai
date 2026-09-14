@@ -21,6 +21,7 @@ import DatingTopBar from '../../components/dating/DatingTopBar';
 import DatingBottomBar from '../../components/dating/DatingBottomBar';
 import { Colors } from '../../utils/colors';
 import { usePrefetchImages } from '../../utils/imageCache';
+import { useBlockedUsers } from '../../utils/blockedUsers';
 import RemoteImage from '../../components/common/RemoteImage';
 import { useModuleStatus } from '../../store/ModuleStatusContext';
 import { chatHub } from '../../services/chatHub';
@@ -58,6 +59,10 @@ export default function DatingChatsScreen({ navigation }: Props) {
   const lime = isSpiritual ? Colors.spiritualLime : Colors.datingSecondary;
 
   const [matches, setMatches] = useState<DatingMatch[]>([]);
+  // Blocked threads stay in the list — the conversation isn't deleted, it just
+  // stops being a conversation (QA: "should display a 'This user is blocked'
+  // type message instead of allowing further conversation").
+  const { blockedIds } = useBlockedUsers();
   usePrefetchImages(matches.map(m => m.otherDisplayImageUrl ?? m.otherProfileImageUrl));
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -147,10 +152,15 @@ export default function DatingChatsScreen({ navigation }: Props) {
     const initials = item.otherFirstName.charAt(0).toUpperCase();
     const imageUri = item.otherDisplayImageUrl ?? item.otherProfileImageUrl;
     const timeLabel = item.lastMessageAt ? timeAgo(item.lastMessageAt) : timeAgo(item.matchedAt);
-    const hasUnread = item.unreadCount > 0;
+    const isBlocked = blockedIds.has(item.otherUserId);
+    const hasUnread = item.unreadCount > 0 && !isBlocked;
 
     return (
-      <TouchableOpacity style={styles.row} activeOpacity={0.7} onPress={() => openChat(item)}>
+      <TouchableOpacity
+        style={[styles.row, isBlocked && styles.rowBlocked]}
+        activeOpacity={0.7}
+        onPress={() => openChat(item)}
+      >
         {imageUri ? (
           <RemoteImage uri={imageUri} style={styles.avatar} indicatorColor={accent} />
         ) : (
@@ -163,7 +173,11 @@ export default function DatingChatsScreen({ navigation }: Props) {
           <Text style={styles.name} numberOfLines={1}>
             {item.otherFirstName} {item.otherLastName}
           </Text>
-          {hasUnread ? (
+          {isBlocked ? (
+            <Text style={styles.blockedNote} numberOfLines={1}>
+              You blocked this user
+            </Text>
+          ) : hasUnread ? (
             <Text style={[styles.newMessages, { color: lime }]} numberOfLines={1}>
               {item.unreadCount} new message{item.unreadCount > 1 ? 's' : ''}
             </Text>
@@ -287,6 +301,8 @@ const styles = StyleSheet.create({
   name: { fontSize: 16, fontWeight: '700', color: Colors.text, marginBottom: 3 },
   newMessages: { fontSize: 13, fontWeight: '700' },
   preview: { fontSize: 13, color: Colors.textSecondary },
+  blockedNote: { fontSize: 13, fontStyle: 'italic', color: Colors.textMuted },
+  rowBlocked: { opacity: 0.55 },
   time: { fontSize: 12, color: Colors.textMuted },
 
   separator: { height: 1, backgroundColor: Colors.border, marginLeft: 88 },
