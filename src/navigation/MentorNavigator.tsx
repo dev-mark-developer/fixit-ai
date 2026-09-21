@@ -29,7 +29,7 @@ const SHARED_HEADER = {
 export default function MentorNavigator() {
   const [profileLoading, setProfileLoading] = useState(true);
   const [hasProfile, setHasProfile] = useState(false);
-  const { isPremium, loading: subscriptionLoading } = useSubscription();
+  const { isPremium, loading: subscriptionLoading } = useSubscription('mentor');
 
   useEffect(() => {
     mentorApi.getProfile()

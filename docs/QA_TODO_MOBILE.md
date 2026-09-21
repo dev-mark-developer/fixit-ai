@@ -69,7 +69,7 @@ Pulled 2026-09-09 · 34 tasks · no assignees, due dates, or subtasks on any of 
 
 ## Web-Admin (tracked in the board's other column, fixed here)
 
-- [x] **Date of Birth mismatch (Registration vs Admin panel)** — DOB entered at registration does not match what the admin panel shows. ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218322034009733)) _Fixed 2026-09-11 — filed under Web-Admin but the cause was in the app: `toISOString()` turned the picked local midnight into the previous UTC day, so a 14 May birthday was sent as 13 May. `toApiDate` now formats the local calendar date. Applies to sign-up, dating profile and mentor sign-up._
+- [x] **Date of Birth mismatch (Registration vs Admin panel)** — DOB entered at registration does not match what the admin panel shows. ([asana](https://app.asana.com/1/1155251214161547/project/1218322747677637/task/1218322034009733)) _Fixed 2026-09-11 — filed under Web-Admin but the cause was in the app: `toISOString()` turned the picked local midnight into the previous UTC day, so a 14 May birthday was sent as 13 May. `toApiDate` now formats the local calendar date. Applies to sign-up, dating profile and mentor sign-up. **Follow-up 2026-09-17 (reported again):** reading the stored date back had the mirror-image bug — `new Date("2000-08-27")` is UTC midnight, i.e. 26 Aug on any device west of Greenwich, so the dating profile and mentor sign-up showed the day before and saving sent it back. `parseApiDateOnly` now reads it as the local day (also used for the age on Profile Detail); tests pass in six timezones. Sign-up itself was already right since the 2026-09-14 commit, so a QA build older than that still shows the original bug._
 
 ---
 

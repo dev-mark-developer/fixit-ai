@@ -12,18 +12,17 @@ import ActivatingSubscriptionModal from '../../components/common/ActivatingSubsc
 import { Colors } from '../../utils/colors';
 import { useSubscription } from '../../store/SubscriptionContext';
 import { fetchSubscriptionProduct, isIapSupported } from '../../services/iap';
+import { DATING_PRODUCT_IDS } from '../../utils/subscriptionProducts';
 
 type Props = NativeStackScreenProps<DatingStackParamList, 'DatingPremium'>;
 
-const PLAN_PRICE_FALLBACK = '$20';
+/** Shown only if the store listing can't be read; keep it in step with App Store Connect. */
+const PLAN_PRICE_FALLBACK = '$5.99';
 
 const PLAN_FEATURES = [
   'Unlimited Likes',
   'Advance Filters',
   'Unlimited Matches',
-  'See Everyone Who Likes You',
-  'Ice Breaker questions setup',
-  'No ads',
   'Priority Support',
 ];
 
@@ -40,10 +39,12 @@ export default function DatingPremiumScreen({ route, navigation }: Props) {
   const isSpiritual = datingType === 'Spiritual';
   const accent = isSpiritual ? Colors.spiritual : Colors.dating;
   const lime = isSpiritual ? Colors.spiritualLime : Colors.datingSecondary;
+  // Each dating type has its own plan; both sit in the one dating group.
+  const productId = DATING_PRODUCT_IDS[datingType];
 
   const {
     status, isPremium, refresh, purchase, restore, checkPendingActivation,
-  } = useSubscription();
+  } = useSubscription('dating');
 
   const [loading, setLoading] = useState(true);
   const [price, setPrice] = useState(PLAN_PRICE_FALLBACK);
@@ -80,10 +81,10 @@ export default function DatingPremiumScreen({ route, navigation }: Props) {
   useEffect(() => {
     if (!isIapSupported) return;
     // Real localised price straight off the store listing.
-    fetchSubscriptionProduct()
+    fetchSubscriptionProduct(productId)
       .then((product) => { if (product?.displayPrice) setPrice(product.displayPrice); })
       .catch(() => {});
-  }, []);
+  }, [productId]);
 
   const handleSubscribe = useCallback(async () => {
     if (!isIapSupported) {
@@ -98,7 +99,7 @@ export default function DatingPremiumScreen({ route, navigation }: Props) {
     try {
       // The overlay goes up the moment Apple confirms payment and stays up
       // until the backend grants the entitlement.
-      const outcome = await purchase(() => setActivating('waiting'));
+      const outcome = await purchase(productId, () => setActivating('waiting'));
       if (outcome === 'cancelled') return;
       if (outcome === 'active') {
         setActivating(null);
@@ -116,7 +117,7 @@ export default function DatingPremiumScreen({ route, navigation }: Props) {
     } finally {
       setPurchasing(false);
     }
-  }, [purchase]);
+  }, [purchase, productId]);
 
   const handleCheckAgain = useCallback(async () => {
     setChecking(true);
@@ -173,11 +174,23 @@ export default function DatingPremiumScreen({ route, navigation }: Props) {
     }
   }, [load, restore]);
 
+  const header = (
+    <View style={styles.headerBar}>
+      <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={8}>
+        <Icon name="arrow-back" size={24} color={Colors.text} />
+      </TouchableOpacity>
+    </View>
+  );
+
+  // The back arrow stays usable while the plan loads.
   if (loading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={accent} />
-      </View>
+      <SafeAreaView style={styles.root}>
+        {header}
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={accent} />
+        </View>
+      </SafeAreaView>
     );
   }
 
@@ -186,11 +199,7 @@ export default function DatingPremiumScreen({ route, navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.root}>
-      <View style={styles.headerBar}>
-        <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={8}>
-          <Icon name="arrow-back" size={24} color={Colors.text} />
-        </TouchableOpacity>
-      </View>
+      {header}
 
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
         <Text style={styles.title}>Subscription Plan</Text>

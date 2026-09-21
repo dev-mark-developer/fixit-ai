@@ -19,10 +19,10 @@ interface Props {
 }
 
 /**
- * Covers the swipe card once the day's likes are used up. The card stays
+ * Covers the swipe card once the day's swipes are used up. The card stays
  * underneath, dimmed rather than blurred — a real blur would mean pulling in a
- * native blur module for one screen. Pass and super like stay usable from the
- * action pill, which sits above this.
+ * native blur module for one screen. The action pill sits above it, with its
+ * buttons dimmed.
  */
 export default function DailyLimitOverlay({
   accent, height, isPremium, onSubscribe, onDismiss,
@@ -34,7 +34,7 @@ export default function DailyLimitOverlay({
         <Text style={styles.title}>You Have Reached{'\n'}Your Daily Limit!</Text>
         <Text style={styles.subtitle}>
           {isPremium
-            ? "You've used all of today's likes.\nCome back tomorrow for more."
+            ? "You've used all of today's swipes.\nCome back tomorrow for more."
             : 'Try Premium subscription for\nunlimited swaps and filters'}
         </Text>
         <TouchableOpacity

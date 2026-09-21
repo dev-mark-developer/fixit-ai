@@ -8,6 +8,11 @@ export interface MentorRequest {
   assignedMentorName?: string;
   assignedMentorDisplayName?: string;
   assignedMentorImageUrl?: string;
+  // Not returned yet (gap #35, checked live 2026-09-17). The assigned mentor
+  // screen shows each one once the backend sends it.
+  assignedMentorTagline?: string | null;
+  assignedMentorBio?: string | null;
+  assignedMentorEmail?: string | null;
   assignedAt?: string;
   createdAt: string;
 }

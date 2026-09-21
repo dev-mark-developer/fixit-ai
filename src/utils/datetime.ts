@@ -57,3 +57,25 @@ export function toApiDate(date: Date): string {
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 }
+
+/**
+ * The reverse of {@link toApiDate}: a calendar date from the API
+ * ("2000-08-27") as local midnight of that same day, ready for a date picker.
+ *
+ * `new Date("2000-08-27")` is UTC midnight, which is still 26 August anywhere
+ * west of Greenwich. The dating profile and mentor sign-up read the stored date
+ * of birth that way, so a user in the Americas saw it a day early — and saving
+ * the form sent that earlier day back, which the admin panel then showed.
+ *
+ * Only the leading date is read, so a timestamp works too. NaN for anything
+ * else, including impossible dates like 2000-02-31.
+ */
+export function parseApiDateOnly(value?: string | null): Date {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec((value ?? '').trim());
+  if (!match) return new Date(NaN);
+  const year = Number(match[1]);
+  const month = Number(match[2]) - 1;
+  const day = Number(match[3]);
+  const date = new Date(year, month, day);
+  return date.getMonth() === month && date.getDate() === day ? date : new Date(NaN);
+}

@@ -12,6 +12,7 @@ import type { AuthStackParamList } from '../../types/navigation';
 import { Colors } from '../../utils/colors';
 import { getDeviceId, getPlatform } from '../../utils/device';
 import { getPushToken } from '../../services/pushNotifications';
+import { getCurrentCoords } from '../../utils/location';
 import AppInput from '../../components/common/AppInput';
 import AppButton from '../../components/common/AppButton';
 import AppAlert, { AlertButton } from '../../components/common/AppAlert';
@@ -117,8 +118,14 @@ export default function RegisterScreen({ navigation }: Props) {
     if (!validate()) return;
     setLoading(true);
     try {
-      // Permission was already asked for at app launch (App.tsx).
-      const [deviceId, pushToken] = await Promise.all([getDeviceId(), getPushToken()]);
+      // Push and location were both asked for at app launch (App.tsx), so this
+      // reads the fix that warmed. Still optional: `coords` is null when it was
+      // refused or is unavailable, and the fields are then left out.
+      const [deviceId, pushToken, coords] = await Promise.all([
+        getDeviceId(),
+        getPushToken(),
+        getCurrentCoords(),
+      ]);
 
       // Sign-up photo is uploaded first (no auth needed); the returned URL is
       // sent with the registration payload as `profilePictureUrl`.
@@ -153,6 +160,7 @@ export default function RegisterScreen({ navigation }: Props) {
         platform: getPlatform(),
         deviceName: 'Mobile App',
         pushToken,
+        ...(coords ?? {}),
       });
       navigation.navigate('Otp', { email: form.email.trim(), purpose: 'Registration', password: form.password });
     } catch (err: any) {

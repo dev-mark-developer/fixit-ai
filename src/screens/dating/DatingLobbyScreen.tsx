@@ -1,12 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, StatusBar, Image, Alert,
+  View, Text, StyleSheet, TouchableOpacity, ScrollView, StatusBar, Image, Alert,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { DatingStackParamList } from '../../types/navigation';
 import { Colors } from '../../utils/colors';
-import { getUser, AuthUser } from '../../store/auth';
 import { useAuth } from '../../store/AuthContext';
 import { useModuleStatus } from '../../store/ModuleStatusContext';
 import AppAlert, { AlertButton } from '../../components/common/AppAlert';
@@ -16,13 +15,7 @@ type Props = NativeStackScreenProps<DatingStackParamList, 'DatingLobby'>;
 export default function DatingLobbyScreen({ navigation }: Props) {
   const { logout } = useAuth();
   const { isMentor, hasDating, datingType } = useModuleStatus();
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [loading, setLoading] = useState(true);
   const [alert, setAlert] = useState<{ title: string; message: string; buttons?: AlertButton[] } | null>(null);
-
-  useEffect(() => {
-    getUser().then((u) => { setUser(u); setLoading(false); });
-  }, []);
 
   const handleLogout = () => {
     Alert.alert('Log Out', 'Are you sure you want to log out?', [
@@ -30,14 +23,6 @@ export default function DatingLobbyScreen({ navigation }: Props) {
       { text: 'Log Out', style: 'destructive', onPress: logout },
     ]);
   };
-
-  if (loading) {
-    return (
-      <View style={[styles.root, styles.center]}>
-        <ActivityIndicator color={Colors.dating} size="large" />
-      </View>
-    );
-  }
 
   // A Spiritual account is permanent: the only way to Non-Spiritual is to
   // delete the account and register again.
@@ -158,7 +143,6 @@ export default function DatingLobbyScreen({ navigation }: Props) {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },
-  center: { justifyContent: 'center', alignItems: 'center' },
 
   header: {
     flexDirection: 'row',

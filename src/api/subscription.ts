@@ -1,5 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from './axios';
+import { groupOfProduct } from '../utils/subscriptionProducts';
+import type { SubscriptionGroup } from '../utils/subscriptionProducts';
 
 /**
  * Entitlement as the backend sees it. The response of
@@ -72,6 +74,23 @@ export function normalizeSubscriptionStatus(raw: any): SubscriptionStatus {
     store: pick<string>(row, 'store'),
     originalTransactionId: pick<string>(row, 'originalTransactionId', 'transactionId'),
   };
+}
+
+/**
+ * Whether this status unlocks the given group. The status describes a single
+ * subscription, so it only counts for the group its product belongs to — a
+ * mentor subscription doesn't unlock dating premium, or the other way round.
+ */
+export function statusGrants(
+  status: SubscriptionStatus | null | undefined,
+  group: SubscriptionGroup,
+): boolean {
+  if (!status?.isActive) return false;
+  // A status without a product can't be placed in a group. It keeps the
+  // meaning every subscription had before the split, rather than locking out
+  // someone who has paid.
+  if (!status.productId) return true;
+  return groupOfProduct(status.productId) === group;
 }
 
 /**

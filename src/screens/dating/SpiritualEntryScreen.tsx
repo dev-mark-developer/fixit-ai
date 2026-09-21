@@ -226,11 +226,16 @@ export default function SpiritualEntryScreen({ navigation }: Props) {
   );
 
   // ── Booting — decide the entry state before the first paint ──
+  // The header (back arrow, or Logout while a mentor request is pending) stays
+  // usable while this runs.
   if (booting) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={Colors.spiritual} />
-      </View>
+      <SafeAreaView style={styles.root} edges={['top']}>
+        {backHeader}
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={Colors.spiritual} />
+        </View>
+      </SafeAreaView>
     );
   }
 
@@ -325,9 +330,12 @@ export default function SpiritualEntryScreen({ navigation }: Props) {
   // ── Loading ───────────────────────────────────────────
   if (phase === 'loading') {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={Colors.spiritual} />
-      </View>
+      <SafeAreaView style={styles.root} edges={['top']}>
+        {backHeader}
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={Colors.spiritual} />
+        </View>
+      </SafeAreaView>
     );
   }
 
@@ -550,29 +558,34 @@ export default function SpiritualEntryScreen({ navigation }: Props) {
                 ? <ActivityIndicator size="small" color={Colors.spiritual} />
                 : <Text style={styles.mentorCardChevron}>›</Text>}
             </TouchableOpacity>
+          ) : mentorRequest.status?.toLowerCase() === 'assigned' ? (
+            // Opens the mentor's details
+            <TouchableOpacity
+              style={[styles.mentorCard, styles.mentorCardStatus]}
+              onPress={() => navigation.navigate('AssignedMentor', { request: mentorRequest })}
+              activeOpacity={0.85}
+            >
+              <View style={[styles.mentorCardIcon, { backgroundColor: Colors.spiritualLight }]}>
+                <Text style={styles.mentorCardEmoji}>✅</Text>
+              </View>
+              <View style={styles.mentorCardBody}>
+                <Text style={styles.mentorCardTitle}>Mentor Assigned</Text>
+                <Text style={styles.mentorCardDesc}>
+                  {mentorRequest.assignedMentorDisplayName ?? mentorRequest.assignedMentorName ?? 'Your mentor'} is ready to guide you.
+                </Text>
+              </View>
+              <Text style={styles.mentorCardChevron}>›</Text>
+            </TouchableOpacity>
           ) : (
             <View style={[styles.mentorCard, styles.mentorCardStatus]}>
               <View style={[styles.mentorCardIcon, { backgroundColor: Colors.spiritualLight }]}>
-                <Text style={styles.mentorCardEmoji}>
-                  {mentorRequest.status?.toLowerCase() === 'assigned' ? '✅' : '⏳'}
-                </Text>
+                <Text style={styles.mentorCardEmoji}>⏳</Text>
               </View>
               <View style={styles.mentorCardBody}>
-                {mentorRequest.status?.toLowerCase() === 'assigned' ? (
-                  <>
-                    <Text style={styles.mentorCardTitle}>Mentor Assigned</Text>
-                    <Text style={styles.mentorCardDesc}>
-                      {mentorRequest.assignedMentorDisplayName ?? mentorRequest.assignedMentorName ?? 'Your mentor'} is ready to guide you.
-                    </Text>
-                  </>
-                ) : (
-                  <>
-                    <Text style={styles.mentorCardTitle}>Request Submitted</Text>
-                    <Text style={styles.mentorCardDesc}>
-                      Our team is matching you with a suitable mentor. This usually takes 1–2 days.
-                    </Text>
-                  </>
-                )}
+                <Text style={styles.mentorCardTitle}>Request Submitted</Text>
+                <Text style={styles.mentorCardDesc}>
+                  Our team is matching you with a suitable mentor. This usually takes 1–2 days.
+                </Text>
               </View>
             </View>
           )}

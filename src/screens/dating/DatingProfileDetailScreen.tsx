@@ -9,6 +9,7 @@ import type { DatingStackParamList } from '../../types/navigation';
 import { Colors } from '../../utils/colors';
 import RemoteImage from '../../components/common/RemoteImage';
 import { resolveImageUrl } from '../../utils/imageUrl';
+import { parseApiDateOnly } from '../../utils/datetime';
 import { datingApi, DatingUserDetail } from '../../api/dating';
 import ReportModal from '../../components/common/ReportModal';
 import { useModuleStatus } from '../../store/ModuleStatusContext';
@@ -22,7 +23,7 @@ const TILE_W = (SCREEN_W - 40 - GRID_GAP * 2) / 3;
 
 function ageFromDob(dob?: string): number | undefined {
   if (!dob) return undefined;
-  const d = new Date(dob);
+  const d = parseApiDateOnly(dob);
   if (isNaN(d.getTime())) return undefined;
   const now = new Date();
   let age = now.getFullYear() - d.getFullYear();

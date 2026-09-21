@@ -24,7 +24,8 @@ import DatingTopBar from '../../components/dating/DatingTopBar';
 import DatingBottomBar from '../../components/dating/DatingBottomBar';
 import { Colors } from '../../utils/colors';
 import { useSubscription } from '../../store/SubscriptionContext';
-import { usePrefetchImages } from '../../utils/imageCache';
+import { hasLoaded, usePrefetchImages } from '../../utils/imageCache';
+import { resolveImageUrl } from '../../utils/imageUrl';
 import { useBlockedUsers } from '../../utils/blockedUsers';
 import RemoteImage from '../../components/common/RemoteImage';
 import { useModuleStatus } from '../../store/ModuleStatusContext';
@@ -57,6 +58,11 @@ const likeImage = (l: DatingLike) =>
 const GRID_GAP = 14;
 const CARD_W = (Dimensions.get('window').width - 40 - GRID_GAP) / 2;
 const CARD_H = CARD_W * 1.35;
+
+/** Likes Received for free accounts: one row of blurred tiles above the upsell (Figma). */
+const LOCKED_PREVIEW_COUNT = 2;
+const LOCKED_CARD_H = CARD_W * 1.15;
+const LOCKED_BLUR = 28;
 
 // ──────────────────────────────────────────────────────────────
 // Photo-grid match card (Figma): flag top-left, chat top-right,
@@ -186,12 +192,79 @@ const cardStyles = StyleSheet.create({
 });
 
 // ──────────────────────────────────────────────────────────────
+// Locked Likes Received tile (Figma): the liker's photo, blurred
+// past recognition, under a white padlock
+// ──────────────────────────────────────────────────────────────
+interface LockedLikeCardProps {
+  /** Missing when the backend refused the list (402/403) — the tile stays plain. */
+  uri?: string;
+  accent: string;
+  onPress: () => void;
+}
+
+function LockedLikeCard({ uri, accent, onPress }: LockedLikeCardProps) {
+  // The padlock waits for the photo so it never sits on the loading spinner.
+  const [ready, setReady] = useState(() => {
+    const source = resolveImageUrl(uri);
+    return !source || hasLoaded(source);
+  });
+
+  return (
+    <TouchableOpacity style={lockedStyles.card} onPress={onPress} activeOpacity={0.85}>
+      <View style={lockedStyles.clip}>
+        <RemoteImage
+          uri={uri}
+          style={cardStyles.photo}
+          resizeMode="cover"
+          blurRadius={LOCKED_BLUR}
+          indicatorColor={accent}
+          onLoadEnd={() => setReady(true)}
+        />
+        {ready && (
+          <>
+            <View style={[StyleSheet.absoluteFill, lockedStyles.scrim]} />
+            <Icon name="lock-closed" size={50} color={Colors.white} />
+          </>
+        )}
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+const lockedStyles = StyleSheet.create({
+  // The shadow softens the edges the way the design's blur does; it needs a
+  // parent without overflow clipping, hence the separate `clip` layer.
+  card: {
+    width: CARD_W,
+    height: LOCKED_CARD_H,
+    borderRadius: 18,
+    backgroundColor: '#1F1B24',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  clip: {
+    flex: 1,
+    borderRadius: 18,
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  // Keeps the padlock readable over a light photo
+  scrim: { backgroundColor: 'rgba(0,0,0,0.45)' },
+});
+
+// ──────────────────────────────────────────────────────────────
 // Main screen
 // ──────────────────────────────────────────────────────────────
 export default function DatingMatchesScreen({ navigation }: Props) {
   const { datingType } = useModuleStatus();
   const accent = datingType === 'Spiritual' ? Colors.spiritual : Colors.dating;
-  const { isPremium } = useSubscription();
+  const {
+    isPremium, status: subscription, loading: subscriptionLoading,
+  } = useSubscription('dating');
 
   const [activeTab, setActiveTab] = useState<TabKey>('matches');
   const [matches, setMatches] = useState<DatingMatch[]>([]);
@@ -308,9 +381,9 @@ export default function DatingMatchesScreen({ navigation }: Props) {
     }, [refreshActiveTab]),
   );
 
-  // Entitlement stays the backend's call — the 402/403 in `loadLikes` is what
-  // locks this tab. This only reacts to the moment premium is bought, so the
-  // locked preview gives way to the real list without a manual refresh.
+  // Reacts to the moment premium is bought: a 402/403 from before the purchase
+  // is dropped and the list is fetched again, so the real list replaces the
+  // locked preview without a manual refresh.
   const wasPremiumRef = useRef(isPremium);
   useEffect(() => {
     const justSubscribed = isPremium && !wasPremiumRef.current;
@@ -422,25 +495,47 @@ export default function DatingMatchesScreen({ navigation }: Props) {
     );
   };
 
-  // Likes Received — endpoint exists (gap #7 resolved). Premium-gated: a 402/403
-  // from the API means the user isn't subscribed, so show the locked preview.
+  // Likes Received — premium only. The backend doesn't gate the endpoint yet
+  // (gap #23: a free account gets the full list), so free accounts are locked
+  // here, with the likers' photos blurred. A 402/403 locks it too, in case the
+  // backend starts gating; that response has no rows, so the tiles stay plain.
   const renderLikesReceived = () => {
-    if (likesLoading) {
+    // Before the first entitlement read there's no knowing which view is right,
+    // and guessing would flash the paywall at a subscriber.
+    if (likesLoading || (subscriptionLoading && !subscription)) {
       return (
         <View style={styles.centered}>
           <ActivityIndicator color={accent} size="large" />
         </View>
       );
     }
-    if (likesLocked) {
+    const emptyTitle = 'No Likes Received';
+    const emptySub = 'People who like your profile will show up here.';
+    if (likesLocked || !isPremium) {
+      // No likes at all is simply empty — blurred tiles would promise likes
+      // that aren't there.
+      if (!likesLocked && likesReceived.length === 0) {
+        return renderLikeGrid([], emptyTitle, emptySub);
+      }
+      const previews: Array<DatingLike | null> = likesLocked
+        ? Array(LOCKED_PREVIEW_COUNT).fill(null)
+        : likesReceived.slice(0, LOCKED_PREVIEW_COUNT);
       return (
         <View style={styles.lockedWrap}>
           <View style={styles.gridRow}>
-            {[0, 1].map((i) => (
-              <View key={i} style={styles.lockedCard}>
-                <Icon name="lock-closed" size={40} color={Colors.white} />
-              </View>
-            ))}
+            {previews.map((like, i) => {
+              const uri = like ? likeImage(like) : undefined;
+              return (
+                <LockedLikeCard
+                  // The photo is part of the key, so a changed photo starts
+                  // over with its own spinner instead of under the padlock.
+                  key={`${i}-${uri ?? ''}`}
+                  uri={uri}
+                  accent={accent}
+                  onPress={goPremium}
+                />
+              );
+            })}
           </View>
           <TouchableOpacity
             style={[styles.premiumBtn, { backgroundColor: accent }]}
@@ -452,7 +547,7 @@ export default function DatingMatchesScreen({ navigation }: Props) {
         </View>
       );
     }
-    return renderLikeGrid(likesReceived, 'No Likes Received', 'People who like your profile will show up here.');
+    return renderLikeGrid(likesReceived, emptyTitle, emptySub);
   };
 
   // My Likes — endpoint exists (gap #7 resolved)
@@ -620,17 +715,9 @@ const styles = StyleSheet.create({
   emptySub: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center', lineHeight: 21 },
 
   lockedWrap: { paddingTop: 4 },
-  lockedCard: {
-    width: CARD_W,
-    height: CARD_H,
-    borderRadius: 18,
-    backgroundColor: '#1F1B24',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   premiumBtn: {
     marginHorizontal: 20,
-    marginTop: 22,
+    marginTop: 36,
     borderRadius: 14,
     paddingVertical: 16,
     alignItems: 'center',

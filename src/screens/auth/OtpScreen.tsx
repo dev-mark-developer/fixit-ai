@@ -13,6 +13,7 @@ import KeyboardAwareScrollView from '../../components/common/KeyboardAwareScroll
 import api from '../../api/axios';
 import { useAuth } from '../../store/AuthContext';
 import { getDeviceId, getPlatform } from '../../utils/device';
+import { getCurrentCoords } from '../../utils/location';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Otp'>;
 
@@ -56,9 +57,11 @@ export default function OtpScreen({ navigation, route }: Props) {
       if (purpose === 'Registration') {
         if (password) {
           try {
-            const deviceId = await getDeviceId();
+            // Same optional location as the sign-in screen sends.
+            const [deviceId, coords] = await Promise.all([getDeviceId(), getCurrentCoords()]);
             const loginRes = await api.post('/auth/login', {
               email, password, deviceId, platform: getPlatform(), deviceName: 'Mobile App',
+              ...(coords ?? {}),
             });
             const d = loginRes.data?.data;
             if (d?.accessToken) {

@@ -23,7 +23,7 @@
       "localizations" : [
 
       ],
-      "name" : "Fixit Premium",
+      "name" : "Mentor",
       "subscriptions" : [
         {
           "adHocOffers" : [
@@ -32,22 +32,87 @@
           "codeOffers" : [
 
           ],
-          "displayPrice" : "20.00",
+          "displayPrice" : "5.99",
           "familyShareable" : false,
           "groupNumber" : 1,
           "internalID" : "3B1E5C40-0000-4000-8000-000000000003",
           "introductoryOffer" : null,
           "localizations" : [
             {
-              "description" : "Unlimited swipes, advance filters, everyone who likes you, and the mentorship programme.",
-              "displayName" : "Fixit Premium (Monthly)",
+              "description" : "The mentorship programme: guide seekers from your mentor dashboard.",
+              "displayName" : "Mentorship Program (Monthly)",
               "locale" : "en_US"
             }
           ],
           "productID" : "com.monthly",
           "recurringSubscriptionPeriod" : "P1M",
-          "referenceName" : "Monthly Premium",
+          "referenceName" : "Mentor Monthly",
           "subscriptionGroupID" : "3B1E5C40-0000-4000-8000-000000000002",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+
+          ]
+        }
+      ]
+    },
+    {
+      "id" : "3B1E5C40-0000-4000-8000-000000000004",
+      "localizations" : [
+
+      ],
+      "name" : "Dating",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "5.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "3B1E5C40-0000-4000-8000-000000000005",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Unlimited likes, advance filters and everyone who likes you.",
+              "displayName" : "Dating Premium (Monthly)",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.nonspiritual.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Non-Spiritual Dating Monthly",
+          "subscriptionGroupID" : "3B1E5C40-0000-4000-8000-000000000004",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+
+          ]
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "5.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "3B1E5C40-0000-4000-8000-000000000006",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Unlimited likes, advance filters and everyone who likes you.",
+              "displayName" : "Spiritual Dating Premium (Monthly)",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.spiritual.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Spiritual Dating Monthly",
+          "subscriptionGroupID" : "3B1E5C40-0000-4000-8000-000000000004",
           "type" : "RecurringSubscription",
           "winbackOffers" : [
 

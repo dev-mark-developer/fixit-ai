@@ -622,14 +622,6 @@ export default function DatingChatDetailScreen({ route, navigation }: Props) {
     return null;
   }, [connectionState, peerOnline, accent]);
 
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={accent} />
-      </View>
-    );
-  }
-
   const showOpeningMove = messages.length === 0;
   const canSend = (!!inputText.trim() || staged.length > 0) && !sending && !isBlocked;
 
@@ -751,7 +743,13 @@ export default function DatingChatDetailScreen({ route, navigation }: Props) {
           </TouchableOpacity>
         </Modal>
 
-        {showOpeningMove ? (
+        {loading ? (
+          // History loads under the header and composer, so the way back and
+          // the person's name are there from the first frame.
+          <View style={styles.center}>
+            <ActivityIndicator size="large" color={accent} />
+          </View>
+        ) : showOpeningMove ? (
           <View style={styles.flex}>
             {/* Opening Move card (Figma) */}
             <View style={[styles.openingCard, { backgroundColor: limeLight }]}>

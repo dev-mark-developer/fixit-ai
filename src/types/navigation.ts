@@ -1,4 +1,5 @@
 import type { NavigatorScreenParams } from '@react-navigation/native';
+import type { MentorRequest } from '../api/mentor';
 
 export type AuthStackParamList = {
   Welcome: undefined;
@@ -114,6 +115,8 @@ export type DatingStackParamList = {
   VettingQuiz: undefined;
   UploadCertificate: undefined;
   SpiritualMentors: undefined;
+  /** The member's assigned mentor, as `GET /mentor-request` returned it. */
+  AssignedMentor: { request: MentorRequest };
 };
 
 // Kept for shared screen components that still reference it

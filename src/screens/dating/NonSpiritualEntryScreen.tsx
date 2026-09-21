@@ -8,11 +8,12 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { DatingStackParamList } from '../../types/navigation';
 import { Colors } from '../../utils/colors';
-import { datingApi, DatingProfile } from '../../api/dating';
+import { datingApi, DatingConfig, DatingProfile } from '../../api/dating';
 import { useModuleStatus } from '../../store/ModuleStatusContext';
 import AppButton from '../../components/common/AppButton';
 import AppAlert from '../../components/common/AppAlert';
 import { extractApiError } from '../../utils/apiError';
+import { freeAllowanceLines } from '../../utils/swipeLimits';
 
 type Props = NativeStackScreenProps<DatingStackParamList, 'NonSpiritualEntry'>;
 
@@ -24,6 +25,7 @@ export default function NonSpiritualEntryScreen({ navigation }: Props) {
   const [interestedIn, setInterestedIn] = useState('Male');
   const [saving, setSaving] = useState(false);
   const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
+  const [config, setConfig] = useState<DatingConfig | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -56,6 +58,14 @@ export default function NonSpiritualEntryScreen({ navigation }: Props) {
     })();
   }, [navigation]);
 
+  // The daily numbers in the features card are set in the admin panel.
+  useEffect(() => {
+    datingApi
+      .getConfig()
+      .then((res) => setConfig(res.data?.data ?? null))
+      .catch(() => {});
+  }, []);
+
   const handleCreateProfile = async () => {
     setSaving(true);
     try {
@@ -73,6 +83,8 @@ export default function NonSpiritualEntryScreen({ navigation }: Props) {
     }
   };
 
+  const [swipesLine, superLikesLine] = freeAllowanceLines(config);
+
   // Plain back arrow header (Figma)
   const backHeader = (
     <View style={styles.headerBar}>
@@ -85,11 +97,15 @@ export default function NonSpiritualEntryScreen({ navigation }: Props) {
     </View>
   );
 
+  // The back arrow stays usable while the profile check runs.
   if (phase === 'loading') {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={Colors.dating} />
-      </View>
+      <SafeAreaView style={styles.root} edges={['top']}>
+        {backHeader}
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={Colors.dating} />
+        </View>
+      </SafeAreaView>
     );
   }
 
@@ -176,8 +192,8 @@ export default function NonSpiritualEntryScreen({ navigation }: Props) {
       {/* Features */}
       <View style={styles.featuresCard}>
         {[
-          { icon: '💫', text: '10 free swipes per day' },
-          { icon: '⭐', text: '1 super like per day' },
+          { icon: '💫', text: swipesLine },
+          { icon: '⭐', text: superLikesLine },
           { icon: '💞', text: 'Real-time matching & chat' },
           { icon: '🔒', text: 'Block & report controls' },
         ].map((f) => (

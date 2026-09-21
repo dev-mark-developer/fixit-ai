@@ -256,28 +256,36 @@ export default function PenpalMyProfileScreen({ navigation }: Props) {
 
   const rootNav = navigation.getParent()?.getParent();
 
+  // Custom header — matches the Penpal Group screen
+  const header = (
+    <View style={styles.header}>
+      <TouchableOpacity onPress={() => navigation.openDrawer()} hitSlop={8}>
+        <Text style={styles.menuIcon}>☰</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        onPress={() => rootNav?.navigate('Notifications' as never)}
+        hitSlop={8}
+      >
+        <Icon name="notifications-outline" size={24} color={Colors.penpal} />
+      </TouchableOpacity>
+    </View>
+  );
+
+  // The menu and bell stay usable while the profile loads.
   if (loading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={Colors.penpal} />
-      </View>
+      <SafeAreaView style={styles.root} edges={['top']}>
+        {header}
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={Colors.penpal} />
+        </View>
+      </SafeAreaView>
     );
   }
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
-      {/* Custom header — matches the Penpal Group screen */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.openDrawer()} hitSlop={8}>
-          <Text style={styles.menuIcon}>☰</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          onPress={() => rootNav?.navigate('Notifications' as never)}
-          hitSlop={8}
-        >
-          <Icon name="notifications-outline" size={24} color={Colors.penpal} />
-        </TouchableOpacity>
-      </View>
+      {header}
 
       <KeyboardAwareScrollView contentContainerStyle={styles.content} extraHeight={100}>
         <Text style={styles.title}>

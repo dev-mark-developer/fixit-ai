@@ -7,6 +7,7 @@ import type { AuthStackParamList } from '../../types/navigation';
 import { Colors } from '../../utils/colors';
 import { getDeviceId, getPlatform } from '../../utils/device';
 import { getPushToken } from '../../services/pushNotifications';
+import { getCurrentCoords } from '../../utils/location';
 import { useAuth } from '../../store/AuthContext';
 import AppInput from '../../components/common/AppInput';
 import AppButton from '../../components/common/AppButton';
@@ -44,9 +45,13 @@ export default function LoginScreen({ navigation }: Props) {
       // Permission was already asked for at app launch (App.tsx), so this just
       // reads whatever token exists. Null is fine — AuthContext re-syncs via
       // heartbeat once one becomes available.
-      const [deviceId, pushToken] = await Promise.all([
+      // Location was asked for at launch (App.tsx); this reads the fix it
+      // warmed. Still optional: `coords` is null when it was refused or is
+      // unavailable, and the fields are then left out of the payload.
+      const [deviceId, pushToken, coords] = await Promise.all([
         getDeviceId(),
         getPushToken(),
+        getCurrentCoords(),
       ]);
       const res = await api.post('/auth/login', {
         email: email.trim(),
@@ -55,6 +60,7 @@ export default function LoginScreen({ navigation }: Props) {
         platform: getPlatform(),
         deviceName: 'Mobile App',
         pushToken,
+        ...(coords ?? {}),
       });
       const data = res.data?.data;
       await login(

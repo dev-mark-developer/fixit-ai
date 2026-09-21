@@ -65,5 +65,20 @@ target 'Fixit' do
       File.write(rncore_marker, 'Release')
       Pod::UI.puts "[RNCore] Seeded .last_build_configuration=Release so Debug builds swap in the Debug core.".green
     end
+
+    # Xcode 27 refuses to build a target whose minimum iOS is below 15.0; older
+    # Xcode only warned. React Native raises each pod's own target to its
+    # minimum, but not the resource bundles CocoaPods creates beside them —
+    # Firebase's *_Privacy bundles (9.0 / 12.0) and AsyncStorage's (13.4) kept
+    # their podspec's number and failed the build. Anything below React
+    # Native's minimum is raised to it; higher targets are left alone.
+    min_ios = Gem::Version.new(min_ios_version_supported)
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |build_config|
+        current = build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET']
+        next if current.nil? || Gem::Version.new(current) >= min_ios
+        build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = min_ios_version_supported
+      end
+    end
   end
 end

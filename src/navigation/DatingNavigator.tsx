@@ -14,6 +14,7 @@ import DatingPremiumScreen from '../screens/dating/DatingPremiumScreen';
 import VettingQuizScreen from '../screens/dating/VettingQuizScreen';
 import UploadCertificateScreen from '../screens/dating/UploadCertificateScreen';
 import SpiritualMentorsScreen from '../screens/dating/SpiritualMentorsScreen';
+import AssignedMentorScreen from '../screens/dating/AssignedMentorScreen';
 import DatingDrawerNavigator from './DatingDrawerNavigator';
 
 const Stack = createNativeStackNavigator<DatingStackParamList>();
@@ -44,6 +45,7 @@ export default function DatingNavigator() {
       <Stack.Screen name="VettingQuiz" component={VettingQuizScreen} options={{ headerShown: false }} />
       <Stack.Screen name="UploadCertificate" component={UploadCertificateScreen} options={{ headerShown: false }} />
       <Stack.Screen name="SpiritualMentors" component={SpiritualMentorsScreen} options={{ title: 'External Mentors' }} />
+      <Stack.Screen name="AssignedMentor" component={AssignedMentorScreen} options={{ headerShown: false }} />
     </Stack.Navigator>
   );
 }

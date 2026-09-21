@@ -1,5 +1,5 @@
 import React, {
-  createContext, useCallback, useContext, useEffect, useRef, useState,
+  createContext, useCallback, useContext, useEffect, useMemo, useRef, useState,
 } from 'react';
 import type { Purchase } from 'react-native-iap';
 import { useAuth } from './AuthContext';
@@ -10,8 +10,11 @@ import {
   clearCachedSubscriptionStatus,
   normalizeSubscriptionStatus,
   readCachedSubscriptionStatus,
+  statusGrants,
   subscriptionApi,
 } from '../api/subscription';
+import { groupOfProduct, productsInGroup } from '../utils/subscriptionProducts';
+import type { SubscriptionGroup } from '../utils/subscriptionProducts';
 import {
   IapCancelledError,
   finishPurchase,
@@ -43,23 +46,20 @@ interface SubscriptionContextType {
   status: SubscriptionStatus | null;
   /** True while the first status read is in flight. */
   loading: boolean;
-  /** The one entitlement gating the mentor programme and dating premium. */
-  isPremium: boolean;
   /** Whether a purchase can actually be started on this device. */
   canPurchase: boolean;
   refresh: () => Promise<SubscriptionStatus | null>;
-  /**
-   * @param onAwaitingActivation fires the moment Apple confirms payment, before
-   *   the wait for the webhook begins — that gap is what the caller covers with
-   *   the "Activating your subscription…" overlay.
-   */
-  purchase: (onAwaitingActivation?: () => void) => Promise<PurchaseOutcome>;
-  restore: () => Promise<RestoreOutcome>;
-  /**
-   * Re-polls after a purchase that timed out waiting for the webhook.
-   * Returns true once the backend reports the entitlement.
-   */
-  checkPendingActivation: () => Promise<boolean>;
+  purchase: (productId: string, onAwaitingActivation?: () => void) => Promise<PurchaseOutcome>;
+  restore: (group: SubscriptionGroup) => Promise<RestoreOutcome>;
+  checkPendingActivation: (group: SubscriptionGroup) => Promise<boolean>;
+}
+
+/** Whether a status covers the product a transaction was for. */
+function grantsProduct(status: SubscriptionStatus | null, productId?: string): boolean {
+  const group = groupOfProduct(productId);
+  // A product this build doesn't sell can't be placed in a group; any active
+  // subscription is taken as the backend having accepted it.
+  return group ? statusGrants(status, group) : !!status?.isActive;
 }
 
 const SubscriptionContext = createContext<SubscriptionContextType | null>(null);
@@ -161,11 +161,12 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     await finishPurchase(held);
   }, []);
 
-  const pollUntilActive = useCallback(async (): Promise<boolean> => {
+  const pollUntilActive = useCallback(async (productId: string): Promise<boolean> => {
     const startedAt = Date.now();
     const deadline = startedAt + ACTIVATION_TIMEOUT_MS;
     let attempt = 0;
     iapLog('activation: waiting for the store webhook to grant entitlement', {
+      productId,
       timeoutMs: ACTIVATION_TIMEOUT_MS,
       pollMs: ACTIVATION_POLL_MS,
     });
@@ -174,7 +175,9 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       attempt += 1;
       const next = await readStatus();
       const elapsedMs = Date.now() - startedAt;
-      if (next?.isActive) {
+      // Only this plan's entitlement counts: a mentor who already has the
+      // mentor programme is not "activated" for dating by it.
+      if (grantsProduct(next, productId)) {
         iapLog('activation: GRANTED', { attempt, elapsedMs });
         return true;
       }
@@ -191,18 +194,24 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     }
   }, [readStatus]);
 
+  /**
+   * @param onAwaitingActivation fires the moment Apple confirms payment, before
+   *   the wait for the webhook begins — that gap is what the caller covers with
+   *   the "Activating your subscription…" overlay.
+   */
   const purchase = useCallback(async (
+    productId: string,
     onAwaitingActivation?: () => void,
   ): Promise<PurchaseOutcome> => {
     if (!user) throw new Error('You need to be signed in to subscribe.');
 
     const appAccountToken = resolveAppAccountToken(user.id, user.appAccountToken);
 
-    iapLog('subscribe: starting', { userId: user.id, appAccountToken });
+    iapLog('subscribe: starting', { userId: user.id, productId, appAccountToken });
 
     let bought: Purchase;
     try {
-      bought = await purchaseSubscription(appAccountToken);
+      bought = await purchaseSubscription(productId, appAccountToken);
     } catch (err) {
       if (err instanceof IapCancelledError) {
         iapLog('subscribe: cancelled by user');
@@ -215,7 +224,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     // Paid. Everything from here is waiting on Apple's server notification.
     unconfirmedRef.current = bought;
     onAwaitingActivation?.();
-    const active = await pollUntilActive();
+    const active = await pollUntilActive(productId);
     if (active) {
       await settleUnconfirmed();
       iapLog('subscribe: done — entitlement active');
@@ -225,9 +234,13 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     return 'pending';
   }, [user, pollUntilActive, settleUnconfirmed]);
 
-  const checkPendingActivation = useCallback(async () => {
+  /**
+   * Re-polls after a purchase that timed out waiting for the webhook.
+   * Returns true once the backend reports that group's entitlement.
+   */
+  const checkPendingActivation = useCallback(async (group: SubscriptionGroup) => {
     const next = await readStatus();
-    if (next?.isActive) {
+    if (statusGrants(next, group)) {
       await settleUnconfirmed();
       return true;
     }
@@ -235,23 +248,24 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   }, [readStatus, settleUnconfirmed]);
 
   /**
-   * Reads the entitlement StoreKit holds for this Apple ID and hands Apple's
-   * signed transaction to the backend, which verifies it and re-grants access
-   * without waiting on a webhook.
+   * Reads the entitlement StoreKit holds for this Apple ID in one group and
+   * hands Apple's signed transaction to the backend, which verifies it and
+   * re-grants access without waiting on a webhook.
    */
-  const restore = useCallback(async (): Promise<RestoreOutcome> => {
+  const restore = useCallback(async (group: SubscriptionGroup): Promise<RestoreOutcome> => {
     if (!isIapSupported) return 'none';
 
-    const owned = await getActiveSubscriptionPurchase();
+    const owned = await getActiveSubscriptionPurchase(productsInGroup(group));
     const jws = getSignedTransaction(owned);
     if (!owned || !jws) {
       iapLog('restore: nothing usable on device, asking the backend', {
+        group,
         hasPurchase: Boolean(owned),
         hasSignedTransaction: Boolean(jws),
       });
       // Nothing on the device, but the backend may still know better.
       const next = await readStatus();
-      return next?.isActive ? 'active' : 'none';
+      return statusGrants(next, group) ? 'active' : 'none';
     }
 
     iapLog('restore: sending signed transaction to the backend', {
@@ -270,7 +284,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     }
 
     const next = await readStatus();
-    if (next?.isActive) {
+    if (statusGrants(next, group)) {
       unconfirmedRef.current = owned;
       await settleUnconfirmed();
       return 'active';
@@ -290,7 +304,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     const off = onReplayedPurchase((replayed) => {
       unconfirmedRef.current = replayed;
       readStatus().then((next) => {
-        if (next?.isActive) settleUnconfirmed();
+        if (grantsProduct(next, replayed.productId)) settleUnconfirmed();
       });
     });
 
@@ -305,7 +319,6 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       value={{
         status,
         loading,
-        isPremium: !!status?.isActive,
         canPurchase: isIapSupported,
         refresh,
         purchase,
@@ -318,8 +331,30 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   );
 }
 
-export function useSubscription() {
+/**
+ * The subscription as one module sees it: the mentor programme or dating
+ * premium. `status` is the raw last read, which may belong to the other group —
+ * `isPremium` is the answer for this one.
+ */
+export function useSubscription(group: SubscriptionGroup) {
   const ctx = useContext(SubscriptionContext);
   if (!ctx) throw new Error('useSubscription must be used within SubscriptionProvider');
-  return ctx;
+  const { status, loading, canPurchase, refresh, purchase, restore, checkPendingActivation } = ctx;
+
+  const restoreGroup = useCallback(() => restore(group), [restore, group]);
+  const checkGroup = useCallback(
+    () => checkPendingActivation(group),
+    [checkPendingActivation, group],
+  );
+
+  return useMemo(() => ({
+    status,
+    loading,
+    canPurchase,
+    isPremium: statusGrants(status, group),
+    refresh,
+    purchase,
+    restore: restoreGroup,
+    checkPendingActivation: checkGroup,
+  }), [status, loading, canPurchase, group, refresh, purchase, restoreGroup, checkGroup]);
 }

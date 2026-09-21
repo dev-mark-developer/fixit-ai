@@ -23,7 +23,7 @@ import CountryPicker from '../../components/common/CountryPicker';
 import KeyboardAwareScrollView from '../../components/common/KeyboardAwareScrollView';
 import DatingTopBar from '../../components/dating/DatingTopBar';
 import DatingBottomBar from '../../components/dating/DatingBottomBar';
-import { toApiDate } from '../../utils/datetime';
+import { parseApiDateOnly, toApiDate } from '../../utils/datetime';
 
 const GRID_GAP = 10;
 const TILE_W = (Dimensions.get('window').width - 48 - GRID_GAP * 2) / 3;
@@ -100,7 +100,7 @@ export default function DatingMyProfileScreen() {
       if (p?.about) setBio(p.about);
       if (p?.pseudoName) setPseudoName(p.pseudoName);
       if (p?.dateOfBirth) {
-        const d = new Date(p.dateOfBirth);
+        const d = parseApiDateOnly(p.dateOfBirth);
         if (!Number.isNaN(d.getTime())) setDob(d);
       }
       if (p?.country) setCountry(p.country);
@@ -307,14 +307,6 @@ export default function DatingMyProfileScreen() {
       img.imageUrl !== profile?.displayImageUrl,
   );
 
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={accent} />
-      </View>
-    );
-  }
-
   return (
     <SafeAreaView style={styles.root}>
       <DatingTopBar />
@@ -355,129 +347,140 @@ export default function DatingMyProfileScreen() {
           <Text style={[styles.email, { color: accent }]}>{user.email}</Text>
         )}
 
-        {/* Names (owned by the account, not the dating profile) */}
-        <View style={styles.row}>
-          <AppInput label="First Name" value={firstName} onChangeText={setFirstName}
-            placeholder="First name" maxLength={50} showCounter={false}
-            containerStyle={styles.rowField} />
-          <AppInput label="Last Name" value={lastName} onChangeText={setLastName}
-            placeholder="Last name" maxLength={50} showCounter={false}
-            containerStyle={styles.rowField} />
-        </View>
-
-        {isSpiritual && (
-          <AppInput label="Pseudo Name*" placeholder="Enter pseudo name" value={pseudoName}
-            onChangeText={setPseudoName} maxLength={50} />
-        )}
-
-        <AppInput label={isSpiritual ? 'Spiritual Bio*' : 'About You*'}
-          placeholder={isSpiritual ? 'Enter you spiritual journey' : 'Tell others about yourself'}
-          value={bio} onChangeText={setBio} maxLength={1000}
-          multiline numberOfLines={5} style={styles.bioInput} />
-
-        {/* Date of Birth */}
-        <View style={styles.fieldWrap}>
-          <Text style={styles.label}>Date of Birth</Text>
-          <TouchableOpacity style={styles.selectBox} onPress={() => setShowDatePicker(true)}>
-            <Text style={dob ? styles.selectText : styles.selectPlaceholder}>
-              {dob ? formatDate(dob) : 'Select date of birth'}
-            </Text>
-            <Image source={require('../../assets/calendar.png')} style={styles.calendarIcon} resizeMode="contain" />
-          </TouchableOpacity>
-        </View>
-
-        {showDatePicker && (
-          Platform.OS === 'ios' ? (
-            <View style={styles.iosPicker}>
-              <View style={styles.iosPickerBar}>
-                <TouchableOpacity onPress={() => setShowDatePicker(false)}>
-                  <Text style={[styles.iosPickerDone, { color: accent }]}>Done</Text>
-                </TouchableOpacity>
-              </View>
-              <DateTimePicker
-                value={dob ?? MAX_DOB}
-                mode="date"
-                display="spinner"
-                maximumDate={MAX_DOB}
-                onChange={(_, date) => { if (date) setDob(date); }}
-              />
+        {loading ? (
+          // The account details above come from the session, so they show at
+          // once; only the dating profile below waits on the network. The form
+          // mounts when it arrives, so nothing typed early can be overwritten.
+          <View style={styles.formLoading}>
+            <ActivityIndicator size="large" color={accent} />
+          </View>
+        ) : (
+          <>
+            {/* Names (owned by the account, not the dating profile) */}
+            <View style={styles.row}>
+              <AppInput label="First Name" value={firstName} onChangeText={setFirstName}
+                placeholder="First name" maxLength={50} showCounter={false}
+                containerStyle={styles.rowField} />
+              <AppInput label="Last Name" value={lastName} onChangeText={setLastName}
+                placeholder="Last name" maxLength={50} showCounter={false}
+                containerStyle={styles.rowField} />
             </View>
-          ) : (
-            <DateTimePicker
-              value={dob ?? MAX_DOB}
-              mode="date"
-              display="default"
-              maximumDate={MAX_DOB}
-              onChange={(_, date) => { setShowDatePicker(false); if (date) setDob(date); }}
-            />
-          )
-        )}
 
-        {/* Country */}
-        <View style={styles.fieldWrap}>
-          <Text style={styles.label}>Where do You Live?</Text>
-          <TouchableOpacity style={styles.selectBox} onPress={() => setShowCountryPicker(true)}>
-            <Text style={country ? styles.selectText : styles.selectPlaceholder}>
-              {country || 'Select your country'}
-            </Text>
-            <Icon name="chevron-down" size={16} color={Colors.textMuted} />
-          </TouchableOpacity>
-        </View>
-
-        {/* City / State */}
-        <View style={styles.row}>
-          <AppInput label="City" placeholder="Enter your city" value={city}
-            onChangeText={setCity} maxLength={50} containerStyle={styles.rowField} />
-          <AppInput label="State" placeholder="Enter your state" value={stateVal}
-            onChangeText={setStateVal} maxLength={50} containerStyle={styles.rowField} />
-        </View>
-
-        {/* Gallery */}
-        <Text style={styles.galleryTitle}>My Gallery</Text>
-        <View style={styles.galleryGrid}>
-          <TouchableOpacity
-            style={styles.uploadTile}
-            onPress={handleUpload}
-            activeOpacity={0.75}
-            disabled={uploading}
-          >
-            {uploading ? (
-              <>
-                <ActivityIndicator color={accent} />
-                {uploadProgress && (
-                  <Text style={styles.uploadTileText}>
-                    {uploadProgress.done}/{uploadProgress.total}
-                  </Text>
-                )}
-              </>
-            ) : (
-              <>
-                <Icon name="image-outline" size={30} color={accent} />
-                <Text style={styles.uploadTileText}>Upload Photos</Text>
-              </>
+            {isSpiritual && (
+              <AppInput label="Pseudo Name*" placeholder="Enter pseudo name" value={pseudoName}
+                onChangeText={setPseudoName} maxLength={50} />
             )}
-          </TouchableOpacity>
 
-          {galleryImages.map((img) => (
-            <View key={img.id} style={styles.photoTile}>
-              <RemoteImage uri={img.imageUrl} style={styles.photoImg} indicatorColor={accent} />
-              <TouchableOpacity
-                style={[styles.deleteBadge, { backgroundColor: lime }]}
-                onPress={() => handleDeleteImage(img)}
-                hitSlop={6}
-              >
-                <Icon name="trash-outline" size={14} color={Colors.text} />
+            <AppInput label={isSpiritual ? 'Spiritual Bio*' : 'About You*'}
+              placeholder={isSpiritual ? 'Enter you spiritual journey' : 'Tell others about yourself'}
+              value={bio} onChangeText={setBio} maxLength={1000}
+              multiline numberOfLines={5} style={styles.bioInput} />
+
+            {/* Date of Birth */}
+            <View style={styles.fieldWrap}>
+              <Text style={styles.label}>Date of Birth</Text>
+              <TouchableOpacity style={styles.selectBox} onPress={() => setShowDatePicker(true)}>
+                <Text style={dob ? styles.selectText : styles.selectPlaceholder}>
+                  {dob ? formatDate(dob) : 'Select date of birth'}
+                </Text>
+                <Image source={require('../../assets/calendar.png')} style={styles.calendarIcon} resizeMode="contain" />
               </TouchableOpacity>
             </View>
-          ))}
-        </View>
 
-        <AppButton
-          title="Save Changes"
-          onPress={handleSave}
-          loading={saving}
-          style={{ ...styles.saveBtn, backgroundColor: accent }}
-        />
+            {showDatePicker && (
+              Platform.OS === 'ios' ? (
+                <View style={styles.iosPicker}>
+                  <View style={styles.iosPickerBar}>
+                    <TouchableOpacity onPress={() => setShowDatePicker(false)}>
+                      <Text style={[styles.iosPickerDone, { color: accent }]}>Done</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <DateTimePicker
+                    value={dob ?? MAX_DOB}
+                    mode="date"
+                    display="spinner"
+                    maximumDate={MAX_DOB}
+                    onChange={(_, date) => { if (date) setDob(date); }}
+                  />
+                </View>
+              ) : (
+                <DateTimePicker
+                  value={dob ?? MAX_DOB}
+                  mode="date"
+                  display="default"
+                  maximumDate={MAX_DOB}
+                  onChange={(_, date) => { setShowDatePicker(false); if (date) setDob(date); }}
+                />
+              )
+            )}
+
+            {/* Country */}
+            <View style={styles.fieldWrap}>
+              <Text style={styles.label}>Where do You Live?</Text>
+              <TouchableOpacity style={styles.selectBox} onPress={() => setShowCountryPicker(true)}>
+                <Text style={country ? styles.selectText : styles.selectPlaceholder}>
+                  {country || 'Select your country'}
+                </Text>
+                <Icon name="chevron-down" size={16} color={Colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            {/* City / State */}
+            <View style={styles.row}>
+              <AppInput label="City" placeholder="Enter your city" value={city}
+                onChangeText={setCity} maxLength={50} containerStyle={styles.rowField} />
+              <AppInput label="State" placeholder="Enter your state" value={stateVal}
+                onChangeText={setStateVal} maxLength={50} containerStyle={styles.rowField} />
+            </View>
+
+            {/* Gallery */}
+            <Text style={styles.galleryTitle}>My Gallery</Text>
+            <View style={styles.galleryGrid}>
+              <TouchableOpacity
+                style={styles.uploadTile}
+                onPress={handleUpload}
+                activeOpacity={0.75}
+                disabled={uploading}
+              >
+                {uploading ? (
+                  <>
+                    <ActivityIndicator color={accent} />
+                    {uploadProgress && (
+                      <Text style={styles.uploadTileText}>
+                        {uploadProgress.done}/{uploadProgress.total}
+                      </Text>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <Icon name="image-outline" size={30} color={accent} />
+                    <Text style={styles.uploadTileText}>Upload Photos</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              {galleryImages.map((img) => (
+                <View key={img.id} style={styles.photoTile}>
+                  <RemoteImage uri={img.imageUrl} style={styles.photoImg} indicatorColor={accent} />
+                  <TouchableOpacity
+                    style={[styles.deleteBadge, { backgroundColor: lime }]}
+                    onPress={() => handleDeleteImage(img)}
+                    hitSlop={6}
+                  >
+                    <Icon name="trash-outline" size={14} color={Colors.text} />
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+
+            <AppButton
+              title="Save Changes"
+              onPress={handleSave}
+              loading={saving}
+              style={{ ...styles.saveBtn, backgroundColor: accent }}
+            />
+          </>
+        )}
       </KeyboardAwareScrollView>
 
       <DatingBottomBar active="DatingMyProfile" />
@@ -501,8 +504,8 @@ export default function DatingMyProfileScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.background },
   container: { padding: 24, paddingTop: 8, paddingBottom: 140 },
+  formLoading: { paddingVertical: 48, alignItems: 'center' },
 
   avatarWrap: { alignSelf: 'center', width: 96, height: 96, marginBottom: 10 },
   avatar: { width: 96, height: 96, borderRadius: 48, backgroundColor: Colors.surface },

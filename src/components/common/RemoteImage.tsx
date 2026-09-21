@@ -27,6 +27,10 @@ interface RemoteImageProps extends BaseProps {
   style?: StyleProp<ImageStyle | ViewStyle>;
   /** Rendered when the URL is missing OR the download fails (e.g. a 404). */
   fallback?: React.ReactNode;
+  /** Blurs the bitmap as drawn, so it looks about the same on iOS and Android. */
+  blurRadius?: number;
+  /** Fires once the download settles, whether it loaded or failed. */
+  onLoadEnd?: () => void;
 }
 
 /**
@@ -45,6 +49,8 @@ export default function RemoteImage({
   indicatorColor = Colors.textMuted,
   indicatorSize = 'small',
   fallback,
+  blurRadius,
+  onLoadEnd,
 }: RemoteImageProps) {
   const source = resolveImageUrl(uri);
   const [tracked, setTracked] = useState(source);
@@ -72,8 +78,13 @@ export default function RemoteImage({
         source={{ uri: source }}
         style={StyleSheet.absoluteFill}
         resizeMode={resizeMode}
+        blurRadius={blurRadius}
+        // Android blurs the decoded bitmap, which is full size for a remote
+        // image unless it's resized, so a full-size photo looked barely blurred
+        // next to iOS. Resizing first makes it blur at the size it's drawn.
+        resizeMethod={blurRadius ? 'resize' : undefined}
         onLoad={() => markLoaded(source)}
-        onLoadEnd={() => setLoading(false)}
+        onLoadEnd={() => { setLoading(false); onLoadEnd?.(); }}
         onError={() => { setFailed(true); setLoading(false); }}
       />
     </View>

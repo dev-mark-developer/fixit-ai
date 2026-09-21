@@ -7,27 +7,44 @@ import {
   ActivityIndicator,
   StyleSheet,
   Image,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { launchImageLibrary } from 'react-native-image-picker';
+import { errorCodes, isErrorWithCode, pick, types } from '@react-native-documents/picker';
 import { DatingStackParamList } from '../../types/navigation';
 import { datingApi, SpiritualRequest } from '../../api/dating';
 import AppButton from '../../components/common/AppButton';
 import { Colors } from '../../utils/colors';
+import { formatFileSize } from '../../utils/chatMedia';
+import {
+  CERTIFICATE_TYPES_LABEL,
+  MAX_CERTIFICATE_LABEL,
+  certificateSubmitError,
+  checkCertificate,
+} from '../../utils/certificateUpload';
+import type { CertificateFile, PickedCertificate } from '../../utils/certificateUpload';
 
 type Props = NativeStackScreenProps<DatingStackParamList, 'UploadCertificate'>;
 
 type ScreenState = 'loading' | 'none' | 'pending' | 'approved' | 'declined';
 
+/**
+ * What the Files picker lets through: PDF, JPEG and PNG. iOS filters by UTI,
+ * Android by MIME type.
+ */
+const FILE_PICKER_TYPES = Platform.OS === 'ios'
+  ? [types.pdf, 'public.jpeg', 'public.png']
+  : [types.pdf, 'image/jpeg', 'image/png'];
+
 export default function UploadCertificateScreen({ navigation }: Props) {
   const [screenState, setScreenState] = useState<ScreenState>('loading');
-  const [selectedUri, setSelectedUri] = useState<string | null>(null);
-  const [selectedMime, setSelectedMime] = useState<string>('application/pdf');
-  const [selectedName, setSelectedName] = useState<string | null>(null);
+  const [file, setFile] = useState<CertificateFile | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState('');
+  // Why a picked file was refused, or why the upload failed
+  const [fileError, setFileError] = useState('');
 
   useEffect(() => {
     loadRequest();
@@ -56,34 +73,66 @@ export default function UploadCertificateScreen({ navigation }: Props) {
     }
   };
 
-  const handlePick = async () => {
+  /** Keeps a picked file only if it can be sent; otherwise says why. */
+  const acceptPicked = (picked: PickedCertificate) => {
+    const check = checkCertificate(picked);
+    if (check.ok) {
+      setFile(check.file);
+      setFileError('');
+    } else {
+      setFile(null);
+      setFileError(check.reason);
+    }
+  };
+
+  // Photos only: the photo library holds no PDFs, and it used to offer videos.
+  const pickFromPhotos = async () => {
     const result = await launchImageLibrary({
-      mediaType: 'mixed',
+      mediaType: 'photo',
       selectionLimit: 1,
       // A certificate has to stay readable, so this is capped far higher than
-      // an avatar — it only trims the camera's excess. Ignored for PDFs.
+      // an avatar — it only trims the camera's excess.
       maxWidth: 2048,
       maxHeight: 2048,
     });
-    if (result.didCancel || !result.assets?.length) return;
-    const asset = result.assets[0];
-    setSelectedUri(asset.uri ?? null);
-    setSelectedMime(asset.type ?? 'application/pdf');
-    setSelectedName(asset.fileName ?? 'document');
-    setSubmitError('');
+    if (result.didCancel) return;
+    if (result.errorCode) {
+      setFileError(result.errorCode === 'permission'
+        ? 'Allow access to your photos in Settings to choose an image.'
+        : 'Your photos could not be opened. Please try again.');
+      return;
+    }
+    const asset = result.assets?.[0];
+    if (!asset) return;
+    acceptPicked({ uri: asset.uri, name: asset.fileName, type: asset.type, size: asset.fileSize });
+  };
+
+  // The Files app / document provider — the only way to reach a PDF.
+  const pickFromFiles = async () => {
+    try {
+      const [picked] = await pick({ type: FILE_PICKER_TYPES, mode: 'import' });
+      acceptPicked({ uri: picked.uri, name: picked.name, type: picked.type, size: picked.size });
+    } catch (err) {
+      if (
+        isErrorWithCode(err)
+        && (err.code === errorCodes.OPERATION_CANCELED || err.code === errorCodes.IN_PROGRESS)
+      ) {
+        return;
+      }
+      setFileError('That file could not be opened. Please try again.');
+    }
   };
 
   const handleSubmit = async () => {
-    if (!selectedUri) return;
+    if (!file) return;
     setSubmitting(true);
-    setSubmitError('');
+    setFileError('');
     try {
-      await datingApi.submitSpiritualRequest(selectedUri, selectedMime);
-      setSelectedUri(null);
-      setSelectedName(null);
+      await datingApi.submitSpiritualRequest(file);
+      setFile(null);
       await loadRequest();
-    } catch {
-      setSubmitError('Submission failed. Please try again.');
+    } catch (err) {
+      setFileError(certificateSubmitError(err));
     } finally {
       setSubmitting(false);
     }
@@ -187,15 +236,22 @@ export default function UploadCertificateScreen({ navigation }: Props) {
           </Text>
         </View>
 
-        {/* File picker area */}
-        <TouchableOpacity style={styles.pickerArea} activeOpacity={0.7} onPress={handlePick}>
-          {selectedUri ? (
+        {/* File picker area — photos for a snapped certificate, Files for a PDF */}
+        <View style={styles.pickerArea}>
+          {file ? (
             <>
-              <Text style={styles.pickerDoneIcon}>📎</Text>
-              <Text style={styles.pickerFileName} numberOfLines={1}>
-                {selectedName ?? 'Document selected'}
+              <Icon
+                name={file.type === 'application/pdf' ? 'document-text' : 'image'}
+                size={34}
+                color={Colors.spiritual}
+                style={styles.pickerFileIcon}
+              />
+              <Text style={styles.pickerFileName} numberOfLines={1}>{file.name}</Text>
+              <Text style={styles.pickerHint}>
+                {[file.name.split('.').pop()?.toUpperCase(), formatFileSize(file.size)]
+                  .filter(Boolean)
+                  .join(' · ')}
               </Text>
-              <Text style={styles.pickerChange}>Tap to change</Text>
             </>
           ) : (
             <>
@@ -204,18 +260,41 @@ export default function UploadCertificateScreen({ navigation }: Props) {
                 style={styles.pickerUploadIcon}
                 resizeMode="contain"
               />
-              <Text style={styles.pickerLabel}>Tap to choose a document or image</Text>
-              <Text style={styles.pickerHint}>PDF, JPG, PNG supported</Text>
+              <Text style={styles.pickerLabel}>Choose a document or image</Text>
+              <Text style={styles.pickerHint}>
+                {CERTIFICATE_TYPES_LABEL} · up to {MAX_CERTIFICATE_LABEL}
+              </Text>
             </>
           )}
-        </TouchableOpacity>
 
-        {submitError ? <Text style={styles.errorText}>{submitError}</Text> : null}
+          <View style={styles.sourceRow}>
+            <TouchableOpacity
+              style={styles.sourceBtn}
+              onPress={pickFromPhotos}
+              disabled={submitting}
+              activeOpacity={0.75}
+            >
+              <Icon name="images-outline" size={17} color={Colors.spiritual} />
+              <Text style={styles.sourceBtnText}>Photos</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.sourceBtn}
+              onPress={pickFromFiles}
+              disabled={submitting}
+              activeOpacity={0.75}
+            >
+              <Icon name="folder-open-outline" size={17} color={Colors.spiritual} />
+              <Text style={styles.sourceBtnText}>Files</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {fileError ? <Text style={styles.errorText}>{fileError}</Text> : null}
 
         <AppButton
           title={isDeclined ? 'Resubmit for Review' : 'Submit for Review'}
           onPress={handleSubmit}
-          disabled={!selectedUri}
+          disabled={!file}
           loading={submitting}
           style={styles.spiritualBtn}
         />
@@ -327,10 +406,24 @@ const styles = StyleSheet.create({
   pickerPlaceholderIcon: { fontSize: 32, marginBottom: 10 },
   pickerLabel: { fontSize: 15, fontWeight: '600', color: Colors.spiritual, marginBottom: 6 },
   pickerHint: { fontSize: 12, color: Colors.textMuted },
-  pickerDoneIcon: { fontSize: 32, marginBottom: 10 },
-  pickerFileName: { fontSize: 15, fontWeight: '600', color: Colors.text, marginBottom: 4, maxWidth: 220 },
-  pickerChange: { fontSize: 12, color: Colors.spiritual },
+  pickerFileIcon: { marginBottom: 8 },
+  pickerFileName: { fontSize: 15, fontWeight: '600', color: Colors.text, marginBottom: 4, maxWidth: 240 },
 
-  errorText: { color: Colors.error, fontSize: 13, marginBottom: 12, textAlign: 'center' },
+  sourceRow: { flexDirection: 'row', gap: 10, marginTop: 18, alignSelf: 'stretch' },
+  sourceBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 11,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.spiritual,
+    backgroundColor: Colors.white,
+  },
+  sourceBtnText: { fontSize: 14, fontWeight: '600', color: Colors.spiritual },
+
+  errorText: { color: Colors.error, fontSize: 13, lineHeight: 19, marginBottom: 12, textAlign: 'center' },
   spiritualBtn: { backgroundColor: Colors.spiritual },
 });

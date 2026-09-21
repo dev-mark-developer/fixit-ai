@@ -5,6 +5,366 @@ doing UI work on **AIFixitMobileApp**. Newest entries at the top.
 
 ---
 
+## 2026-09-21 — iOS build broken by the Xcode 27 upgrade
+
+- **Reported by the user:** the Xcode build fails. The Mac had moved to
+  **macOS 27.0 / Xcode 27.0** since the last good build (2026-09-17).
+- **Cause:** Xcode 27 turns "deployment target below the supported range"
+  into an **error** (range now 15.0–27.0; older Xcode only warned). React
+  Native's `react_native_post_install` raises each pod's *own* target to its
+  minimum (15.1) but not the **resource bundle** targets CocoaPods creates
+  beside them, which keep the podspec's number: `PromisesObjC` (9.0),
+  `GoogleUtilities` / `GoogleDataTransport` / `nanopb` `_Privacy` (12.0) and
+  `RNCAsyncStorage_resources` (13.4). Those five were the only errors.
+- **Fix (Podfile `post_install`):** any Pods target below
+  `min_ios_version_supported` is raised to it; higher ones are left alone.
+  All 234 settings in the Pods project are now 15.1.
+- **`pod install` gotcha after the OS upgrade:** it crashed with
+  `Unicode Normalization not appropriate for ASCII-8BIT` — the shell had no
+  UTF-8 locale. Run it as `LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 pod install`
+  (or export those in the shell profile). Shared scheme untouched.
+- **Verified:** `xcodebuild` Debug for the iPhone 17 Pro simulator →
+  BUILD SUCCEEDED, 0 errors; installed and launched, and with Metro started
+  (it had stopped with the restart) the app reaches the Welcome screen.
+
+---
+
+## 2026-09-17 (later) — Date of birth, one day behind (reported again)
+
+- **The Asana ticket (`1218322034009733`, completed 2026-09-11) was raised
+  again** with its original text. Sign-up has sent the picked local day since
+  `toApiDate` (commit 32f51c9, 2026-09-14), and the API stores a plain date
+  (`format: date`; `GET /users/me` returns `"2007-09-17"`), so a build older
+  than that commit still shows the original bug.
+- **What was still wrong:** the *read* side. `DatingMyProfileScreen` and
+  `MentorProfileSetupScreen` prefilled the picker with
+  `new Date("2000-08-27")` — UTC midnight, i.e. 26 Aug on any device west of
+  Greenwich (verified with `TZ=America/New_York` / `Los_Angeles`; fine in
+  Karachi and London). Saving the form then sent 26 Aug, which is what the
+  admin panel showed. `DatingProfileDetailScreen.ageFromDob` had the same
+  parse (age a year off on the birthday).
+- **Fix:** `parseApiDateOnly` in `utils/datetime.ts` — the leading
+  `YYYY-MM-DD` as local midnight, NaN for junk and impossible dates; the
+  inverse of `toApiDate`. Used in all three places. Tests round-trip through
+  `toApiDate` and pass under Karachi, London, New York, Los Angeles,
+  Auckland and Honolulu.
+- **Still open:** dates of birth saved before these fixes stay a day early
+  (backend correction, as noted on the ticket). If a fresh build still shows
+  a mismatch, compare `GET /users/me` with the panel — if the API has the
+  right date, the panel's own display is shifting it for viewers west of UTC.
+
+---
+
+## 2026-09-17 (later) — Upload Certificate: PDFs, file checks, real error messages
+
+- **Reported by the user:** no type/size validation, a bad image type ended in
+  a generic "Submission failed", and PDFs couldn't be uploaded although the
+  screen lists them.
+- **Why PDFs failed:** the only picker was `launchImageLibrary`, which can't
+  reach a PDF (and, with `mediaType: 'mixed'`, offered videos). Every upload
+  was also named `certificate.pdf`, photos included.
+- **New dependency: `@react-native-documents/picker@12.0.2`** (maintained
+  successor of react-native-document-picker; RN ≥ 0.79, new-arch). `pod
+  install` run (scheme untouched). ⚠️ Its JS calls
+  `TurboModuleRegistry.getEnforcing` on import, so **any build made before
+  this change shows a red screen on reload** — rebuild iOS and Android.
+  Rebuilt and launched on the iPhone 17 Pro simulator from Xcode. Android not
+  built. Only `package-lock.json` was updated (npm); `yarn.lock` is stale for
+  this package.
+- **Screen:** the dashed area now has **Photos** (photo library, photos only)
+  and **Files** (document picker, import mode, PDF / JPEG / PNG) buttons, and
+  shows the chosen file's name, type and size. No modal chooser — presenting
+  a picker while a modal closes is unreliable on iOS.
+- **`utils/certificateUpload.ts`** (tested): `checkCertificate` accepts
+  PDF / JPEG / PNG up to 10 MB (type from the picker, else the extension;
+  `image/jpg` → `image/jpeg`), and names the upload to match
+  (`IMG_1.JPEG` → `IMG_1.jpg`). Refusals name the type ("GIF files aren't
+  supported. Please choose a PDF, JPG or PNG.") or the size ("That file is
+  12.4 MB…"). `certificateSubmitError` rewords the server's raw-MIME type
+  refusal, turns the host's 413 into a size message, and passes any other
+  server reason through. `datingApi.submitSpiritualRequest` now takes
+  `{ uri, name, type }`.
+- **Server rules (probed, gap #36):** accepts PDF, JPEG, PNG, DOC, DOCX by
+  declared type; type is checked before size; 40 MB → host 413. The 10 MB
+  limit is ours until the backend says otherwise.
+- Checked on the simulator: the empty state with a refusal message, and a
+  selected PDF (temporary harness, reverted). Not checked: opening either
+  picker, or a real upload (can't tap; a real upload would also create a
+  request on the test account).
+
+---
+
+## 2026-09-17 (later) — Vetting Quiz: every external mentor in "Choose a Mentor"
+
+- **Reported by the user:** the result screen showed 5 mentors while
+  `GET /external-mentors` has 6. The list was cut with `.slice(0, 5)`, and an
+  empty or failed list fell back to five hardcoded names (Jason Taylor, …)
+  that did nothing when tapped.
+- **Now:** every mentor the API returns (skipping any `isActive: false`),
+  three to a row, keyed by id. No mentors → the "Choose a Mentor" heading,
+  grid and OR divider are hidden, leaving Request a Mentor. A photo that
+  fails to load shows initials (emoji-safe). The fetch runs alongside the
+  2-second reviewing pause instead of after it.
+- Checked on the simulator (signed out; `/external-mentors` is public): all
+  six render in two rows. Two photos 404 on the server and one is a 1×1 PNG —
+  noted on gap #12.
+
+---
+
+## 2026-09-17 (later) — Assigned Mentor details screen
+
+- **Asked by the user, with the Figma "Mentor Details" screenshot:** tapping
+  the Mentor Assigned card on `SpiritualEntryScreen` opens the mentor's
+  details. No such screen existed, so it's new:
+  `screens/dating/AssignedMentorScreen.tsx`, route `AssignedMentor` in the
+  dating stack, params `{ request: MentorRequest }` (the row
+  `GET /mentor-request` already returned). The card now has a chevron; the
+  pending card is unchanged.
+- **Layout:** round photo, name (spiritual purple), title, a Registration Date |
+  Assigned Date row, About {name}, Contact Details (email opens the mail app),
+  and "Completed your course and" + Upload Certificate (same button as the
+  entry screen, goes to `UploadCertificate`). The footer stays at the bottom.
+- **Data (checked live with `sp4@yopmail.com`):** the response has name, photo,
+  `assignedAt`, `createdAt` and nothing more. No member-callable endpoint has
+  the mentor's profile (probed `Dating/user/{id}` 404, `Mentor/profile` 403,
+  admin 403). So title / About / Contact Details are hidden until the backend
+  adds `assignedMentorTagline` / `assignedMentorBio` / `assignedMentorEmail`
+  (gap #35); the type already has them.
+- **Registration Date = `createdAt`** (when the member asked for a mentor) —
+  my reading of the design, flagged in #35.
+- Checked on the simulator with sp4's real response, and with sample title /
+  bio / email for the full layout (temporary harness, reverted).
+- **Simulator note:** Fast Refresh stopped reaching the Xcode-launched app on
+  the iPhone 17 Pro mid-session; `POST localhost:8081/reload` didn't help.
+  Relaunching with `xcrun simctl launch` on the other simulator did.
+
+---
+
+## 2026-09-17 — Separate subscription products per module
+
+- **Decided by the user** (replaces the 2026-08-27 "one shared product"): three
+  products in two App Store groups.
+
+  | Module | Product id | Group |
+  |---|---|---|
+  | Mentor | `com.monthly` (kept; can't be renamed) | Mentor |
+  | Non-Spiritual dating | `com.nonspiritual.monthly` | Dating |
+  | Spiritual dating | `com.spiritual.monthly` | Dating |
+
+  A user is only ever one dating type, so both dating plans share a group.
+  All three are $5.99/month.
+- **`utils/subscriptionProducts.ts`** holds the ids and groups.
+  `services/iap.ts` takes the product id on fetch / purchase, and restore
+  looks only at one group's products. `IAP_PRODUCT_ID` is gone.
+- **`useSubscription('mentor' | 'dating')`**: `isPremium` is now per group
+  (`statusGrants`: active, and `status.productId` is in that group). A
+  purchase waits for *its* group's entitlement, so a mentor's existing
+  subscription doesn't count as the new dating one. A status with no
+  `productId` still unlocks both, rather than locking out someone who paid.
+  Mentor: `MentorNavigator`, `MentorProfileSetupScreen`,
+  `MentorSubscriptionScreen`. Dating: `DatingPremiumScreen` (buys the product
+  for its `datingType`), Discover, Matches.
+- Fallback prices `$20` → `$5.99`. `ios/Fixit.storekit` now has both groups at
+  5.99. Unit tests: `__tests__/subscriptionProducts.test.ts`.
+- **Dating Premium feature list** (asked by the user): removed "See Everyone
+  Who Likes You", "Ice Breaker questions setup" and "No ads". Left: Unlimited
+  Likes, Advance Filters, Unlimited Matches, Priority Support.
+- **Backend (gap #34):** map the products to modules, return entitlement per
+  group (a mentor who also dates has two subscriptions, and `status` shows
+  one), and count only dating products for dating premium.
+- **Screenshots** for App Store Connect review in `docs/store-screenshots/`
+  (iPhone 17 Pro, 1206×2622), prices read from the StoreKit config: the
+  fallback was blanked while capturing, so $5.99 came from StoreKit. Captured
+  signed-out by briefly swapping the Welcome route for each paywall (reverted).
+  The Mentor one is the post-signup gate (Sign Out header). The purchase sheet
+  itself wasn't opened — the simulator can't be tapped from here.
+- **StoreKit gotcha:** the running app keeps the StoreKit config it launched
+  with. Editing `Fixit.storekit` needs a fresh Run from Xcode (a Fast Refresh
+  or relaunch from the simulator isn't enough).
+
+---
+
+## 2026-09-16 (later) — Likes Received: blurred locked tiles for free accounts
+
+- **Asked by the user, with a design screenshot:** non-subscribers see blurred
+  photo tiles with a white padlock and "Get a Premium Access" below.
+- **Reverses the "backend is the single source of truth" decision** (2026-08-29
+  entry). The endpoint still isn't gated (gap #23), so the tab now locks on
+  `!isPremium` as well as on 402/403. While the first entitlement read is in
+  flight with nothing cached, the tab shows a spinner rather than guessing.
+- **Tiles:** up to two (`LOCKED_PREVIEW_COUNT`), squarer than the grid cards
+  (1.15 vs 1.35, as in the design), the liker's photo at `blurRadius` 28 under a
+  45% black scrim, soft shadow for the design's blurred edge. Tapping one opens
+  Premium. A free account with no likes gets the normal empty state instead of
+  tiles that promise likes. A 402/403 has no rows, so those tiles are plain.
+- **`RemoteImage`** gained `blurRadius` and `onLoadEnd`. With a blur it sets
+  `resizeMethod="resize"`: Android blurs the decoded bitmap, which is full size
+  for a remote image unless it's resized, so the blur looked far weaker than on
+  iOS. The padlock waits for `onLoadEnd` so it never sits on the spinner.
+- Checked on the iPhone 17 simulator (free Non-Spiritual account, one like).
+  Android not checked.
+
+---
+
+## 2026-09-16 (later) — Discover: filter indicator + Clear on Advance Filters
+
+- **Asked by the user:** a clear option on the filter sheet and an indicator on
+  the filter icon. The main Filter view already had Clear Filters | Apply
+  (from 32f51c9); the Advance Filters view only had Apply, so it now has the
+  same row. Both call `clearFilters`, which resets everything, interests
+  included, and reloads an unfiltered deck.
+- **Filter icon dot:** an accent-coloured dot while the deck on screen came
+  from a filtered request (`filtersApplied`, set in `loadUsers` next to
+  `filtersAppliedRef`). Apply turns it on, even when the values are the
+  defaults, since age 18–26 / 30 km still narrows the deck. Clear turns it
+  off. Screen readers hear "Filters, applied".
+
+---
+
+## 2026-09-16 — Current location on sign-up, sign-in and Discover
+
+- Backend added `latitude` / `longitude` to `POST /auth/register` and
+  `POST /auth/login` (nullable doubles), and `Latitude` / `Longitude` to
+  `GET /dating/discover` — **typed as strings there**, so `datingApi.discover`
+  stringifies them while every other query param stays a number.
+- **New dependency: `@react-native-community/geolocation@3.4.0`.** React Native
+  has no geolocation in core. `pod install` run for iOS; both platforms need a
+  native rebuild.
+- **`src/utils/location.ts`** — `getCurrentCoords()` asks for permission the
+  first time (`PermissionsAndroid` on Android, `requestAuthorization` on iOS,
+  with the library's own prompt turned off), caches the fix for 5 minutes, and
+  returns null on refusal, timeout or location being off. It never throws and is
+  never awaited longer than its ceiling, so callers just leave the fields out.
+  A refusal is remembered for the session, so nothing re-prompts on every call.
+- **Asked at launch** (the user's call, rather than at first sign-in):
+  `primeLocation()` runs in `App.tsx` right after the notification prompt — one
+  iOS dialog at a time — and warms the cache with a first fix, so sign-in,
+  sign-up and Discover find coordinates ready instead of prompting mid-flow.
+- Wired into both sign-in calls (`LoginScreen` and the auto sign-in after OTP),
+  `RegisterScreen`, and the Discover deck load (3s ceiling there, then cached).
+- **Native config:** Android gained `ACCESS_FINE_LOCATION` /
+  `ACCESS_COARSE_LOCATION` (plus optional location hardware features, so the app
+  still installs on devices without GPS). iOS had
+  `NSLocationWhenInUseUsageDescription` present but **empty**, which App Store
+  review rejects; it now explains the use.
+
+---
+
+## 2026-09-15 — Discover: swipe feedback (button spinner + toast)
+
+- **Asked by the user:** feedback on ✕ / ⭐ / ♥. The deck still moves on
+  straight away, but the button for that swipe now shows a spinner until
+  `POST /dating/swipe` answers, and all three buttons plus the next card's drag
+  wait until then. One swipe at a time also removes the old race of a refusal
+  landing while the next card was mid-swipe.
+- **Toast** (new `components/common/Toast.tsx`, navy like the penpal profile's
+  inline one): "You liked / super liked / passed on {name}" on success; a match
+  shows its screen instead. Any failure other than the daily limit now puts the
+  card back and shows the server's message in a red toast — before, that swipe
+  was quietly lost. The limit refusal keeps its cover / alert.
+- If the deck reloads while a swipe is in flight (e.g. a tab switch), a failure
+  no longer jumps the new deck back to an old index.
+- Docs: BACKEND_LIKE_LIMITS.md / .xlsx and gap #22 note the new failure handling.
+
+---
+
+## 2026-09-14 (later) — Swipe counters verified and wired
+
+- **Live test (`nons@yopmail.com`, free Non-Spiritual; beta limits 2 swipes /
+  1 super like):** a super like → 200 with the new counters
+  (`dailySuperLikeLimit`, `superLikesUsedToday`, `superLikesRemainingToday`)
+  **and `resetsAt: "2026-09-15T00:00:00Z"`** (midnight UTC — it *is* there).
+  A 2nd super like → still **400 with only a message, no `code`**. A pass →
+  200, and `swipesUsedToday` went 1 → 2, so **a pass uses up a swipe**, against
+  the requirement. The deck had 2 people, so the refusal after the swipe limit
+  is still untested. Side effects: nons super-liked LisaD (73) and passed on
+  Else (254).
+- **`utils/swipeLimits.ts`:** limits now store their reset time (epoch ms)
+  instead of a local day. `applyCounters` reads each successful swipe: no
+  swipes left → ♥ and ⭐ dim; no super likes left → ⭐ dims; some left → the
+  block lifts. The expiry is the last `resetsAt` seen, else the next midnight
+  UTC. `SwipeResult` is typed with the verified fields.
+- **Discover:** tapping ⭐ when the swipes (not just super likes) are gone shows
+  the daily-limit cover instead of the super-like alert. Passes are still never
+  blocked client-side; if the backend starts refusing them, they fail silently.
+- Refusal detection is unchanged (402/403, or a 400 saying "daily limit"),
+  since no error code shipped.
+- Docs: BACKEND_LIKE_LIMITS.md and .xlsx rewritten around a status table;
+  gap #22 back to 🔴 Open (no code); #33 updated.
+- **Limit cover now survives tab switches** (reported by the user): the silent
+  deck refresh on focus used to hide it, so coming back to Discover showed the
+  dimmed buttons with no cover until the next attempt. It now stays until the
+  user passes, super likes, taps Keep Browsing (premium), or the limit lifts —
+  which also resets it, so the next limit starts uncovered.
+- **…and survives relaunches** (reported next): the limits lived only in memory,
+  and config has no usage, so a relaunch forgot them until a swipe was refused.
+  `useSwipeLimits(isPremium, userId)` now saves `{ userId, like, superLike,
+  premium }` (reset times in epoch ms) under `swipe_limits_v1` and reads it back
+  on launch; other users' records and expired entries are ignored
+  (`readStoredLimits`, tested). A restored like limit brings the cover back.
+  Buying premium clears only limits reached on the free plan — otherwise the
+  subscription status loading at every launch would wipe a premium user's own
+  limit.
+- **✕ is blocked at the limit too** (requested by the user): a pass uses up a
+  swipe on the backend, so `limitFor('Ignore')` now returns `like` (the daily
+  swipes). With no swipes left ✕ dims, a left swipe settles back, and a tap or
+  swipe brings the cover back. With only the super likes gone, ✕ still works.
+  This settles the open "should a pass count?" question in favour of what the
+  backend already does.
+- **Filter sheet sliders** (reported by the user): at the maximum the thumb was
+  centred on the track's very end, so half of it — and the "100 km" / "80"
+  label — was clipped by the sheet. `TrackSlider` now insets the track by the
+  thumb's radius, keeps the value label inside both edges, and lets it stand in
+  for the "0 km" / "18" label when the two would overlap.
+- **Dating My Profile loading** (reported by the user): the first open replaced
+  the whole screen — top bar and bottom bar included — with a white page and a
+  centred spinner. The bars now always render, the avatar / name / email header
+  shows straight away (it comes from the session), and a spinner stands in for
+  the form only until `GET /dating/profile` returns. The form mounts after the
+  load, so nothing typed early can be overwritten.
+- **Same fix app-wide** (the user asked for the rest to be found): every screen
+  that draws its own header or bars and returned a bare spinner while loading
+  now keeps that chrome and shows the spinner in the content area only —
+  Discover (first deck), Chat Detail (history; header and composer stay),
+  Interest / Ice Breaker Selection (spinner inside the list; footer buttons
+  stay), Premium, Non-Spiritual Entry, Spiritual Entry (both the boot and the
+  loading phase), Vetting Quiz, Penpal My Profile, Penpal Setup and Mentor
+  Subscription (Sign Out stays usable on the gate, with its alert). Dating
+  Lobby's spinner only waited for a cached user it never used, so it's gone.
+  Left alone: screens with a navigator header (Block List, External Mentors,
+  FAQs, Edit Profile, Mentor Edit Profile), screens already loading inline
+  (Chats, Matches, Notifications, Mentor Dashboard, Penpal Connections /
+  Letters / Letter Detail, Upload Certificate, Profile Detail), PenpalHome (not
+  in navigation), and the three navigator gates (app start, Home, Mentor), which
+  run before any screen exists.
+
+---
+
+## 2026-09-14 — Like limits: config wired, new swipe response unverified
+
+- **Backend reports** `POST /dating/swipe` now returns the shape proposed in
+  [BACKEND_LIKE_LIMITS.md](./BACKEND_LIKE_LIMITS.md) (error code + super-like
+  counters), **without `resetsAt`**. **Not verified:** sp3 has already swiped
+  everyone in its deck, beta's limit is now 2 swipes (so a test needs 3+
+  people), and the user chose to skip the swipe test. The app doesn't read
+  those fields yet — it still relies on 402/403 or a 400 saying "daily limit".
+- **`GET /dating/config` now returns the admin settings** (verified):
+  `freeSwipesPerDay`, `freeSuperLikesPerDay`, `premiumSwipesPerDay`,
+  `premiumSuperLikesPerDay` (beta: 2 / 1 / 2 / 5, lowered for testing), plus
+  `maxGalleryImages`, `maxDatingImages`, `maxIceBreakers`, OTP and trial
+  settings, `vettingPassScore` and `supportEmail`. Typed as `DatingConfig`,
+  fetched with `datingApi.getConfig()`. Limits only, no usage.
+- **`NonSpiritualEntryScreen`** shows the free numbers from config instead of
+  the hardcoded "10 swipes / 1 super like". If config fails it leaves the
+  numbers out rather than guess (`freeAllowanceLines` in `utils/swipeLimits.ts`,
+  tested). The screen moved back to SCREENS_NO_API_CHANGES.
+- Premium is capped on beta (2 swipes / 5 super likes), so the Figma
+  "Unlimited Likes" copy is wrong there — still a client question.
+- Docs: BACKEND_LIKE_LIMITS.md, gap #22 (🟡 Verify) and gap #33 (🟡 Partly
+  done) updated.
+
+---
+
 ## 2026-09-11 — Discover: like and super-like limits split
 
 The admin panel sets separate daily allowances for **likes** and **super
@@ -224,7 +584,8 @@ RN 0.85 without a version fight. Pods: `NitroIap 16.4.0` + `openiap 3.3.0`.
    confirmation alone would drop the purchase entirely if the webhook never
    landed. Leaving it unfinished means StoreKit replays it on the next launch
    and `onReplayedPurchase` re-checks the status — the purchase self-heals.
-2. **The backend stays the single source of truth for Likes Received.** The
+2. **The backend stays the single source of truth for Likes Received.**
+   _(Superseded 2026-09-16: the client now locks on `!isPremium` too.)_ The
    client does *not* pre-lock that tab from its own `isPremium`; it still calls
    the endpoint and locks on 402/403. It only reacts to the *moment* premium is
    bought, to swap the locked preview for the real list without a refresh.

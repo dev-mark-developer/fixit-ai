@@ -82,15 +82,16 @@ export default function VettingQuizScreen({ navigation }: Props) {
     } catch {
       // proceed to result regardless
     }
-    // Fetch mentors for the result screen
-    try {
-      const res = await mentorApi.getExternalMentors();
-      setMentors((res.data?.data ?? []).slice(0, 5));
-    } catch {
-      // use empty list
-    }
-    // 2-second "reviewing" delay
-    await new Promise<void>((r) => setTimeout(r, 2000));
+    // Every mentor the API lists, fetched during the 2-second "reviewing"
+    // pause rather than after it. A failed fetch leaves the list empty, which
+    // hides the section.
+    const loadMentors = mentorApi.getExternalMentors()
+      .then((res) => {
+        const rows: ExternalMentor[] = res.data?.data ?? [];
+        setMentors(rows.filter((m) => m.isActive !== false));
+      })
+      .catch(() => setMentors([]));
+    await Promise.all([loadMentors, new Promise<void>((r) => setTimeout(r, 2000))]);
     setPhase('result');
   };
 
@@ -138,12 +139,22 @@ export default function VettingQuizScreen({ navigation }: Props) {
   }
 
   // ─── Loading ───────────────────────────────────────────
+  // The back arrow stays usable while the questions load.
   if (phase === 'loading') {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={Colors.spiritual} />
-        <Text style={styles.loadingText}>Loading questions…</Text>
-      </View>
+      <SafeAreaView style={styles.root}>
+        <TouchableOpacity
+          style={styles.topBackBtn}
+          onPress={() => navigation.goBack()}
+          hitSlop={8}
+        >
+          <Text style={styles.topBackIcon}>←</Text>
+        </TouchableOpacity>
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={Colors.spiritual} />
+          <Text style={styles.loadingText}>Loading questions…</Text>
+        </View>
+      </SafeAreaView>
     );
   }
 
@@ -178,7 +189,6 @@ export default function VettingQuizScreen({ navigation }: Props) {
 
   // ─── Result ───────────────────────────────────────────
   if (phase === 'result') {
-    const displayMentors = mentors.length > 0 ? mentors : PLACEHOLDER_MENTORS;
     return (
       <SafeAreaView style={styles.root}>
         <ScrollView contentContainerStyle={styles.resultContent} showsVerticalScrollIndicator={false}>
@@ -204,43 +214,55 @@ export default function VettingQuizScreen({ navigation }: Props) {
             of our experienced mentors who can guide you on your journey toward alignment.
           </Text>
 
-          {/* Choose a Mentor grid */}
-          <Text style={styles.chooseMentorLabel}>Choose a Mentor</Text>
-          <View style={styles.mentorGrid}>
-            {displayMentors.map((m, i) => {
-              const initials = ('name' in m ? m.name : '')
-                .split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase();
-              const bgColors = ['#C7B8EA', '#E8B4A0', '#A8D8C8', '#F4C3A0', '#B8D4EA'];
-              const isReal = mentors.length > 0;
-              const photo = 'profileImageUrl' in m ? (m as ExternalMentor).profileImageUrl : undefined;
-              return (
-                <TouchableOpacity
-                  key={i}
-                  style={styles.mentorGridItem}
-                  activeOpacity={isReal ? 0.75 : 1}
-                  onPress={() => isReal && 'webPageUrl' in m ? Linking.openURL((m as ExternalMentor).webPageUrl).catch(() => {}) : undefined}
-                >
-                  {photo ? (
-                    <RemoteImage uri={photo} style={styles.mentorAvatarImg} />
-                  ) : (
-                    <View style={[styles.mentorAvatar, { backgroundColor: bgColors[i % bgColors.length] }]}>
-                      <Text style={styles.mentorAvatarText}>{initials || '🧘'}</Text>
+          {/* Choose a Mentor — every mentor the API lists, three to a row.
+              With none to choose from, only the request below is offered. */}
+          {mentors.length > 0 && (
+            <>
+              <Text style={styles.chooseMentorLabel}>Choose a Mentor</Text>
+              <View style={styles.mentorGrid}>
+                {mentors.map((m, i) => {
+                  const initialsAvatar = (
+                    <View
+                      style={[
+                        styles.mentorAvatar,
+                        { backgroundColor: AVATAR_COLORS[i % AVATAR_COLORS.length] },
+                      ]}
+                    >
+                      <Text style={styles.mentorAvatarText}>{initialsOf(m.name) || '🧘'}</Text>
                     </View>
-                  )}
-                  <Text style={styles.mentorAvatarName} numberOfLines={1}>
-                    {'name' in m ? m.name : ''}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+                  );
+                  return (
+                    <TouchableOpacity
+                      key={m.id}
+                      style={styles.mentorGridItem}
+                      activeOpacity={0.75}
+                      onPress={() => Linking.openURL(m.webPageUrl).catch(() => {})}
+                    >
+                      {m.profileImageUrl ? (
+                        <RemoteImage
+                          uri={m.profileImageUrl}
+                          style={styles.mentorAvatarImg}
+                          resizeMode="cover"
+                          indicatorColor={Colors.spiritual}
+                          fallback={initialsAvatar}
+                        />
+                      ) : initialsAvatar}
+                      <Text style={styles.mentorAvatarName} numberOfLines={1}>
+                        {m.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
 
-          {/* OR divider */}
-          <View style={styles.orRow}>
-            <View style={styles.orLine} />
-            <Text style={styles.orText}>OR</Text>
-            <View style={styles.orLine} />
-          </View>
+              {/* OR divider */}
+              <View style={styles.orRow}>
+                <View style={styles.orLine} />
+                <Text style={styles.orText}>OR</Text>
+                <View style={styles.orLine} />
+              </View>
+            </>
+          )}
 
           {/* Request button */}
           <AppButton
@@ -344,13 +366,19 @@ export default function VettingQuizScreen({ navigation }: Props) {
   );
 }
 
-const PLACEHOLDER_MENTORS = [
-  { id: 1, name: 'Jason Taylor' },
-  { id: 2, name: 'Aria Vance' },
-  { id: 3, name: 'Julian Cross' },
-  { id: 4, name: 'Marcus Veda' },
-  { id: 5, name: 'Gabriel Voss' },
-];
+/** Behind a mentor with no photo, or one whose photo won't load. */
+const AVATAR_COLORS = ['#C7B8EA', '#E8B4A0', '#A8D8C8', '#F4C3A0', '#B8D4EA'];
+
+/** Up to two initials. `Array.from` keeps an emoji whole instead of splitting it. */
+function initialsOf(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => Array.from(word)[0])
+    .join('')
+    .toUpperCase();
+}
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },

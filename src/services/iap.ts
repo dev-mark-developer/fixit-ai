@@ -15,11 +15,10 @@ import {
   type PurchaseError,
 } from 'react-native-iap';
 
-/**
- * The single auto-renewing subscription behind every paid surface in the app —
- * the mentor programme and dating premium share one entitlement.
+/*
+ * StoreKit wrapper for the app's auto-renewing subscriptions. Which product
+ * belongs to which module lives in utils/subscriptionProducts.
  */
-export const IAP_PRODUCT_ID = 'com.monthly';
 
 /** IAP is iOS-only for now; Android keeps its existing stub behaviour. */
 export const isIapSupported = Platform.OS === 'ios';
@@ -69,9 +68,9 @@ export class IapUnavailableError extends Error {
  * anything, so it is rewritten into the three things that actually cause it.
  */
 export class IapProductMissingError extends Error {
-  constructor() {
+  constructor(productId: string) {
     super(
-      `The "${IAP_PRODUCT_ID}" subscription isn't available in this environment. ` +
+      `The "${productId}" subscription isn't available in this environment. ` +
       'On a simulator, pick the StoreKit configuration file in Edit Scheme → Run → Options. ' +
       'On a device, the product must exist in App Store Connect and be at least "Ready to Submit", ' +
       'and the build must be signed with the matching bundle id.',
@@ -89,6 +88,7 @@ function isMissingProductError(err: any): boolean {
 }
 
 type Deferred = {
+  productId: string;
   resolve: (purchase: Purchase) => void;
   reject: (error: Error) => void;
 };
@@ -144,7 +144,10 @@ function handlePurchaseError(error: PurchaseError) {
   pending = null;
   iapLog('purchase: StoreKit reported an error', describeError(error));
   if (error.code === ErrorCode.UserCancelled) { deferred.reject(new IapCancelledError()); return; }
-  if (isMissingProductError(error)) { deferred.reject(new IapProductMissingError()); return; }
+  if (isMissingProductError(error)) {
+    deferred.reject(new IapProductMissingError(deferred.productId));
+    return;
+  }
   deferred.reject(new Error(error.message || 'The purchase could not be completed.'));
 }
 
@@ -186,15 +189,17 @@ export async function shutdownIap(): Promise<void> {
   await endConnection().catch(() => {});
 }
 
-/** Store metadata for the plan — used for the real localised price. */
-export async function fetchSubscriptionProduct(): Promise<ProductSubscription | null> {
+/** Store metadata for a plan — used for the real localised price. */
+export async function fetchSubscriptionProduct(
+  productId: string,
+): Promise<ProductSubscription | null> {
   if (!isIapSupported) return null;
   await initIap();
-  iapLog('fetch: requesting products', { skus: [IAP_PRODUCT_ID], type: 'subs' });
+  iapLog('fetch: requesting products', { skus: [productId], type: 'subs' });
 
   let products;
   try {
-    products = await fetchProducts({ skus: [IAP_PRODUCT_ID], type: 'subs' });
+    products = await fetchProducts({ skus: [productId], type: 'subs' });
   } catch (err) {
     iapLog('fetch: FAILED', describeError(err));
     throw err;
@@ -206,7 +211,8 @@ export async function fetchSubscriptionProduct(): Promise<ProductSubscription | 
     ids: list.map((p) => p.id),
   });
 
-  const found = list.find((p) => p.id === IAP_PRODUCT_ID) ?? list[0] ?? null;
+  // Only the product asked for: another plan's price must never stand in for it.
+  const found = list.find((p) => p.id === productId) ?? null;
   if (found) {
     iapLog('fetch: using product', {
       id: found.id,
@@ -218,8 +224,8 @@ export async function fetchSubscriptionProduct(): Promise<ProductSubscription | 
     // Callers fall back to the hard-coded price, so an empty result is
     // otherwise invisible right up until Subscribe fails with "SKU not found".
     iapLog('fetch: NO PRODUCT — this is what makes Subscribe fail', {
-      requested: IAP_PRODUCT_ID,
-      why: new IapProductMissingError().message,
+      requested: productId,
+      why: new IapProductMissingError(productId).message,
     });
   }
   return found;
@@ -233,26 +239,29 @@ export async function fetchSubscriptionProduct(): Promise<ProductSubscription | 
  *
  * @throws {IapCancelledError} when the user dismisses the sheet.
  */
-export async function purchaseSubscription(appAccountToken: string): Promise<Purchase> {
+export async function purchaseSubscription(
+  productId: string,
+  appAccountToken: string,
+): Promise<Purchase> {
   if (!isIapSupported) throw new IapUnavailableError();
   await initIap();
 
   if (pending) throw new Error('A purchase is already in progress.');
 
   iapLog('purchase: presenting Apple sheet', {
-    sku: IAP_PRODUCT_ID,
+    sku: productId,
     // Logged deliberately: this is the value the store webhook must match back
     // to an account, so a mismatch here is the first thing to check.
     appAccountToken,
   });
 
   return new Promise<Purchase>((resolve, reject) => {
-    pending = { resolve, reject };
+    pending = { productId, resolve, reject };
     requestPurchase({
       type: 'subs',
       request: {
         apple: {
-          sku: IAP_PRODUCT_ID,
+          sku: productId,
           appAccountToken,
           // Left false so the transaction survives until the backend confirms.
           andDangerouslyFinishTransactionAutomatically: false,
@@ -263,7 +272,7 @@ export async function purchaseSubscription(appAccountToken: string): Promise<Pur
       pending = null;
       iapLog('purchase: request rejected', describeError(err));
       if (err?.code === ErrorCode.UserCancelled) { reject(new IapCancelledError()); return; }
-      if (isMissingProductError(err)) { reject(new IapProductMissingError()); return; }
+      if (isMissingProductError(err)) { reject(new IapProductMissingError(productId)); return; }
       reject(new Error(err?.message ?? 'The purchase could not be started.'));
     });
   });
@@ -279,16 +288,19 @@ export async function finishPurchase(purchase: Purchase): Promise<void> {
 }
 
 /**
- * The active entitlement StoreKit currently holds for this Apple ID, if any.
- * This is what "Restore Purchases" reads.
+ * The active entitlement StoreKit currently holds for this Apple ID among the
+ * given products (one subscription group), if any. This is what "Restore
+ * Purchases" reads.
  */
-export async function getActiveSubscriptionPurchase(): Promise<Purchase | null> {
+export async function getActiveSubscriptionPurchase(
+  productIds: readonly string[],
+): Promise<Purchase | null> {
   if (!isIapSupported) return null;
   await initIap();
-  iapLog('restore: asking StoreKit what this Apple ID owns');
+  iapLog('restore: asking StoreKit what this Apple ID owns', { productIds });
   const purchases = await getAvailablePurchases({ onlyIncludeActiveItemsIOS: true });
   const all = purchases ?? [];
-  const owned = all.filter((p) => p.productId === IAP_PRODUCT_ID);
+  const owned = all.filter((p) => productIds.includes(p.productId));
   iapLog('restore: StoreKit returned', {
     total: all.length,
     matching: owned.length,

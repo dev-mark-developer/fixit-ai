@@ -145,9 +145,39 @@ export interface ChatUploadFile {
 /** Max files the hub will accept on a single message. */
 export const MAX_CHAT_ATTACHMENTS = 10;
 
+/**
+ * `POST /dating/swipe` → `data`. The counters were added by the backend and
+ * verified against beta 2026-09-14. A super like and a pass each use up a swipe
+ * too. Optional, so a deployment without them reads as "unknown".
+ */
 export interface SwipeResult {
   isMatch: boolean;
-  matchId?: number;
+  matchId?: number | null;
+  isPremium?: boolean;
+  dailySwipeLimit?: number | null;
+  swipesUsedToday?: number;
+  swipesRemainingToday?: number | null;
+  dailySuperLikeLimit?: number | null;
+  superLikesUsedToday?: number;
+  superLikesRemainingToday?: number | null;
+  /** When the counts reset — UTC with a `Z`, e.g. "2026-09-15T00:00:00Z". */
+  resetsAt?: string;
+}
+
+/**
+ * `GET /dating/config` — settings from the admin panel (it also carries OTP,
+ * trial and support settings). Untyped in Swagger; shape verified against beta
+ * 2026-09-14. Optional, so a deployment without a field reads as "unknown"
+ * rather than zero.
+ */
+export interface DatingConfig {
+  freeSwipesPerDay?: number;
+  freeSuperLikesPerDay?: number;
+  premiumSwipesPerDay?: number;
+  premiumSuperLikesPerDay?: number;
+  maxGalleryImages?: number;
+  maxDatingImages?: number;
+  maxIceBreakers?: number;
 }
 
 /**
@@ -221,6 +251,9 @@ export const datingApi = {
     state?: string;
   }) => api.post('/dating/profile', data),
 
+  // Admin-panel settings: daily swipe / super-like limits, gallery size, …
+  getConfig: () => api.get('/dating/config'),
+
   // Images
   uploadImage: (uri: string, mimeType = 'image/jpeg') => {
     const form = new FormData();
@@ -241,7 +274,8 @@ export const datingApi = {
   getIceBreakers: () => api.get('/dating/icebreakers'),
   setIceBreakers: (questionIds: number[]) => api.post('/dating/icebreakers', { questionIds }),
 
-  // Discover — filter params added by the backend (gap #6)
+  // Discover — filter params added by the backend (gap #6); latitude /
+  // longitude added 2026-09-16, which is what lets it work by distance
   discover: (params?: {
     page?: number;
     pageSize?: number;
@@ -251,6 +285,8 @@ export const datingApi = {
     maxAge?: number;
     distanceKm?: number;
     interestIds?: number[];
+    latitude?: number;
+    longitude?: number;
   }) =>
     api.get('/dating/discover', {
       params: params && {
@@ -262,6 +298,9 @@ export const datingApi = {
         MaxAge: params.maxAge,
         DistanceKm: params.distanceKm,
         InterestIds: params.interestIds,
+        // Swagger types these two as strings, unlike every other number here
+        Latitude: params.latitude?.toString(),
+        Longitude: params.longitude?.toString(),
       },
     }),
 
@@ -323,9 +362,11 @@ export const datingApi = {
 
   // Spiritual request
   getSpiritualRequest: () => api.get('/dating/spiritual-request'),
-  submitSpiritualRequest: (documentUri: string, mimeType = 'application/pdf') => {
+  /** `document` comes from `checkCertificate`: an accepted type and a matching name. */
+  submitSpiritualRequest: (document: { uri: string; name: string; type: string }) => {
     const form = new FormData();
-    form.append('document', { uri: documentUri, name: 'certificate.pdf', type: mimeType } as any);
+    // Every upload used to be named certificate.pdf, photos included.
+    form.append('document', { uri: document.uri, name: document.name, type: document.type } as any);
     return api.post('/dating/spiritual-request', form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });

@@ -90,14 +90,6 @@ export default function DatingInterestSelectionScreen({ navigation, route }: Pro
     }
   };
 
-  if (loading) {
-    return (
-      <View style={styles.centered}>
-        <ActivityIndicator color={accentColor} size="large" />
-      </View>
-    );
-  }
-
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
       {/* Plain back arrow header (Figma) */}
@@ -122,8 +114,10 @@ export default function DatingInterestSelectionScreen({ navigation, route }: Pro
       <FlatList
         data={categories}
         keyExtractor={(cat) => String(cat.id)}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent, loading && styles.listLoading]}
         showsVerticalScrollIndicator={false}
+        // Loads under the header and Continue button rather than blanking the screen
+        ListEmptyComponent={loading ? <ActivityIndicator color={accentColor} size="large" /> : null}
         renderItem={({ item: category }) => (
           <View style={styles.categoryBlock}>
             <Text style={styles.categoryName}>{category.name}</Text>
@@ -189,7 +183,6 @@ export default function DatingInterestSelectionScreen({ navigation, route }: Pro
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.background },
 
   headerBar: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 4 },
   header: {
@@ -207,6 +200,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 8,
   },
+  listLoading: { flexGrow: 1, justifyContent: 'center' },
   categoryBlock: {
     marginBottom: 22,
   },

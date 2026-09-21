@@ -1,4 +1,4 @@
-import { parseApiDate, timeAgo, toApiDate } from '../src/utils/datetime';
+import { parseApiDate, parseApiDateOnly, timeAgo, toApiDate } from '../src/utils/datetime';
 
 describe('parseApiDate', () => {
   it('reads a zone-less API timestamp as UTC, not local', () => {
@@ -63,5 +63,31 @@ describe('toApiDate', () => {
 
   it('pads single-digit months and days', () => {
     expect(toApiDate(new Date(2001, 0, 5))).toBe('2001-01-05');
+  });
+});
+
+describe('parseApiDateOnly', () => {
+  it('reads a stored date of birth as that day on the device', () => {
+    // The bug: new Date('2000-08-27') is UTC midnight — 26 August anywhere
+    // west of Greenwich, so the profile showed, and re-saved, the day before.
+    const dob = parseApiDateOnly('2000-08-27');
+    expect([dob.getFullYear(), dob.getMonth(), dob.getDate()]).toEqual([2000, 7, 27]);
+    expect([dob.getHours(), dob.getMinutes()]).toEqual([0, 0]);
+  });
+
+  it('round-trips through toApiDate unchanged', () => {
+    ['2000-08-27', '1990-05-14', '2001-01-05', '1996-12-31', '2004-02-29'].forEach((stored) => {
+      expect(toApiDate(parseApiDateOnly(stored))).toBe(stored);
+    });
+  });
+
+  it('takes the date part of a timestamp', () => {
+    expect(toApiDate(parseApiDateOnly('2000-08-27T00:00:00'))).toBe('2000-08-27');
+  });
+
+  it('is NaN for nothing, junk and impossible dates', () => {
+    [null, undefined, '', 'Aug 27', '2000-02-31', '2001-02-29', '2000-13-01'].forEach((value) => {
+      expect(Number.isNaN(parseApiDateOnly(value).getTime())).toBe(true);
+    });
   });
 });

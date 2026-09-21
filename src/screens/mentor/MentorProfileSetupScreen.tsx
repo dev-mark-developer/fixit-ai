@@ -24,7 +24,7 @@ import AppAlert, { AlertButton } from '../../components/common/AppAlert';
 import CountryPicker from '../../components/common/CountryPicker';
 import KeyboardAwareScrollView from '../../components/common/KeyboardAwareScrollView';
 import { formatPhoneInput, phoneDigits } from '../../utils/validation';
-import { toApiDate } from '../../utils/datetime';
+import { parseApiDateOnly, toApiDate } from '../../utils/datetime';
 
 type Props = NativeStackScreenProps<MentorStackParamList, 'MentorProfileSetup'>;
 
@@ -36,7 +36,7 @@ const MAX_DOB = (() => { const d = new Date(); d.setFullYear(d.getFullYear() - 1
 export default function MentorProfileSetupScreen({ navigation }: Props) {
   const { user } = useAuth();
   const { isMentor, refresh } = useModuleStatus();
-  const { isPremium } = useSubscription();
+  const { isPremium } = useSubscription('mentor');
 
   // Mentors who already pay skip straight to the dashboard; everyone else has
   // to clear the paywall first.
@@ -84,7 +84,7 @@ export default function MentorProfileSetupScreen({ navigation }: Props) {
         setCity((v) => v || p.city || '');
         setStateVal((v) => v || p.state || '');
         if (p.dateOfBirth) {
-          const d = new Date(p.dateOfBirth);
+          const d = parseApiDateOnly(p.dateOfBirth);
           if (!Number.isNaN(d.getTime())) setDob((v) => v ?? d);
         }
         if (p.profileImageUrl) {

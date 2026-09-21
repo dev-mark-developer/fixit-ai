@@ -93,14 +93,6 @@ export default function DatingIceBreakerSelectionScreen({ navigation, route }: P
     }
   };
 
-  if (loading) {
-    return (
-      <View style={styles.centered}>
-        <ActivityIndicator color={accentColor} size="large" />
-      </View>
-    );
-  }
-
   return (
     <SafeAreaView style={styles.root}>
       {/* Header (Figma: back arrow + "Configure Ice Breaker") */}
@@ -127,8 +119,10 @@ export default function DatingIceBreakerSelectionScreen({ navigation, route }: P
       <FlatList
         data={questions}
         keyExtractor={(q) => String(q.id)}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent, loading && styles.listLoading]}
         showsVerticalScrollIndicator={false}
+        // Loads under the header and buttons rather than blanking the screen
+        ListEmptyComponent={loading ? <ActivityIndicator color={accentColor} size="large" /> : null}
         renderItem={({ item }) => {
           const isSelected = selected.has(item.id);
           const atLimit = selected.size >= MAX_SELECTIONS;
@@ -179,7 +173,6 @@ export default function DatingIceBreakerSelectionScreen({ navigation, route }: P
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.background },
 
   headerBar: { paddingHorizontal: 20, paddingTop: 8 },
 
@@ -189,6 +182,7 @@ const styles = StyleSheet.create({
   headerCount: { fontSize: 16, fontWeight: '700', color: Colors.text },
 
   listContent: { paddingHorizontal: 20, paddingBottom: 8, paddingTop: 4 },
+  listLoading: { flexGrow: 1, justifyContent: 'center' },
 
   questionRow: {
     flexDirection: 'row',

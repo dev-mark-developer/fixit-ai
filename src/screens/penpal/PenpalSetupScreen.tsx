@@ -126,11 +126,19 @@ export default function PenpalSetupScreen({ navigation }: Props) {
     }
   };
 
+  // The back arrow stays usable while the saved profile loads.
   if (initialLoading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator color={ACCENT} size="large" />
-      </View>
+      <SafeAreaView style={styles.root}>
+        <View style={styles.content}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+            <Text style={styles.backArrow}>←</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={styles.center}>
+          <ActivityIndicator color={ACCENT} size="large" />
+        </View>
+      </SafeAreaView>
     );
   }
 

@@ -14,11 +14,13 @@ import AppAlert, { AlertButton } from '../../components/common/AppAlert';
 import ActivatingSubscriptionModal from '../../components/common/ActivatingSubscriptionModal';
 import { useSubscription } from '../../store/SubscriptionContext';
 import { useAuth } from '../../store/AuthContext';
-import { IAP_PRODUCT_ID, fetchSubscriptionProduct, isIapSupported } from '../../services/iap';
+import { fetchSubscriptionProduct, isIapSupported } from '../../services/iap';
+import { MENTOR_PRODUCT_ID } from '../../utils/subscriptionProducts';
 
 type Props = NativeStackScreenProps<MentorStackParamList, 'MentorSubscription'>;
 
-const PLAN_PRICE_FALLBACK = '$20';
+/** Shown only if the store listing can't be read; keep it in step with App Store Connect. */
+const PLAN_PRICE_FALLBACK = '$5.99';
 
 export default function MentorSubscriptionScreen({ route, navigation }: Props) {
   // The mandatory paywall right after mentor signup: nothing to go back to,
@@ -28,7 +30,7 @@ export default function MentorSubscriptionScreen({ route, navigation }: Props) {
   const { logout } = useAuth();
   const {
     status, isPremium, refresh, purchase, restore, checkPendingActivation,
-  } = useSubscription();
+  } = useSubscription('mentor');
 
   // Android has no billing integration yet, so it keeps reading the legacy
   // per-flow record and its stubbed purchase.
@@ -48,7 +50,7 @@ export default function MentorSubscriptionScreen({ route, navigation }: Props) {
       refresh();
       // Real localised price straight off the store listing; the hardcoded
       // label is only what shows if the product can't be read.
-      fetchSubscriptionProduct()
+      fetchSubscriptionProduct(MENTOR_PRODUCT_ID)
         .then((product) => { if (product?.displayPrice) setPrice(product.displayPrice); })
         .catch(() => {});
       return;
@@ -77,7 +79,7 @@ export default function MentorSubscriptionScreen({ route, navigation }: Props) {
     try {
       // The overlay goes up the moment Apple confirms payment and stays up
       // until the backend grants the entitlement.
-      const outcome = await purchase(() => setActivating('waiting'));
+      const outcome = await purchase(MENTOR_PRODUCT_ID, () => setActivating('waiting'));
       if (outcome === 'cancelled') return;
       if (outcome === 'active') {
         setActivating(null);
@@ -107,7 +109,7 @@ export default function MentorSubscriptionScreen({ route, navigation }: Props) {
       await mentorApi.recordSubscription({
         planType: 'Mentor',
         store: getPlatform() === 'iOS' ? 'Apple' : 'Google',
-        iapProductId: IAP_PRODUCT_ID,
+        iapProductId: MENTOR_PRODUCT_ID,
         iapTransactionId: `STUB_${Date.now()}`,
         startDate: now.toISOString(),
         endDate: endDate.toISOString(),
@@ -170,11 +172,38 @@ export default function MentorSubscriptionScreen({ route, navigation }: Props) {
       ],
     });
 
+  // Header — the gate has no way back, only a way out of the account.
+  const header = (
+    <View style={[styles.header, gate && styles.headerGate]}>
+      {gate ? (
+        <TouchableOpacity onPress={confirmLogout} hitSlop={8}>
+          <Text style={styles.logoutText}>Sign Out</Text>
+        </TouchableOpacity>
+      ) : (
+        <TouchableOpacity onPress={() => navigation.canGoBack() && navigation.goBack()} hitSlop={8}>
+          <Icon name="arrow-back" size={24} color={Colors.text} />
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+
+  // Back / Sign Out stay usable while the plan loads — the alert has to be
+  // here too, or Sign Out would open nothing.
   if (fetching) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={Colors.mentor} />
-      </View>
+      <SafeAreaView style={styles.root} edges={['top']}>
+        {header}
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={Colors.mentor} />
+        </View>
+        <AppAlert
+          visible={!!alert}
+          title={alert?.title ?? ''}
+          message={alert?.message}
+          buttons={alert?.buttons}
+          onClose={() => setAlert(null)}
+        />
+      </SafeAreaView>
     );
   }
 
@@ -211,18 +240,7 @@ export default function MentorSubscriptionScreen({ route, navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
-      {/* Header — the gate has no way back, only a way out of the account. */}
-      <View style={[styles.header, gate && styles.headerGate]}>
-        {gate ? (
-          <TouchableOpacity onPress={confirmLogout} hitSlop={8}>
-            <Text style={styles.logoutText}>Sign Out</Text>
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity onPress={() => navigation.canGoBack() && navigation.goBack()} hitSlop={8}>
-            <Icon name="arrow-back" size={24} color={Colors.text} />
-          </TouchableOpacity>
-        )}
-      </View>
+      {header}
 
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
         <Text style={styles.pageTitle}>Subscription Plan</Text>

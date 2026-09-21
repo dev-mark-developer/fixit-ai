@@ -1,18 +1,81 @@
 # Like & Super Like Daily Limits — Backend Changes
 
-**For:** backend team · **Raised:** 2026-09-11 · **Tracker:** gaps #22 and #33 in
-[API_CHANGES_NEEDED.md](./API_CHANGES_NEEDED.md) · **Excel copy:**
-[BACKEND_LIKE_LIMITS.xlsx](./BACKEND_LIKE_LIMITS.xlsx) (keep it in sync with this file)
+**For:** backend team · **Raised:** 2026-09-11 · **Updated:** 2026-09-14 ·
+**Tracker:** gaps #22 and #33 in [API_CHANGES_NEEDED.md](./API_CHANGES_NEEDED.md) ·
+**Excel copy:** [BACKEND_LIKE_LIMITS.xlsx](./BACKEND_LIKE_LIMITS.xlsx) (keep it in
+sync with this file)
 
 ## The requirement
 
 On Discover a user can **Like**, **Super Like** or **Pass** on a profile. The
 admin panel sets how many likes and how many super likes a user gets per day,
-with **different numbers for free and premium** users. Passing is not limited.
+with **different numbers for free and premium** users. Passing was not meant to
+be limited, but a pass uses up a swipe, and as of 2026-09-14 the app blocks
+passes too once the swipes are gone.
+
+## Where things stand (2026-09-14)
+
+| # | Change | Status |
+|---|---|---|
+| 1 | The limit refusal carries an error code | 🔴 **Not done** — tested: still a 400 with only a message |
+| 2 | The swipe response returns super-like counters and `resetsAt` | 🟢 **Done** — tested |
+| 3 | `GET /api/Dating/config` returns the limits and today's usage | 🟡 **Partly done** — limits yes, usage no |
+| 4 | The swipe response, refusal and config are documented in Swagger | 🔴 **Not done** |
+| 5 | Test data | 🟡 Still need a free account with 3+ people in its deck, and a premium account |
+
+**Passes:** a pass uses up a swipe (tested). Decided 2026-09-14 to keep it that
+way — the app now blocks ✕ once the swipes are gone, along with ♥ and ⭐.
 
 ## What the API does today
 
-### Swagger (checked 2026-09-11)
+### Live test on beta (2026-09-14)
+
+Account `nons@yopmail.com`: free, Non-Spiritual, no swipes before the test. Beta
+limits for free accounts: 2 swipes and 1 super like a day. Its Discover deck had
+only two people, so the refusal for the swipe *after* the limit couldn't be
+tested.
+
+| # | Request | Result |
+|---|---|---|
+| 1 | `SuperLike` user 73 | **200** — `{ "isMatch": false, "matchId": null, "isPremium": false, "dailySwipeLimit": 2, "swipesUsedToday": 1, "swipesRemainingToday": 1, "dailySuperLikeLimit": 1, "superLikesUsedToday": 1, "superLikesRemainingToday": 0, "resetsAt": "2026-09-15T00:00:00Z" }` |
+| 2 | `SuperLike` user 254 | **400** — `{ "success": false, "message": "You have reached your daily limit of 1 super likes. Upgrade to Premium for more.", "errors": null }` |
+| 3 | `Ignore` user 254 | **200** — as step 1, but `"swipesUsedToday": 2, "swipesRemainingToday": 0` |
+
+What that shows:
+
+- **Change 2 is done.** The response carries the super-like counters and
+  `resetsAt`, which is midnight UTC.
+- **Change 1 isn't.** The refusal is still a 400 with only a message and no
+  `code`, so the app still has to recognise it by its wording.
+- **A Pass uses up a swipe.** Step 3 took `swipesUsedToday` from 1 to 2.
+- **A super like uses up a swipe too** (step 1), and the refused super like in
+  step 2 wasn't counted or saved.
+
+### `GET /api/Dating/config` (2026-09-14)
+
+It returns the admin limits, but not today's usage. The `data` it returned:
+
+```json
+{
+  "freeSuperLikesPerDay": 1,
+  "freeSwipesPerDay": 2,
+  "maxDatingImages": 6,
+  "maxGalleryImages": 5,
+  "maxIceBreakers": 1,
+  "otpExpiryMinutes": 10,
+  "otpLength": 6,
+  "premiumSuperLikesPerDay": 5,
+  "premiumSwipesPerDay": 2,
+  "supportEmail": "support@email.com",
+  "trialDays_DatingNonSpiritual": 3,
+  "trialDays_DatingSpiritual": 3,
+  "vettingPassScore": 10
+}
+```
+
+The swipe limits are lowered on beta for testing.
+
+### Swagger (checked 2026-09-11, unchanged on 2026-09-14)
 
 | Endpoint | What Swagger documents |
 |---|---|
@@ -20,10 +83,10 @@ with **different numbers for free and premium** users. Passing is not limited.
 | `GET /api/Dating/config` | "200 OK", untyped |
 | `GET /api/admin/settings` · `PUT /api/admin/settings/{key}` | Body `{ settingValue: string }`. Setting keys aren't listed |
 
-### Live test on beta (2026-09-11)
+### First live test (2026-09-11)
 
-Account `sp3@yopmail.com`: free, Spiritual profile, no swipes before the test.
-Its Discover deck had only two people, so the 10-swipe limit couldn't be reached.
+Account `sp3@yopmail.com`: free, Spiritual profile. At the time free accounts got
+10 swipes and 1 super like a day.
 
 | # | Request | Result |
 |---|---|---|
@@ -31,56 +94,49 @@ Its Discover deck had only two people, so the 10-swipe limit couldn't be reached
 | 2 | `SuperLike` user 189 | **400** — `{ "success": false, "message": "You have reached your daily limit of 1 super likes. Upgrade to Premium for more.", "errors": null }` |
 | 3 | `Like` user 189 | **200** — `{ "isMatch": true, "matchId": 26, "dailySwipeLimit": 10, "swipesUsedToday": 2, "swipesRemainingToday": 8, "isPremium": false }` |
 
-What that shows:
+That showed the limits are enforced, a refused swipe isn't counted, and running
+out of super likes doesn't block likes. At the time the response had only the
+swipe counters, and `GET /api/Dating/config` returned only
+`{ "maxGalleryImages": 4 }`.
 
-- **The limits are enforced.** Free users get 1 super like and 10 swipes a day.
-- **A super like also counts as a swipe.** Step 1 took `swipesUsedToday` from 0 to 1.
-- **The refused super like didn't count.** The count only moved to 2 with the like in step 3.
-- **Running out of super likes doesn't block likes** (step 3).
-- **The refusal is a 400 with no error code.** The contract agreed with the
-  client was 402/403. The API also uses 400 for other failures (e.g.
-  `GET /api/Dating/discover` answers 400 "Please set up your dating profile
-  before discovering."), so the app can only recognise a limit by the wording
-  of `message`.
-- **The swipe response already carries swipe counters** (`dailySwipeLimit`,
-  `swipesUsedToday`, `swipesRemainingToday`, `isPremium`). There's nothing for
-  super likes, no reset time, and none of it is in Swagger.
-- `GET /api/Dating/config` returns only `{ "maxGalleryImages": 4 }`, so the app
-  can't learn the limits before swiping.
-
-**Not tested yet:** what the 11th swipe returns, whether a **Pass** counts
-toward the 10, when the count resets, and the premium values.
-
-Also seen in the same session: `GET /api/Dating/likes/received` returned the
-full list to this **free** account (200 with data), so the premium gate on
-Likes Received isn't enforced (gap #23).
+Also seen in that session: `GET /api/Dating/likes/received` returned the full
+list to this **free** account (200 with data), so the premium gate on Likes
+Received isn't enforced (gap #23).
 
 ## What the app does now
 
-Implemented 2026-09-11 (`DatingDiscoverScreen`, `src/utils/swipeLimits.ts`).
+Updated 2026-09-14 (`DatingDiscoverScreen`, `NonSpiritualEntryScreen`,
+`src/utils/swipeLimits.ts`).
 
-- A refused swipe counts as "that allowance is spent" when it is a **402/403**
-  (the agreed contract) or a **400 whose `message` contains "daily limit"**
-  (what the API actually sends). The wording match is a stopgap: rewording the
-  message breaks it.
-  - A refused `Like` → the card goes back, the "You Have Reached Your Daily
-    Limit!" cover shows, and ♥ is dimmed.
-  - A refused `SuperLike` → the card goes back, an "Out of Super Likes" alert
-    shows, and ⭐ is dimmed. Likes keep working.
-  - A `Pass` is never treated as limited.
-- Any other failure is treated as transient.
-- The block lifts at the device's **local midnight** (a guess), or when the user
-  buys premium. If the server hasn't reset yet, the next swipe is refused again.
-- The free numbers are **hardcoded** on the Non-Spiritual entry screen: "10 free
-  swipes per day" and "1 super like per day". They match beta today, but won't
-  follow an admin change.
+- **After each successful swipe** the app reads the counters. No swipes left →
+  ♥, ✕ and ⭐ are dimmed. No super likes left → ⭐ is dimmed. Some left → the block
+  lifts. It remembers `resetsAt` and lifts the block then.
+- **Before any counters have come back** (the first swipe of a session), a
+  refused swipe counts as "that allowance is spent" when it is a **402/403**, or
+  a **400 whose `message` contains "daily limit"**. The wording match is a
+  stopgap until change 1 ships.
+- **Trying to like or pass with no swipes left** puts the card back and shows
+  the "You Have Reached Your Daily Limit!" cover. A super like does the same once
+  the swipes are gone.
+- **Trying to super like with only the super likes gone** puts the card back and
+  shows an "Out of Super Likes" alert. Likes keep working.
+- **Passes are blocked once the swipes are gone** (since 2026-09-14), because a
+  pass uses up a swipe.
+- **Any other failure** puts the card back and shows the server's `message` in a
+  toast (since 2026-09-15), so a readable message matters.
+- The block is saved on the device with its reset time, so it survives the app
+  being closed and reopened. It lifts at `resetsAt`, or at the next midnight UTC
+  when no `resetsAt` has been seen, which matches the server.
+- The Non-Spiritual entry screen shows the free numbers from
+  `GET /api/Dating/config`.
 
 ## Changes needed
 
-### 1. Give the refusal an error code
+### 1. Give the refusal an error code — not done
 
-Keep the message, but add a machine-readable code, and preferably use **403** as
-agreed with the client. For example:
+Tested 2026-09-14: the refusal is still a 400 with only a message. Keep the
+message, but add a machine-readable code, and preferably use **403** as agreed
+with the client. For example:
 
 ```json
 HTTP 403
@@ -90,82 +146,80 @@ HTTP 403
   "data": {
     "code": "SUPERLIKE_LIMIT_REACHED",
     "limit": 1,
-    "resetsAt": "2026-09-12T00:00:00Z"
+    "resetsAt": "2026-09-15T00:00:00Z"
   }
 }
 ```
 
-- `code` is `SWIPE_LIMIT_REACHED` (the daily 10) or `SUPERLIKE_LIMIT_REACHED`.
-  Nothing else should use these codes.
+- `code` is `SWIPE_LIMIT_REACHED` (the daily swipes) or
+  `SUPERLIKE_LIMIT_REACHED`. Nothing else should use these codes.
 - Add the error response to Swagger.
 
-### 2. Return super-like counters and the reset time
+### 2. Return super-like counters and the reset time — done
 
-The swipe response already has the swipe counters. Add the super-like ones and
-`resetsAt`, and document the whole response in Swagger:
+Tested 2026-09-14: the swipe response carries `dailySuperLikeLimit`,
+`superLikesUsedToday`, `superLikesRemainingToday` and `resetsAt`
+(`"2026-09-15T00:00:00Z"`). Only the Swagger documentation is left (change 4).
 
-```json
-{
-  "isMatch": false,
-  "matchId": null,
-  "isPremium": false,
-  "dailySwipeLimit": 10,
-  "swipesUsedToday": 1,
-  "swipesRemainingToday": 9,
-  "dailySuperLikeLimit": 1,
-  "superLikesUsedToday": 1,
-  "superLikesRemainingToday": 0,
-  "resetsAt": "2026-09-12T00:00:00Z"
-}
-```
+### 3. Return today's usage from `GET /api/Dating/config` — partly done
 
-### 3. Return the same counters from `GET /api/Dating/config`
+The limits are there (`freeSwipesPerDay`, `freeSuperLikesPerDay`,
+`premiumSwipesPerDay`, `premiumSuperLikesPerDay`). Add the usage fields the swipe
+response already has (`swipesUsedToday`, `swipesRemainingToday`,
+`superLikesUsedToday`, `superLikesRemainingToday`, `resetsAt`), so the app knows
+where the user stands before their first swipe of a session and can dim ♥/⭐
+straight away. Use `null` for unlimited.
 
-Put them next to `maxGalleryImages`, so the app knows the limits before the
-first swipe. It can then show the real numbers instead of hardcoded ones and
-dim ♥/⭐ up front. Use `null` for unlimited.
+### 4. Document the responses in Swagger — not done
 
-### 4. Confirm the rules
-
-- **Does a Pass count toward `dailySwipeLimit`?** The requirement is that passes
-  aren't limited, but the name "swipes" suggests they might be.
-- **Is the 10 a limit on likes or on all swipes?** The admin panel, the API and
-  the app copy should use the same word.
-- **When does the count reset?** Midnight UTC, the user's local midnight, or a
-  rolling 24 hours. Return `resetsAt` as UTC with a `Z` (see gap #30).
-- Do Spiritual and Non-Spiritual dating share the same limits?
-- Which admin setting keys hold these values, and does a change apply
-  immediately?
+The swipe response, the limit refusal and `GET /api/Dating/config` are all still
+documented as a bare "200 OK".
 
 ### 5. Test data
 
+- A **free** account with at least 3 people in its Discover deck, to test the
+  refusal for the swipe after the limit. (`sp3@yopmail.com` and
+  `nons@yopmail.com` have now swiped everyone in theirs.)
 - A **premium** account with a dating profile, to check the premium values.
-- A deck with more than 10 people, or a temporarily lower limit on beta (e.g.
-  2 swipes), to test the swipe limit.
 - For reference: `chat.michael@yopmail.com` in [CHAT_API.md](./CHAT_API.md) is
   deactivated, and `sp2@yopmail.com` has no dating profile.
+
+## Questions for the backend
+
+- ~~Should a Pass use up a swipe?~~ Decided 2026-09-14: yes, as the backend
+  already does. The app blocks passes once the swipes are gone.
+- **Is a Pass refused once the swipes run out?** Not tested yet. The app no
+  longer sends one when it knows the swipes are gone, but it should get the same
+  refusal as a like if it does.
+- Do Spiritual and Non-Spiritual dating share the same limits?
+- Which admin setting keys hold these values, and does a change apply
+  immediately?
+- ~~When does the count reset?~~ Answered: midnight UTC (`resetsAt`, tested
+  2026-09-14).
 
 ## Questions for the client
 
 - **Is premium ever unlimited?** The Figma copy says "Unlimited Likes" (Premium
   screen) and "Try Premium subscription for unlimited swaps and filters" (limit
-  cover). If premium has a cap, both need new wording.
-- Should Pass stay unlimited? (Assumed yes.)
+  cover). If premium has a cap, both need new wording. On beta, config currently
+  gives premium 2 swipes and 5 super likes a day, so that wording is wrong there.
+- ~~Should a Pass count toward the daily limit?~~ Decided 2026-09-14: yes.
 
 ## Acceptance checklist
 
 - [x] Free user: the 2nd super like of the day is refused, and likes still work afterwards (verified 2026-09-11).
-- [x] A refused swipe doesn't use up allowance (verified 2026-09-11).
-- [ ] Free user: the 11th swipe is refused with `SWIPE_LIMIT_REACHED`.
-- [ ] Refusals carry a `code` (item 1) and are documented in Swagger.
-- [ ] A Pass is never refused for a limit.
+- [x] A refused swipe doesn't use up allowance (verified 2026-09-11 and 2026-09-14).
+- [x] `GET /api/Dating/config` returns the free and premium limits (verified 2026-09-14).
+- [x] The swipe response carries super-like counters and `resetsAt` (verified 2026-09-14).
+- [ ] Refusals carry a `code` and are documented in Swagger.
+- [ ] Free user: the swipe after the daily limit is refused with `SWIPE_LIMIT_REACHED`.
+- [x] A pass uses up a swipe (verified 2026-09-14).
+- [ ] A pass after the daily limit is refused the same way as a like.
 - [ ] A premium user gets the premium values.
-- [ ] The count resets when `resetsAt` says.
-- [ ] Limits and usage come back from the swipe response and `GET /api/Dating/config` (items 2–3).
+- [ ] `GET /api/Dating/config` includes today's usage.
 
 ## What the app will do once this ships
 
 - Read `code` instead of matching the message text.
-- Load the limits on Discover focus, dim ♥/⭐ up front, and show the admin
-  numbers on the Non-Spiritual entry screen.
-- Lift the block at `resetsAt` instead of local midnight.
+- Read today's usage from `GET /api/Dating/config` on Discover focus, and dim
+  ♥/⭐ before the first swipe of a session.
