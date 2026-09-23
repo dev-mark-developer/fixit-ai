@@ -11,10 +11,16 @@ type Props = NativeStackScreenProps<PenpalStackParamList, 'PenpalEntry'>;
 
 const ACCENT = '#4361EE';
 
-export default function PenpalEntryScreen({ navigation }: Props) {
+export default function PenpalEntryScreen({ navigation, route }: Props) {
+  // From the info icon this is a page to read, not a step into setup.
+  const infoOnly = route.params?.infoOnly === true;
+
   return (
     <SafeAreaView style={styles.root}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={[styles.content, infoOnly && styles.contentInfoOnly]}
+        showsVerticalScrollIndicator={false}
+      >
 
         {/* Back arrow */}
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
@@ -107,15 +113,17 @@ export default function PenpalEntryScreen({ navigation }: Props) {
       </ScrollView>
 
       {/* Continue button */}
-      <View style={styles.footer}>
-        <TouchableOpacity
-          style={styles.continueBtn}
-          onPress={() => navigation.navigate('PenpalSetup')}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.continueBtnText}>Continue</Text>
-        </TouchableOpacity>
-      </View>
+      {!infoOnly && (
+        <View style={styles.footer}>
+          <TouchableOpacity
+            style={styles.continueBtn}
+            onPress={() => navigation.navigate('PenpalSetup')}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.continueBtnText}>Continue</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -130,6 +138,8 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 8,
   },
+  // No footer below, so the last block needs its own breathing room
+  contentInfoOnly: { paddingBottom: 24 },
 
   backBtn: {
     marginBottom: 16,

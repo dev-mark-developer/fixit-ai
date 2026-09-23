@@ -6,6 +6,7 @@ import { useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { Colors } from '../../utils/colors';
 import { useModuleStatus } from '../../store/ModuleStatusContext';
+import { useUnreadNotificationCount } from '../../utils/unreadNotifications';
 
 /**
  * Shared header row for the main dating screens (Discover / Matches / Chats /
@@ -20,6 +21,10 @@ export default function DatingTopBar() {
   const accent = isSpiritual ? Colors.spiritual : Colors.dating;
   const ringColor = isSpiritual ? Colors.spiritualLime : Colors.datingSecondary;
   const [tipsVisible, setTipsVisible] = useState(false);
+
+  // Dating notifications only, since that's the tab the bell opens on. Shared
+  // across the four tabs' headers so switching tabs doesn't reset the badge.
+  const unreadCount = useUnreadNotificationCount('Dating');
 
   const openNotifications = () => {
     // Root stack (two levels up from the drawer screens) hosts Notifications
@@ -43,6 +48,13 @@ export default function DatingTopBar() {
         </TouchableOpacity>
         <TouchableOpacity onPress={openNotifications} hitSlop={8}>
           <Icon name="notifications-outline" size={25} color={accent} />
+          {unreadCount > 0 && (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>
+                {unreadCount > 99 ? '99+' : String(unreadCount)}
+              </Text>
+            </View>
+          )}
         </TouchableOpacity>
       </View>
 
@@ -107,6 +119,22 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   right: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  // Same badge as the Home bell
+  badge: {
+    position: 'absolute',
+    top: -5,
+    right: -7,
+    minWidth: 17,
+    height: 17,
+    borderRadius: 9,
+    backgroundColor: Colors.error,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+    borderWidth: 1.5,
+    borderColor: Colors.background,
+  },
+  badgeText: { fontSize: 9, fontWeight: '800', color: Colors.white },
 
   tipsRoot: { flex: 1, backgroundColor: Colors.background, paddingTop: 56 },
   tipsHeader: {

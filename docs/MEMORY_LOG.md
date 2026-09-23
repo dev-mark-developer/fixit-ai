@@ -5,6 +5,145 @@ doing UI work on **AIFixitMobileApp**. Newest entries at the top.
 
 ---
 
+## 2026-09-21 (later) — Matches carry block flags both ways
+
+- **The backend added `isBlockedByMe` and `hasBlockedMe` to each
+  `GET /dating/matches` row** (gap #29, now 🟡 Partly done). Typed on
+  `DatingMatch`; read through `matchBlockState(match, blockedIds)` in
+  `utils/blockedUsers.ts`, which also counts the `GET /blocks` list so a fresh
+  block shows before the matches reload.
+- **Matches grid:** a blocked match is hidden either way (before, only people
+  the user blocked).
+- **Chats list:** blocked rows stay, dimmed, reading "You blocked this user"
+  or — new — "This user is unavailable" when the other person blocked the
+  user (worded so as not to say who blocked whom); no unread badge, and live
+  hub messages no longer move or re-preview a blocked row.
+- **Chat Detail:** the flags come from the matches row it already loads for
+  the header photo. Blocked by the other side → composer replaced with
+  "{name} is unavailable. You can no longer message them.", no Opening Move,
+  no read receipts or presence either way.
+- Tests: `matchBlockState` cases added to `__tests__/blockedUsers.test.ts`.
+  Not verified against the live response (sp4 has no matches).
+- **Still to confirm with the backend:** the hub refusing messages across a
+  block, uploads refused, and no push for them — the part QA reopened the
+  ticket for.
+
+---
+
+## 2026-09-21 (later) — iOS: denied camera still opened a black viewfinder
+
+- **Reported by the user (iOS):** Chat › Take Photo with camera access denied
+  left the camera open on black, and a blank photo could be taken and sent.
+  Same symptom as the Android ticket fixed 2026-09-10; the code assumed the
+  library checked permission on iOS.
+- **Cause:** `react-native-image-picker` 8.2.1 (still the latest release)
+  defines `-checkPermission:` in `ImagePickerManager.mm` but **never calls
+  it** — `launchCamera` presents `UIImagePickerController` regardless, and
+  iOS shows a denied camera as a black preview with a working shutter.
+- **Fix:** a patch, `patches/react-native-image-picker+8.2.1.patch`: for the
+  camera target it runs `checkPermission:` first (the system prompt appears
+  there the first time) and returns the library's `permission` error on a
+  refusal, which `DatingChatDetailScreen` already turns into "Permission
+  needed → Open Settings". **New dev dependency `patch-package@^8.0.1`** and a
+  `postinstall: patch-package` script so every install re-applies it. The
+  patch is limited to that one file (a first attempt swept in the package's
+  Android `build/` artifacts).
+- **Verified:** `xcodebuild` Debug for the Simulator → BUILD SUCCEEDED, the
+  patched file compiled cleanly. **Not verified on a device:** the library
+  answers `camera_unavailable` on the Simulator before this code runs, so the
+  camera path can only be tested on a real iPhone (native rebuild needed).
+- Asana `1218322747575659` (the camera ticket): the Asana MCP timed out, so
+  no comment was posted.
+
+---
+
+## 2026-09-21 (later) — Chat: "Record Video" removed
+
+- **Asked by the user.** The chat attach sheet now offers **Photos & Videos**
+  (library — existing videos can still be sent) and **Take Photo** only.
+  `PickSource` lost `'video'`, and `pickFromCamera()` in
+  `services/chatAttachments.ts` is photo-only (its `mediaType` parameter is
+  gone).
+
+---
+
+## 2026-09-21 (later) — Blocked users: messages still getting through (reopened)
+
+- **Asana `1218323256400930`** (fixed app-side 2026-09-09) was **reopened by
+  QA on 2026-09-21**: the blocked user is now gone from Matches and the chat
+  shows the blocked notice, but *the blocked person can still send messages,
+  and the blocker still receives them and gets notifications.*
+- **That part is server-side** (gap #29 (c)/(d)): the hub still accepts and
+  delivers messages between a blocked pair, and the backend still pushes a
+  notification for each. The blocked person's app can't know it is blocked.
+- **App side, done now (the blocker's device):**
+  - `utils/blockedUsers.ts` keeps a module-level copy of `GET /blocks`
+    (`loadBlockedUsers` / `isBlockedUser` / `clearBlockedUsers`), loaded when
+    `MainNavigator` mounts (signed in) and cleared when it unmounts; the
+    screens' hook refreshes it on focus as before.
+  - Push: the foreground handler and the background data-only handler drop
+    messages whose `data.senderId` is blocked. Notifications the OS draws
+    itself from an FCM `notification` block (app backgrounded/closed) can
+    only be stopped by the backend.
+  - Chat detail: `isAfterBlock` hides the blocked person's messages sent
+    after `blockedAt` — live from the hub, in the history and in older pages;
+    the conversation before the block stays. No read receipt goes back for
+    them, no "online" from them, and no Opening Move suggestions in a blocked
+    chat.
+- Tests: `__tests__/blockedUsers.test.ts` (hub `…Z` vs REST zone-less times,
+  failed refresh keeps the list, sign-out clears it).
+- Not tested end-to-end: needs two accounts with a match and a block (sp4
+  has neither).
+
+---
+
+## 2026-09-21 (later) — Discover filter: distance starts at 10 km
+
+- **Asked by the user:** a minimum of 10 km on the filter's distance range.
+  The slider was 0–100 km; it is now **10–100 km** (`DISTANCE_MIN_KM` /
+  `DISTANCE_MAX_KM` in `DatingDiscoverScreen`), labelled "10 km" at the left.
+  The default (30 km, what Clear Filters restores) is unchanged, so nothing
+  below 10 is ever sent as `distanceKm`.
+
+---
+
+## 2026-09-21 (later) — Login stuck on the button spinner (iOS)
+
+- **Reported by the user:** the login API isn't called; the button just
+  spins (seen live on the iPhone 17 Pro simulator with `nsp3@yopmail.com`).
+- **Cause — `utils/location.ts` (added 2026-09-16):** sign-in awaits
+  `getCurrentCoords()` before `POST /auth/login`, and that asked iOS for
+  permission *every time its 5-minute cache was empty or stale*.
+  `@react-native-community/geolocation`'s `requestAuthorization` queues its
+  callback and fires it only from `locationManagerDidChangeAuthorization`
+  (RNCGeolocation.mm) — the first call is answered (iOS reports the status
+  when the manager is created), a repeat call never is. The 8-second ceiling
+  covered only `getCurrentPosition`, not the permission step, so the promise
+  hung forever: any sign-in more than 5 minutes after launch (or with no fix,
+  e.g. a Simulator with location set to None) never reached the API. The
+  2026-09-16 note "never awaited longer than its ceiling" was wrong for iOS.
+  Sign-up and the auto sign-in after OTP had the same wait.
+- **Fix:**
+  - iOS permission is requested **once per run**; every caller shares that
+    answer (a later refusal in Settings still surfaces as a
+    `getCurrentPosition` error).
+  - **One ceiling over the whole lookup**, permission included
+    (`utils/withTimeout.ts`); a permission prompt still on screen keeps
+    going in the background.
+  - Sign-in, sign-up and OTP sign-in wait **3 s** at most for a fresh fix
+    (was 8.5 s), same as Discover.
+  - `getPushToken` gets a **5 s** cap on Firebase's `getToken` — also
+    awaited before sign-in, optional, and able to hang on a Simulator whose
+    APNs registration never completes.
+- **Tests:** `__tests__/location.test.ts` mocks the library's real iOS
+  behaviour (only the first request answered). The "asked twice" test hangs
+  against the old code (verified by swapping it back in) and passes now;
+  plus ceiling, refusal and cache cases, and `withTimeout.test.ts`.
+- Not checked on the simulator: tapping Login. An app already stuck needs a
+  reload — its hung promise doesn't recover.
+
+---
+
 ## 2026-09-21 — iOS build broken by the Xcode 27 upgrade
 
 - **Reported by the user:** the Xcode build fails. The Mac had moved to

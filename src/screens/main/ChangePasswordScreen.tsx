@@ -7,6 +7,7 @@ import AppInput from '../../components/common/AppInput';
 import AppButton from '../../components/common/AppButton';
 import AppAlert from '../../components/common/AppAlert';
 import KeyboardAwareScrollView from '../../components/common/KeyboardAwareScrollView';
+import ScreenHeader from '../../components/common/ScreenHeader';
 import api from '../../api/axios';
 import { apiErrorMessage, fieldErrors } from '../../utils/apiError';
 
@@ -46,25 +47,36 @@ export default function ChangePasswordScreen({ navigation }: Props) {
     if (!validate()) return;
     setLoading(true);
     try {
+      // ChangePasswordRequest requires all three fields — without
+      // confirmPassword every attempt was rejected by model validation.
       await api.post('/auth/change-password', {
         currentPassword,
         newPassword,
+        confirmPassword,
       });
       setAlert({ title: 'Password Changed', message: 'Your password has been updated successfully.' });
     } catch (err: any) {
-      // Everything except "is the current password right?" is validated above,
-      // so a 400 here is almost always a wrong current password — the server
-      // answers it with the boilerplate "One or more validation errors
-      // occurred.", which told the user nothing. Put the real reason under the
-      // field it belongs to instead.
-      const specific = fieldErrors(err).currentPassword ?? apiErrorMessage(err);
       const status = err?.response?.status;
 
       if (status === 400) {
-        const message = specific ?? 'Current password is incorrect. Please check it and try again.';
-        const field = /new password/i.test(message) ? 'newPassword' : 'currentPassword';
-        setErrors((e) => ({ ...e, [field]: message }));
+        // Model validation (ProblemDetails) names the field it rejected — put
+        // each message under that input rather than assuming it's the current
+        // password.
+        const byField = fieldErrors(err);
+        const named = (['currentPassword', 'newPassword', 'confirmPassword'] as const)
+          .filter((f) => byField[f]);
+        if (named.length > 0) {
+          setErrors((e) => ({ ...e, ...Object.fromEntries(named.map((f) => [f, byField[f]])) }));
+        } else {
+          // Identity's field-less errors: with the form validated above, this
+          // is almost always a wrong current password.
+          const message = apiErrorMessage(err)
+            ?? 'Current password is incorrect. Please check it and try again.';
+          const field = /new password/i.test(message) ? 'newPassword' : 'currentPassword';
+          setErrors((e) => ({ ...e, [field]: message }));
+        }
       } else {
+        const specific = apiErrorMessage(err);
         setAlert({
           title: 'Error',
           message: specific ?? 'Could not change your password. Please try again.',
@@ -76,75 +88,79 @@ export default function ChangePasswordScreen({ navigation }: Props) {
   };
 
   return (
-    <KeyboardAwareScrollView contentContainerStyle={styles.container}>
-      <AppInput
-        label="Current Password"
-        placeholder="Enter current password"
-        value={currentPassword}
-        onChangeText={(v) => { setCurrentPassword(v); setErrors((e) => ({ ...e, currentPassword: '' })); }}
-        secureToggle
-        error={errors.currentPassword}
-      />
+    <View style={styles.root}>
+      <ScreenHeader title="Change Password" />
+      <KeyboardAwareScrollView contentContainerStyle={styles.container}>
+        <AppInput
+          label="Current Password"
+          placeholder="Enter current password"
+          value={currentPassword}
+          onChangeText={(v) => { setCurrentPassword(v); setErrors((e) => ({ ...e, currentPassword: '' })); }}
+          secureToggle
+          error={errors.currentPassword}
+        />
 
-      <AppInput
-        label="New Password"
-        placeholder="Create a new password"
-        value={newPassword}
-        onChangeText={(v) => { setNewPassword(v); setErrors((e) => ({ ...e, newPassword: '' })); }}
-        secureToggle
-        error={errors.newPassword}
-        onBlur={() => setNewPasswordTouched(true)}
-      />
+        <AppInput
+          label="New Password"
+          placeholder="Create a new password"
+          value={newPassword}
+          onChangeText={(v) => { setNewPassword(v); setErrors((e) => ({ ...e, newPassword: '' })); }}
+          secureToggle
+          error={errors.newPassword}
+          onBlur={() => setNewPasswordTouched(true)}
+        />
 
-      {/* Password strength rules — shown after first blur */}
-      {newPasswordTouched && (
-        <View style={styles.policyBox}>
-          {PASSWORD_RULES.map((rule) => {
-            const met = rule.test(newPassword);
-            return (
-              <View key={rule.label} style={styles.policyRow}>
-                <Text style={[styles.policyIcon, met ? styles.policyMet : styles.policyUnmet]}>
-                  {met ? '✓' : '○'}
-                </Text>
-                <Text style={[styles.policyLabel, met ? styles.policyMet : styles.policyUnmet]}>
-                  {rule.label}
-                </Text>
-              </View>
-            );
-          })}
-        </View>
-      )}
+        {/* Password strength rules — shown after first blur */}
+        {newPasswordTouched && (
+          <View style={styles.policyBox}>
+            {PASSWORD_RULES.map((rule) => {
+              const met = rule.test(newPassword);
+              return (
+                <View key={rule.label} style={styles.policyRow}>
+                  <Text style={[styles.policyIcon, met ? styles.policyMet : styles.policyUnmet]}>
+                    {met ? '✓' : '○'}
+                  </Text>
+                  <Text style={[styles.policyLabel, met ? styles.policyMet : styles.policyUnmet]}>
+                    {rule.label}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
+        )}
 
-      <AppInput
-        label="Confirm New Password"
-        placeholder="Repeat new password"
-        value={confirmPassword}
-        onChangeText={(v) => { setConfirmPassword(v); setErrors((e) => ({ ...e, confirmPassword: '' })); }}
-        secureToggle
-        error={errors.confirmPassword}
-      />
+        <AppInput
+          label="Confirm New Password"
+          placeholder="Repeat new password"
+          value={confirmPassword}
+          onChangeText={(v) => { setConfirmPassword(v); setErrors((e) => ({ ...e, confirmPassword: '' })); }}
+          secureToggle
+          error={errors.confirmPassword}
+        />
 
-      <AppButton
-        title="Update Password"
-        onPress={handleSave}
-        loading={loading}
-        style={styles.btn}
-      />
+        <AppButton
+          title="Update Password"
+          onPress={handleSave}
+          loading={loading}
+          style={styles.btn}
+        />
 
-      <AppAlert
-        visible={!!alert}
-        title={alert?.title ?? ''}
-        message={alert?.message}
-        onClose={() => {
-          setAlert(null);
-          if (alert?.title === 'Password Changed') navigation.goBack();
-        }}
-      />
-    </KeyboardAwareScrollView>
+        <AppAlert
+          visible={!!alert}
+          title={alert?.title ?? ''}
+          message={alert?.message}
+          onClose={() => {
+            setAlert(null);
+            if (alert?.title === 'Password Changed') navigation.goBack();
+          }}
+        />
+      </KeyboardAwareScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: Colors.background },
   container: {
     flexGrow: 1,
     backgroundColor: Colors.background,

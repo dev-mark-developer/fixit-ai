@@ -13,6 +13,7 @@ import AppInput from '../../components/common/AppInput';
 import AppButton from '../../components/common/AppButton';
 import AppAlert, { AlertButton } from '../../components/common/AppAlert';
 import KeyboardAwareScrollView from '../../components/common/KeyboardAwareScrollView';
+import ScreenHeader from '../../components/common/ScreenHeader';
 
 type Props = NativeStackScreenProps<MentorStackParamList, 'MentorEditProfile'>;
 
@@ -141,8 +142,11 @@ export default function MentorEditProfileScreen({ navigation }: Props) {
 
   if (fetching) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={Colors.mentor} />
+      <View style={styles.root}>
+        <ScreenHeader title="Edit Profile" />
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={Colors.mentor} />
+        </View>
       </View>
     );
   }
@@ -151,110 +155,115 @@ export default function MentorEditProfileScreen({ navigation }: Props) {
   const initials = `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase() || '?';
 
   return (
-    <KeyboardAwareScrollView contentContainerStyle={styles.container} extraHeight={80}>
+    <View style={styles.root}>
+      <ScreenHeader title="Edit Profile" />
+      <KeyboardAwareScrollView contentContainerStyle={styles.container} extraHeight={80}>
 
-      {/* Avatar */}
-      <TouchableOpacity
-        style={styles.avatarWrap}
-        onPress={pickImage}
-        activeOpacity={0.8}
-        disabled={uploadingImage}
-      >
-        {displayImageUri ? (
-          <RemoteImage
-            uri={displayImageUri}
-            style={styles.avatar}
-            indicatorColor={Colors.mentor}
-          />
-        ) : (
-          <View style={styles.avatarPlaceholder}>
-            <Text style={styles.avatarInitials}>{initials}</Text>
+        {/* Avatar */}
+        <TouchableOpacity
+          style={styles.avatarWrap}
+          onPress={pickImage}
+          activeOpacity={0.8}
+          disabled={uploadingImage}
+        >
+          {displayImageUri ? (
+            <RemoteImage
+              uri={displayImageUri}
+              style={styles.avatar}
+              indicatorColor={Colors.mentor}
+            />
+          ) : (
+            <View style={styles.avatarPlaceholder}>
+              <Text style={styles.avatarInitials}>{initials}</Text>
+            </View>
+          )}
+          <View style={styles.avatarBadge}>
+            {uploadingImage
+              ? <ActivityIndicator color={Colors.white} size="small" />
+              : <Text style={styles.avatarBadgeText}>+</Text>}
           </View>
-        )}
-        <View style={styles.avatarBadge}>
-          {uploadingImage
-            ? <ActivityIndicator color={Colors.white} size="small" />
-            : <Text style={styles.avatarBadgeText}>+</Text>}
-        </View>
-      </TouchableOpacity>
-      <Text style={styles.avatarHint}>
-        {uploadingImage ? 'Uploading...' : 'Tap to change photo'}
-      </Text>
+        </TouchableOpacity>
+        <Text style={styles.avatarHint}>
+          {uploadingImage ? 'Uploading...' : 'Tap to change photo'}
+        </Text>
 
-      {/* Guru Profile Section */}
-      <Text style={styles.sectionLabel}>Guru Profile</Text>
+        {/* Guru Profile Section */}
+        <Text style={styles.sectionLabel}>Guru Profile</Text>
 
-      <AppInput
-        label="Display Name"
-        required
-        placeholder="Your public name as a Guru"
-        value={displayName}
-        onChangeText={(v) => { setDisplayName(v); setErrors((e) => ({ ...e, displayName: '' })); }}
-        error={errors.displayName}
-        maxLength={80}
-      />
-      <AppInput
-        label="Tagline"
-        placeholder="A short phrase about your practice (optional)"
-        value={tagline}
-        onChangeText={setTagline}
-        maxLength={120}
-      />
-      <AppInput
-        label="Bio"
-        required
-        placeholder="Tell seekers about your spiritual background and approach..."
-        value={bio}
-        onChangeText={(v) => { setBio(v); setErrors((e) => ({ ...e, bio: '' })); }}
-        error={errors.bio}
-        maxLength={1000}
-        multiline
-        style={styles.bioInput}
-      />
+        <AppInput
+          label="Display Name"
+          required
+          placeholder="Your public name as a Guru"
+          value={displayName}
+          onChangeText={(v) => { setDisplayName(v); setErrors((e) => ({ ...e, displayName: '' })); }}
+          error={errors.displayName}
+          maxLength={80}
+        />
+        <AppInput
+          label="Tagline"
+          placeholder="A short phrase about your practice (optional)"
+          value={tagline}
+          onChangeText={setTagline}
+          maxLength={120}
+        />
+        <AppInput
+          label="Bio"
+          required
+          placeholder="Tell seekers about your spiritual background and approach..."
+          value={bio}
+          onChangeText={(v) => { setBio(v); setErrors((e) => ({ ...e, bio: '' })); }}
+          error={errors.bio}
+          maxLength={1000}
+          multiline
+          style={styles.bioInput}
+        />
 
-      <View style={styles.divider} />
+        <View style={styles.divider} />
 
-      {/* Personal Info Section */}
-      <Text style={styles.sectionLabel}>Personal Info</Text>
+        {/* Personal Info Section */}
+        <Text style={styles.sectionLabel}>Personal Info</Text>
 
-      <AppInput
-        label="First Name"
-        required
-        placeholder="First name"
-        value={firstName}
-        onChangeText={(v) => { setFirstName(v); setErrors((e) => ({ ...e, firstName: '' })); }}
-        error={errors.firstName}
-        maxLength={100}
-      />
-      <AppInput
-        label="Last Name"
-        required
-        placeholder="Last name"
-        value={lastName}
-        onChangeText={(v) => { setLastName(v); setErrors((e) => ({ ...e, lastName: '' })); }}
-        error={errors.lastName}
-        maxLength={100}
-      />
+        <AppInput
+          label="First Name"
+          required
+          placeholder="First name"
+          value={firstName}
+          onChangeText={(v) => { setFirstName(v); setErrors((e) => ({ ...e, firstName: '' })); }}
+          error={errors.firstName}
+          maxLength={100}
+        />
+        <AppInput
+          label="Last Name"
+          required
+          placeholder="Last name"
+          value={lastName}
+          onChangeText={(v) => { setLastName(v); setErrors((e) => ({ ...e, lastName: '' })); }}
+          error={errors.lastName}
+          maxLength={100}
+        />
 
-      <AppButton
-        title="Save Changes"
-        onPress={handleSave}
-        loading={saving}
-        style={styles.saveBtn}
-      />
+        <AppButton
+          title="Save Changes"
+          onPress={handleSave}
+          loading={saving}
+          style={styles.saveBtn}
+        />
 
-      <AppAlert
-        visible={!!alert}
-        title={alert?.title ?? ''}
-        message={alert?.message}
-        buttons={alert?.buttons}
-        onClose={() => setAlert(null)}
-      />
-    </KeyboardAwareScrollView>
+        <AppAlert
+          visible={!!alert}
+          title={alert?.title ?? ''}
+          message={alert?.message}
+          buttons={alert?.buttons}
+          onClose={() => setAlert(null)}
+        />
+      </KeyboardAwareScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: Colors.background },
+
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.background },
   container: { flexGrow: 1, backgroundColor: Colors.background, padding: 24, paddingBottom: 40 },
 

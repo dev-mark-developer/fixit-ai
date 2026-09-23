@@ -11,6 +11,7 @@ import DatingIceBreakerSelectionScreen from '../screens/dating/DatingIceBreakerS
 import DatingProfileDetailScreen from '../screens/dating/DatingProfileDetailScreen';
 import DatingChatDetailScreen from '../screens/dating/DatingChatDetailScreen';
 import DatingPremiumScreen from '../screens/dating/DatingPremiumScreen';
+import DatingBlockListScreen from '../screens/dating/DatingBlockListScreen';
 import VettingQuizScreen from '../screens/dating/VettingQuizScreen';
 import UploadCertificateScreen from '../screens/dating/UploadCertificateScreen';
 import SpiritualMentorsScreen from '../screens/dating/SpiritualMentorsScreen';
@@ -41,6 +42,14 @@ export default function DatingNavigator() {
       <Stack.Screen name="DatingProfileDetail" component={DatingProfileDetailScreen} options={{ headerShown: false }} />
       <Stack.Screen name="DatingChatDetail" component={DatingChatDetailScreen} options={{ headerShown: false }} />
       <Stack.Screen name="DatingPremium" component={DatingPremiumScreen} options={{ headerShown: false }} />
+      {/* Pushed over the drawer (not a drawer screen) so it gets a back button.
+          Minimal: the previous route is the untitled drawer, which iOS would
+          otherwise label "DatingMain". */}
+      <Stack.Screen
+        name="DatingBlockList"
+        component={DatingBlockListScreen}
+        options={{ title: 'Block List', headerBackButtonDisplayMode: 'minimal' }}
+      />
       <Stack.Screen name="SpiritualEntry" component={SpiritualEntryScreen} options={{ headerShown: false }} />
       <Stack.Screen name="VettingQuiz" component={VettingQuizScreen} options={{ headerShown: false }} />
       <Stack.Screen name="UploadCertificate" component={UploadCertificateScreen} options={{ headerShown: false }} />

@@ -1,0 +1,33 @@
+diff --git a/node_modules/react-native-image-picker/ios/ImagePickerManager.mm b/node_modules/react-native-image-picker/ios/ImagePickerManager.mm
+index 93e99be..7ea9ec0 100644
+--- a/node_modules/react-native-image-picker/ios/ImagePickerManager.mm
++++ b/node_modules/react-native-image-picker/ios/ImagePickerManager.mm
+@@ -100,6 +100,28 @@ - (void)launchImagePicker:(NSDictionary *)options callback:(RCTResponseSenderBlo
+         }
+     }
+ #endif
++    // Fixit patch: 8.2.1 defines -checkPermission: but never calls it, so with
++    // camera access denied iOS still presented the camera — a black viewfinder
++    // whose shutter "took" a black photo that could be sent. Ask first (the
++    // system prompt appears here the first time) and report a refusal as the
++    // library's own `permission` error.
++    if (target == camera) {
++        [self checkPermission:^(BOOL granted) {
++            dispatch_async(dispatch_get_main_queue(), ^{
++                if (!granted) {
++                    self.callback(@[@{@"errorCode": errPermission}]);
++                    return;
++                }
++                [self presentImagePickerController];
++            });
++        }];
++        return;
++    }
++    [self presentImagePickerController];
++}
++
++- (void)presentImagePickerController
++{
+     UIImagePickerController *picker = [[UIImagePickerController alloc] init];
+     [ImagePickerUtils setupPickerFromOptions:picker options:self.options target:target];
+     picker.delegate = self;

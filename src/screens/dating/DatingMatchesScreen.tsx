@@ -26,7 +26,7 @@ import { Colors } from '../../utils/colors';
 import { useSubscription } from '../../store/SubscriptionContext';
 import { hasLoaded, usePrefetchImages } from '../../utils/imageCache';
 import { resolveImageUrl } from '../../utils/imageUrl';
-import { useBlockedUsers } from '../../utils/blockedUsers';
+import { matchBlockState, useBlockedUsers } from '../../utils/blockedUsers';
 import RemoteImage from '../../components/common/RemoteImage';
 import { useModuleStatus } from '../../store/ModuleStatusContext';
 import { parseApiDate } from '../../utils/datetime';
@@ -270,12 +270,16 @@ export default function DatingMatchesScreen({ navigation }: Props) {
   const [matches, setMatches] = useState<DatingMatch[]>([]);
   const { blockedIds } = useBlockedUsers();
   /**
-   * `GET /dating/matches` still returns people this user has blocked (gap
-   * #29), so they are filtered out here — a blocked person must not sit in
-   * Matches with a live chat behind them.
+   * `GET /dating/matches` still returns blocked matches — the Chats list needs
+   * them — but now flags them both ways (gap #29). Neither side sees a
+   * blocked match here: not someone the user blocked, nor someone who blocked
+   * the user.
    */
   const visibleMatches = useMemo(
-    () => matches.filter((m) => !blockedIds.has(m.otherUserId)),
+    () => matches.filter((m) => {
+      const { blockedByMe, blockedMe } = matchBlockState(m, blockedIds);
+      return !blockedByMe && !blockedMe;
+    }),
     [matches, blockedIds],
   );
   const [loading, setLoading] = useState(true);
@@ -642,7 +646,12 @@ export default function DatingMatchesScreen({ navigation }: Props) {
               onPress={() => setActiveTab(tab.key)}
               activeOpacity={0.8}
             >
-              <Text style={[styles.tabLabel, !isActive && styles.tabLabelInactive]}>
+              <Text
+                style={[styles.tabLabel, !isActive && styles.tabLabelInactive]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.75}
+              >
                 {tab.label}
               </Text>
             </TouchableOpacity>
@@ -689,19 +698,24 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
   },
 
+  // The three pills share the row: they grow to fill a wide screen and shrink
+  // (label scaling down if needed) on a narrow one, instead of running off
+  // the edge at their natural width on 375pt phones like the iPhone 11 Pro.
   tabRow: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
     paddingHorizontal: 20,
     marginBottom: 16,
   },
   tabPill: {
-    paddingHorizontal: 16,
+    flexGrow: 1,
+    flexShrink: 1,
+    paddingHorizontal: 12,
     paddingVertical: 12,
     borderRadius: 12,
   },
   tabPillInactive: { backgroundColor: '#BDBDBD' },
-  tabLabel: { fontSize: 14, fontWeight: '700', color: Colors.white },
+  tabLabel: { fontSize: 14, fontWeight: '700', color: Colors.white, textAlign: 'center' },
   tabLabelInactive: { color: Colors.white },
 
   body: { flex: 1 },

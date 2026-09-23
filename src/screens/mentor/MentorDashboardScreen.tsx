@@ -13,6 +13,8 @@ import RemoteImage from '../../components/common/RemoteImage';
 import { mentorApi, AssignedUser } from '../../api/mentor';
 import AppAlert from '../../components/common/AppAlert';
 import { parseApiDate } from '../../utils/datetime';
+import { useSubscription } from '../../store/SubscriptionContext';
+import { isIapSupported } from '../../services/iap';
 
 type AssignedTab = 'All' | 'Active' | 'Completed';
 const TABS: AssignedTab[] = ['All', 'Active', 'Completed'];
@@ -25,20 +27,34 @@ export default function MentorDashboardScreen() {
   const [tab, setTab] = useState<AssignedTab>('All');
   const [users, setUsers] = useState<AssignedUser[]>([]);
   const [loading, setLoading] = useState(false);
-  const [activeAction, setActiveAction] = useState<{ id: number; status: 'Completed' | 'Removed' } | null>(null);
+  const [busyId, setBusyId] = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [hasSubscription, setHasSubscription] = useState<boolean | null>(null);
   const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
-  const [confirmModal, setConfirmModal] = useState<{ user: AssignedUser; status: 'Completed' | 'Removed' } | null>(null);
+  const [confirmModal, setConfirmModal] = useState<AssignedUser | null>(null);
+
+  // An unsubscribed mentor sees a subscribe overlay over the dashboard body;
+  // the header stays usable, so the drawer (profile, dating, sign-out…) is
+  // never out of reach. Same source of truth as MentorSubscription: the
+  // StoreKit entitlement on iOS, the legacy record on Android (no billing).
+  const {
+    isPremium, status: subscriptionStatus, loading: subscriptionLoading,
+  } = useSubscription('mentor');
+  const [androidActive, setAndroidActive] = useState<boolean | null>(null);
 
   useFocusEffect(useCallback(() => {
+    if (isIapSupported) return;
     mentorApi.getSubscription()
       .then((res) => {
         const sub = res.data?.data;
-        setHasSubscription(!!sub && !sub.isExpired);
+        setAndroidActive(!!sub && !sub.isExpired);
       })
-      .catch(() => setHasSubscription(false));
+      .catch(() => setAndroidActive(null));
   }, []));
+
+  // null until known, so the overlay never flashes at a subscriber.
+  const hasSubscription: boolean | null = isIapSupported
+    ? (subscriptionLoading && !subscriptionStatus ? null : isPremium)
+    : androidActive;
 
   const loadUsers = async (which: AssignedTab, silent = false) => {
     if (!silent) setLoading(true);
@@ -55,24 +71,22 @@ export default function MentorDashboardScreen() {
 
   useEffect(() => { loadUsers(tab); }, [tab]);
 
-  const requestUpdate = (user: AssignedUser, status: 'Completed' | 'Removed') =>
-    setConfirmModal({ user, status });
-
-  const performUpdate = async (user: AssignedUser, status: 'Completed' | 'Removed') => {
+  // Mentors can only mark a seeker completed — removing one isn't theirs to do.
+  const markCompleted = async (user: AssignedUser) => {
     setConfirmModal(null);
-    setActiveAction({ id: user.assignmentId, status });
+    setBusyId(user.assignmentId);
     try {
-      await mentorApi.updateAssignmentStatus(user.assignmentId, status);
+      await mentorApi.updateAssignmentStatus(user.assignmentId, 'Completed');
       setUsers((prev) => prev.filter((u) => u.assignmentId !== user.assignmentId));
     } catch (err: any) {
       setAlert({ title: 'Error', message: err.response?.data?.message ?? 'Action failed. Please try again.' });
     } finally {
-      setActiveAction(null);
+      setBusyId(null);
     }
   };
 
   const renderUser = ({ item }: { item: AssignedUser }) => {
-    const busy = activeAction?.id === item.assignmentId;
+    const busy = busyId === item.assignmentId;
     const isCompleted = item.status === 'Completed' || tab === 'Completed';
     return (
       <View style={styles.userCard}>
@@ -90,11 +104,6 @@ export default function MentorDashboardScreen() {
         <View style={styles.userInfo}>
           <Text style={styles.userName}>{item.firstName} {item.lastName}</Text>
           <Text style={styles.userDate}>Assigned: {formatDate(item.assignedAt)}</Text>
-          {!isCompleted && (
-            <TouchableOpacity onPress={() => requestUpdate(item, 'Removed')} disabled={busy}>
-              <Text style={styles.removeLink}>Remove</Text>
-            </TouchableOpacity>
-          )}
         </View>
 
         {busy ? (
@@ -102,7 +111,7 @@ export default function MentorDashboardScreen() {
         ) : (
           <TouchableOpacity
             style={[styles.checkBtn, isCompleted && styles.checkBtnDone]}
-            onPress={() => !isCompleted && requestUpdate(item, 'Completed')}
+            onPress={() => !isCompleted && setConfirmModal(item)}
             disabled={isCompleted}
           >
             <Icon name="checkmark" size={20} color={Colors.white} />
@@ -111,26 +120,6 @@ export default function MentorDashboardScreen() {
       </View>
     );
   };
-
-  // ── No subscription gate ───────────────────────────────────
-  if (hasSubscription === false) {
-    return (
-      <View style={styles.noSubRoot}>
-        <Image source={require('../../assets/crown.png')} style={styles.noSubImage} resizeMode="contain" />
-        <Text style={styles.noSubTitle}>Subscription Required</Text>
-        <Text style={styles.noSubMessage}>
-          Activate your Mentor Plan to start receiving seeker assignments.
-        </Text>
-        <TouchableOpacity
-          style={styles.noSubBtn}
-          onPress={() => navigation.navigate('MentorSubscription')}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.noSubBtnText}>Activate Subscription</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
@@ -144,49 +133,69 @@ export default function MentorDashboardScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Tabs */}
-      <View style={styles.tabs}>
-        {TABS.map((t) => (
-          <TouchableOpacity
-            key={t}
-            style={[styles.tab, tab === t && styles.tabActive]}
-            onPress={() => setTab(t)}
-          >
-            <Text style={[styles.tabText, tab === t && styles.tabTextActive]}>{t}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={Colors.mentor} size="large" />
+      <View style={styles.body}>
+        {/* Tabs */}
+        <View style={styles.tabs}>
+          {TABS.map((t) => (
+            <TouchableOpacity
+              key={t}
+              style={[styles.tab, tab === t && styles.tabActive]}
+              onPress={() => setTab(t)}
+            >
+              <Text style={[styles.tabText, tab === t && styles.tabTextActive]}>{t}</Text>
+            </TouchableOpacity>
+          ))}
         </View>
-      ) : (
-        <FlatList
-          data={users}
-          keyExtractor={(item) => item.assignmentId.toString()}
-          extraData={activeAction}
-          renderItem={renderUser}
-          contentContainerStyle={styles.list}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={() => { setRefreshing(true); loadUsers(tab, true); }}
-              tintColor={Colors.mentor}
-            />
-          }
-          ListEmptyComponent={
-            <View style={styles.emptyList}>
-              <Image source={require('../../assets/noActiveUser.png')} style={styles.emptyImage} resizeMode="contain" />
-              <Text style={styles.emptyTitle}>No Active Users</Text>
-              <Text style={styles.emptyText}>
-                You don't have any assigned seekers yet. New assignments will
-                appear here.
-              </Text>
-            </View>
-          }
-        />
-      )}
+
+        {loading ? (
+          <View style={styles.center}>
+            <ActivityIndicator color={Colors.mentor} size="large" />
+          </View>
+        ) : (
+          <FlatList
+            data={users}
+            keyExtractor={(item) => item.assignmentId.toString()}
+            extraData={busyId}
+            renderItem={renderUser}
+            contentContainerStyle={styles.list}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={() => { setRefreshing(true); loadUsers(tab, true); }}
+                tintColor={Colors.mentor}
+              />
+            }
+            ListEmptyComponent={
+              <View style={styles.emptyList}>
+                <Image source={require('../../assets/noActiveUser.png')} style={styles.emptyImage} resizeMode="contain" />
+                <Text style={styles.emptyTitle}>No Active Users</Text>
+                <Text style={styles.emptyText}>
+                  You don't have any assigned seekers yet. New assignments will
+                  appear here.
+                </Text>
+              </View>
+            }
+          />
+        )}
+
+        {/* Subscribe overlay — covers the body only, header stays touchable */}
+        {hasSubscription === false && (
+          <View style={[StyleSheet.absoluteFill, styles.subOverlay]}>
+            <Image source={require('../../assets/crown.png')} style={styles.subImage} resizeMode="contain" />
+            <Text style={styles.subTitle}>Subscription Required</Text>
+            <Text style={styles.subMessage}>
+              Activate your Mentor Plan to start receiving seeker assignments.
+            </Text>
+            <TouchableOpacity
+              style={styles.subBtn}
+              onPress={() => navigation.navigate('MentorSubscription')}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.subBtnText}>Activate Subscription</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
 
       {/* Are You Sure confirm modal */}
       <Modal
@@ -204,9 +213,7 @@ export default function MentorDashboardScreen() {
               </TouchableOpacity>
             </View>
             <Text style={styles.modalMessage}>
-              {confirmModal?.status === 'Removed'
-                ? `Remove ${confirmModal?.user.firstName} ${confirmModal?.user.lastName} from your seekers? This can't be undone.`
-                : `Mark ${confirmModal?.user.firstName} ${confirmModal?.user.lastName} as completed? They'll move to your Completed list.`}
+              {`Mark ${confirmModal?.firstName} ${confirmModal?.lastName} as completed? They'll move to your Completed list.`}
             </Text>
             <View style={styles.modalBtns}>
               <TouchableOpacity
@@ -217,7 +224,7 @@ export default function MentorDashboardScreen() {
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.modalBtn, styles.modalConfirmBtn]}
-                onPress={() => confirmModal && performUpdate(confirmModal.user, confirmModal.status)}
+                onPress={() => confirmModal && markCompleted(confirmModal)}
               >
                 <Text style={styles.modalConfirmText}>Confirm</Text>
               </TouchableOpacity>
@@ -249,6 +256,21 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
 
+  body: { flex: 1 },
+
+  subOverlay: {
+    backgroundColor: Colors.background,
+    alignItems: 'center', justifyContent: 'center', padding: 32,
+  },
+  subImage: { width: 90, height: 90, marginBottom: 16 },
+  subTitle: { fontSize: 20, fontWeight: '800', color: Colors.text, marginBottom: 10 },
+  subMessage: {
+    fontSize: 14, color: Colors.textSecondary, textAlign: 'center',
+    lineHeight: 20, marginBottom: 28,
+  },
+  subBtn: { backgroundColor: Colors.mentor, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 32 },
+  subBtnText: { fontSize: 15, fontWeight: '700', color: Colors.white },
+
   tabs: { flexDirection: 'row', gap: 12, paddingHorizontal: 16, marginBottom: 8 },
   tab: {
     flex: 1,
@@ -276,7 +298,6 @@ const styles = StyleSheet.create({
   userInfo: { flex: 1, marginLeft: 12 },
   userName: { fontSize: 15, fontWeight: '700', color: Colors.text },
   userDate: { fontSize: 12, color: Colors.textMuted, marginTop: 2 },
-  removeLink: { fontSize: 12, fontWeight: '600', color: Colors.error, marginTop: 4 },
 
   checkBtn: {
     width: 38, height: 38, borderRadius: 10,
@@ -289,19 +310,6 @@ const styles = StyleSheet.create({
   emptyImage: { width: 220, height: 160, marginBottom: 8 },
   emptyTitle: { fontSize: 20, fontWeight: '800', color: Colors.text, marginBottom: 10 },
   emptyText: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center', lineHeight: 21 },
-
-  noSubRoot: {
-    flex: 1, backgroundColor: Colors.background,
-    alignItems: 'center', justifyContent: 'center', padding: 32,
-  },
-  noSubImage: { width: 90, height: 90, marginBottom: 16 },
-  noSubTitle: { fontSize: 20, fontWeight: '800', color: Colors.text, marginBottom: 10 },
-  noSubMessage: {
-    fontSize: 14, color: Colors.textSecondary, textAlign: 'center',
-    lineHeight: 20, marginBottom: 28,
-  },
-  noSubBtn: { backgroundColor: Colors.mentor, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 32 },
-  noSubBtnText: { fontSize: 15, fontWeight: '700', color: Colors.white },
 
   // Confirm modal
   modalOverlay: {

@@ -21,7 +21,7 @@ import DatingTopBar from '../../components/dating/DatingTopBar';
 import DatingBottomBar from '../../components/dating/DatingBottomBar';
 import { Colors } from '../../utils/colors';
 import { usePrefetchImages } from '../../utils/imageCache';
-import { useBlockedUsers } from '../../utils/blockedUsers';
+import { isBlockedUser, matchBlockState, useBlockedUsers } from '../../utils/blockedUsers';
 import RemoteImage from '../../components/common/RemoteImage';
 import { useModuleStatus } from '../../store/ModuleStatusContext';
 import { chatHub } from '../../services/chatHub';
@@ -108,6 +108,9 @@ export default function DatingChatsScreen({ navigation }: Props) {
         setMatches((prev) =>
           prev.map((m) => {
             if (m.id !== msg.matchId) return m;
+            // A blocked chat stays as it was: nothing sent across a block
+            // should move it to the top or change its preview.
+            if (m.isBlockedByMe || m.hasBlockedMe || isBlockedUser(msg.senderId)) return m;
             const fromPeer = msg.senderId !== currentUserId.current;
             return {
               ...m,
@@ -152,7 +155,8 @@ export default function DatingChatsScreen({ navigation }: Props) {
     const initials = item.otherFirstName.charAt(0).toUpperCase();
     const imageUri = item.otherDisplayImageUrl ?? item.otherProfileImageUrl;
     const timeLabel = item.lastMessageAt ? timeAgo(item.lastMessageAt) : timeAgo(item.matchedAt);
-    const isBlocked = blockedIds.has(item.otherUserId);
+    const { blockedByMe, blockedMe } = matchBlockState(item, blockedIds);
+    const isBlocked = blockedByMe || blockedMe;
     const hasUnread = item.unreadCount > 0 && !isBlocked;
 
     return (
@@ -174,8 +178,10 @@ export default function DatingChatsScreen({ navigation }: Props) {
             {item.otherFirstName} {item.otherLastName}
           </Text>
           {isBlocked ? (
+            // Being blocked is shown as "unavailable", as apps usually do,
+            // rather than telling the user who blocked them.
             <Text style={styles.blockedNote} numberOfLines={1}>
-              You blocked this user
+              {blockedByMe ? 'You blocked this user' : 'This user is unavailable'}
             </Text>
           ) : hasUnread ? (
             <Text style={[styles.newMessages, { color: lime }]} numberOfLines={1}>

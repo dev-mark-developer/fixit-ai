@@ -57,14 +57,6 @@ function MentorDrawerContent({ navigation }: DrawerContentComponentProps) {
   };
   const goDrawer = (name: keyof MentorDrawerParamList) => navigation.navigate(name);
 
-  // Mentors are still regular members — let them into the dating module.
-  // MainNavigator swaps the tree for mentors, so the dating stack is opened
-  // as a screen on the mentor stack rather than a root route.
-  const goToDating = () => {
-    navigation.closeDrawer();
-    parentNav?.navigate('MentorDating' as any);
-  };
-
   const handleLogout = () => {
     Alert.alert('Log Out', 'Are you sure you want to log out?', [
       { text: 'Cancel', style: 'cancel' },
@@ -74,7 +66,6 @@ function MentorDrawerContent({ navigation }: DrawerContentComponentProps) {
 
   const items: { label: string; icon: string; onPress: () => void }[] = [
     { label: 'My Seekers', icon: 'home-outline', onPress: () => goDrawer('MentorDashboard') },
-    { label: 'Explore Dating', icon: 'heart-outline', onPress: goToDating },
     { label: 'Edit Profile', icon: 'create-outline', onPress: () => goToStack('MentorEditProfile') },
     { label: 'My Subscription', icon: 'ribbon-outline', onPress: () => goToStack('MentorSubscription') },
     { label: 'Terms & Conditions', icon: 'document-text-outline', onPress: () => setLegalModal('tc') },

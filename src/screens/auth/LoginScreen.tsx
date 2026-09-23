@@ -47,11 +47,12 @@ export default function LoginScreen({ navigation }: Props) {
       // heartbeat once one becomes available.
       // Location was asked for at launch (App.tsx); this reads the fix it
       // warmed. Still optional: `coords` is null when it was refused or is
-      // unavailable, and the fields are then left out of the payload.
+      // unavailable, and the fields are then left out of the payload. The
+      // user is waiting on the button, so a fresh fix gets 3 seconds at most.
       const [deviceId, pushToken, coords] = await Promise.all([
         getDeviceId(),
         getPushToken(),
-        getCurrentCoords(),
+        getCurrentCoords({ timeoutMs: 3000 }),
       ]);
       const res = await api.post('/auth/login', {
         email: email.trim(),

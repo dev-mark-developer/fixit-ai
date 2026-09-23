@@ -8,6 +8,7 @@ import AppInput from '../../components/common/AppInput';
 import AppButton from '../../components/common/AppButton';
 import AppAlert from '../../components/common/AppAlert';
 import KeyboardAwareScrollView from '../../components/common/KeyboardAwareScrollView';
+import ScreenHeader from '../../components/common/ScreenHeader';
 import api from '../../api/axios';
 import { extractApiError } from '../../utils/apiError';
 
@@ -76,70 +77,74 @@ export default function ContactUsScreen({ navigation }: Props) {
   };
 
   return (
-    <KeyboardAwareScrollView contentContainerStyle={styles.container}>
-      <AppInput
-        label="Your Name"
-        placeholder="John Doe"
-        value={name}
-        onChangeText={(v) => { setName(v); clearError('name'); }}
-        error={errors.name}
-        maxLength={100}
-        autoCapitalize="words"
-      />
+    <View style={styles.root}>
+      <ScreenHeader title="Contact Us" />
+      <KeyboardAwareScrollView contentContainerStyle={styles.container}>
+        <AppInput
+          label="Your Name"
+          placeholder="John Doe"
+          value={name}
+          onChangeText={(v) => { setName(v); clearError('name'); }}
+          error={errors.name}
+          maxLength={100}
+          autoCapitalize="words"
+        />
 
-      <AppInput
-        label="Email Address"
-        placeholder="you@example.com"
-        value={email}
-        onChangeText={(v) => { setEmail(v); clearError('email'); }}
-        keyboardType="email-address"
-        autoCapitalize="none"
-        error={errors.email}
-        maxLength={150}
-      />
+        <AppInput
+          label="Email Address"
+          placeholder="you@example.com"
+          value={email}
+          onChangeText={(v) => { setEmail(v); clearError('email'); }}
+          keyboardType="email-address"
+          autoCapitalize="none"
+          error={errors.email}
+          maxLength={150}
+        />
 
-      <AppInput
-        label="Subject"
-        placeholder="e.g. Account issue, Feature request..."
-        value={subject}
-        onChangeText={(v) => { setSubject(v); clearError('subject'); }}
-        error={errors.subject}
-        maxLength={100}
-      />
+        <AppInput
+          label="Subject"
+          placeholder="e.g. Account issue, Feature request..."
+          value={subject}
+          onChangeText={(v) => { setSubject(v); clearError('subject'); }}
+          error={errors.subject}
+          maxLength={100}
+        />
 
-      <AppInput
-        label="Message"
-        placeholder="Describe your issue or question in detail..."
-        value={message}
-        onChangeText={(v) => { setMessage(v); clearError('message'); }}
-        error={errors.message}
-        multiline
-        numberOfLines={5}
-        maxLength={500}
-        style={styles.messageInput}
-      />
+        <AppInput
+          label="Message"
+          placeholder="Describe your issue or question in detail..."
+          value={message}
+          onChangeText={(v) => { setMessage(v); clearError('message'); }}
+          error={errors.message}
+          multiline
+          numberOfLines={5}
+          maxLength={500}
+          style={styles.messageInput}
+        />
 
-      <AppButton
-        title="Send Message"
-        onPress={handleSubmit}
-        loading={loading}
-        style={styles.btn}
-      />
+        <AppButton
+          title="Send Message"
+          onPress={handleSubmit}
+          loading={loading}
+          style={styles.btn}
+        />
 
-      <AppAlert
-        visible={!!alert}
-        title={alert?.title ?? ''}
-        message={alert?.message}
-        onClose={() => {
-          setAlert(null);
-          if (alert?.title === 'Message Sent!') navigation.goBack();
-        }}
-      />
-    </KeyboardAwareScrollView>
+        <AppAlert
+          visible={!!alert}
+          title={alert?.title ?? ''}
+          message={alert?.message}
+          onClose={() => {
+            setAlert(null);
+            if (alert?.title === 'Message Sent!') navigation.goBack();
+          }}
+        />
+      </KeyboardAwareScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: Colors.background },
   container: {
     flexGrow: 1,
     backgroundColor: Colors.background,

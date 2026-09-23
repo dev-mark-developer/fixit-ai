@@ -4,6 +4,7 @@ import {
 } from 'react-native';
 import { Colors } from '../../utils/colors';
 import api from '../../api/axios';
+import ScreenHeader from '../../components/common/ScreenHeader';
 
 interface FaqItem {
   id: number;
@@ -60,16 +61,15 @@ export default function FaqsScreen() {
 
   useEffect(() => { load(); }, []);
 
+  let body: React.ReactNode;
   if (loading) {
-    return (
+    body = (
       <View style={styles.center}>
         <ActivityIndicator size="large" color={Colors.primary} />
       </View>
     );
-  }
-
-  if (error) {
-    return (
+  } else if (error) {
+    body = (
       <View style={styles.center}>
         <Text style={styles.errorText}>Failed to load FAQs.</Text>
         <TouchableOpacity onPress={load} style={styles.retryBtn}>
@@ -77,36 +77,45 @@ export default function FaqsScreen() {
         </TouchableOpacity>
       </View>
     );
+  } else {
+    body = (
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <Text style={styles.pageTitle}>Frequently Asked Questions</Text>
+        <Text style={styles.pageSubtitle}>Tap a question to expand the answer.</Text>
+
+        {categories.map((section) => (
+          <View key={section.id} style={styles.section}>
+            <Text style={styles.sectionTitle}>{section.name}</Text>
+            <View style={styles.sectionCard}>
+              {section.items.map((item, idx) => (
+                <View key={item.id}>
+                  <FaqRow item={item} />
+                  {idx < section.items.length - 1 && <View style={styles.divider} />}
+                </View>
+              ))}
+            </View>
+          </View>
+        ))}
+
+        <Text style={styles.footer}>
+          Can't find an answer? Contact us via the support form and we'll get back to you shortly.
+        </Text>
+      </ScrollView>
+    );
   }
 
+  // Header stays up through loading and errors, so there's always a way back.
   return (
-    <ScrollView style={styles.root} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-      <Text style={styles.pageTitle}>Frequently Asked Questions</Text>
-      <Text style={styles.pageSubtitle}>Tap a question to expand the answer.</Text>
-
-      {categories.map((section) => (
-        <View key={section.id} style={styles.section}>
-          <Text style={styles.sectionTitle}>{section.name}</Text>
-          <View style={styles.sectionCard}>
-            {section.items.map((item, idx) => (
-              <View key={item.id}>
-                <FaqRow item={item} />
-                {idx < section.items.length - 1 && <View style={styles.divider} />}
-              </View>
-            ))}
-          </View>
-        </View>
-      ))}
-
-      <Text style={styles.footer}>
-        Can't find an answer? Contact us via the support form and we'll get back to you shortly.
-      </Text>
-    </ScrollView>
+    <View style={styles.root}>
+      <ScreenHeader title="FAQs" />
+      {body}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },
+  scroll: { flex: 1 },
   content: { padding: 20, paddingBottom: 40 },
 
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.background },

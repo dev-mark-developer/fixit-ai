@@ -55,6 +55,11 @@ type Props = CompositeScreenProps<
 const AGE_MIN = 18;
 const AGE_MAX = 80;
 
+// Distance filter range: the slider starts at 10 km, so that is the smallest
+// radius a user can pick.
+const DISTANCE_MIN_KM = 10;
+const DISTANCE_MAX_KM = 100;
+
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 const CARD_W = SCREEN_W - 32;
 const CARD_H = SCREEN_H * 0.56;
@@ -1066,11 +1071,11 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
                 {/* Distance */}
                 <Text style={styles.fieldLabel}>Distance</Text>
                 <TrackSlider
-                  min={0}
-                  max={100}
+                  min={DISTANCE_MIN_KM}
+                  max={DISTANCE_MAX_KM}
                   value={filterDistance}
                   accent={accent}
-                  labelLeft="0 km"
+                  labelLeft={`${DISTANCE_MIN_KM} km`}
                   labelValue={`${filterDistance} km`}
                   onChange={setFilterDistance}
                 />

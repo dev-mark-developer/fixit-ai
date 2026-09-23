@@ -18,7 +18,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { DatingStackParamList } from '../../types/navigation';
 import { datingApi, MAX_CHAT_ATTACHMENTS } from '../../api/dating';
-import type { ChatAttachment, ChatMessage } from '../../api/dating';
+import type { ChatAttachment, ChatMessage, DatingMatch } from '../../api/dating';
 import { getUser } from '../../store/auth';
 import { Colors } from '../../utils/colors';
 import RemoteImage from '../../components/common/RemoteImage';
@@ -51,13 +51,13 @@ import RecordingBar from '../../components/chat/RecordingBar';
 import AttachmentViewer from '../../components/chat/AttachmentViewer';
 import ReportModal from '../../components/common/ReportModal';
 import { useModuleStatus } from '../../store/ModuleStatusContext';
-import { useBlockedUsers } from '../../utils/blockedUsers';
+import { isAfterBlock, matchBlockState, useBlockedUsers } from '../../utils/blockedUsers';
 
 type Props = NativeStackScreenProps<DatingStackParamList, 'DatingChatDetail'>;
 
 const PAGE_SIZE = 50;
 
-type PickSource = 'library' | 'photo' | 'video';
+type PickSource = 'library' | 'photo';
 
 /** Pulls something readable out of an axios error, a hub error, or anything else. */
 function errorMessage(err: unknown, fallback: string): string {
@@ -100,8 +100,20 @@ export default function DatingChatDetailScreen({ route, navigation }: Props) {
   // Blocking doesn't delete the thread — the history stays readable, the
   // composer goes away. QA: "should display a 'This user is blocked' type
   // message instead of allowing further conversation".
-  const { blockedIds } = useBlockedUsers();
-  const isBlocked = blockedIds.has(matchedUserId);
+  const { blocked, blockedIds } = useBlockedUsers();
+  // The match row carries the block flags both ways (gap #29); until it has
+  // loaded, the user's own blocks list covers the direction they caused.
+  const [matchFlags, setMatchFlags] = useState<
+    Pick<DatingMatch, 'isBlockedByMe' | 'hasBlockedMe'>
+  >({});
+  const { blockedByMe: isBlocked, blockedMe } = matchBlockState(
+    { otherUserId: matchedUserId, ...matchFlags },
+    blockedIds,
+  );
+  const block = useMemo(
+    () => blocked.find((b) => b.blockedId === matchedUserId),
+    [blocked, matchedUserId],
+  );
 
   // Composer attachments (local until send)
   const [staged, setStaged] = useState<StagedAttachment[]>([]);
@@ -128,6 +140,17 @@ export default function DatingChatDetailScreen({ route, navigation }: Props) {
 
   useEffect(() => { currentUserIdRef.current = currentUserId; }, [currentUserId]);
   useEffect(() => { stagedRef.current = staged; }, [staged]);
+  // Either direction: no read receipts or presence across a block.
+  const isBlockedRef = useRef(isBlocked || blockedMe);
+  useEffect(() => { isBlockedRef.current = isBlocked || blockedMe; }, [isBlocked, blockedMe]);
+
+  // The backend still delivers what a blocked person sends (gap #29), live and
+  // in the history. Their messages from after the block are left out; the
+  // conversation before it stays readable.
+  const visibleMessages = useMemo(
+    () => (block ? messages.filter((m) => !isAfterBlock(m, block)) : messages),
+    [messages, block],
+  );
 
   const handleUnmatch = useCallback(() => {
     Alert.alert(
@@ -203,15 +226,18 @@ export default function DatingChatDetailScreen({ route, navigation }: Props) {
     };
   }, [matchId, matchedUserId, markRead]);
 
-  // Header avatar — reuse the matches list (already-available endpoint)
+  // Header avatar and block flags — reuse the matches list (already-available endpoint)
   useEffect(() => {
     let active = true;
     datingApi.getMatches()
       .then((res) => {
         if (!active) return;
-        const match = (res.data?.data ?? []).find((m: any) => m.id === matchId);
+        const match: DatingMatch | undefined = (res.data?.data ?? []).find(
+          (m: DatingMatch) => m.id === matchId,
+        );
         if (match) {
           setMatchedAvatar(match.otherDisplayImageUrl ?? match.otherProfileImageUrl ?? null);
+          setMatchFlags({ isBlockedByMe: match.isBlockedByMe, hasBlockedMe: match.hasBlockedMe });
         }
       })
       .catch(() => {});
@@ -245,7 +271,9 @@ export default function DatingChatDetailScreen({ route, navigation }: Props) {
         if (prev.some((m) => m.id === msg.id)) return prev;
         return [msg, ...prev];
       });
-      if (msg.senderId !== currentUserIdRef.current) {
+      // No read receipt for a blocked person's message — it is hidden, and a
+      // "read" tick would tell them it got through.
+      if (msg.senderId !== currentUserIdRef.current && !isBlockedRef.current) {
         markRead(msg.senderId).catch(() => {});
         // A message proves they're connected, whatever presence last said.
         setPeerOnline(true);
@@ -439,7 +467,7 @@ export default function DatingChatDetailScreen({ route, navigation }: Props) {
     try {
       const { accepted, rejected, failure } = source === 'library'
         ? await pickFromLibrary(remainingSlots)
-        : await pickFromCamera(source === 'video' ? 'video' : 'photo');
+        : await pickFromCamera();
       if (failure) {
         showPickFailure(failure, source);
         return;
@@ -622,8 +650,8 @@ export default function DatingChatDetailScreen({ route, navigation }: Props) {
     return null;
   }, [connectionState, peerOnline, accent]);
 
-  const showOpeningMove = messages.length === 0;
-  const canSend = (!!inputText.trim() || staged.length > 0) && !sending && !isBlocked;
+  const showOpeningMove = visibleMessages.length === 0 && !isBlocked && !blockedMe;
+  const canSend = (!!inputText.trim() || staged.length > 0) && !sending && !isBlocked && !blockedMe;
 
   return (
     <SafeAreaView style={styles.root}>
@@ -731,11 +759,6 @@ export default function DatingChatDetailScreen({ route, navigation }: Props) {
                 <Icon name="camera-outline" size={18} color={accent} style={styles.menuItemIcon} />
                 <Text style={styles.menuItemText}>Take Photo</Text>
               </TouchableOpacity>
-              <View style={styles.menuDivider} />
-              <TouchableOpacity style={styles.menuItem} onPress={() => requestPick('video')}>
-                <Icon name="videocam-outline" size={18} color={accent} style={styles.menuItemIcon} />
-                <Text style={styles.menuItemText}>Record Video</Text>
-              </TouchableOpacity>
               <TouchableOpacity style={[styles.menuItem, styles.menuCancel]} onPress={() => setAttachMenuVisible(false)}>
                 <Text style={styles.menuCancelText}>Cancel</Text>
               </TouchableOpacity>
@@ -772,7 +795,7 @@ export default function DatingChatDetailScreen({ route, navigation }: Props) {
         ) : (
           <FlatList
             ref={flatListRef}
-            data={messages}
+            data={visibleMessages}
             keyExtractor={(m) => String(m.id)}
             renderItem={renderMessage}
             inverted
@@ -801,6 +824,15 @@ export default function DatingChatDetailScreen({ route, navigation }: Props) {
             <Text style={styles.blockedBarText}>
               You blocked {matchedUserName}. Unblock them from Blocked Users to
               start chatting again.
+            </Text>
+          </View>
+        ) : blockedMe ? (
+          // Blocked by the other side: said as "unavailable" rather than
+          // telling the user they were blocked.
+          <View style={styles.blockedBar}>
+            <Icon name="ban-outline" size={18} color={Colors.textMuted} />
+            <Text style={styles.blockedBarText}>
+              {matchedUserName} is unavailable. You can no longer message them.
             </Text>
           </View>
         ) : recording ? (

@@ -20,7 +20,6 @@ import RemoteImage from '../components/common/RemoteImage';
 import DatingDiscoverScreen from '../screens/dating/DatingDiscoverScreen';
 import DatingMatchesScreen from '../screens/dating/DatingMatchesScreen';
 import DatingChatsScreen from '../screens/dating/DatingChatsScreen';
-import DatingBlockListScreen from '../screens/dating/DatingBlockListScreen';
 import DatingMyProfileScreen from '../screens/dating/DatingMyProfileScreen';
 
 const Drawer = createDrawerNavigator<DatingDrawerParamList>();
@@ -94,7 +93,6 @@ function DatingDrawerContent({ navigation }: DrawerContentComponentProps) {
   const parentNav = navigation.getParent<NativeStackNavigationProp<DatingStackParamList>>();
   const rootNav = navigation.getParent()?.getParent<NativeStackNavigationProp<RootStackParamList>>();
 
-  const goDrawer = (name: keyof DatingDrawerParamList) => navigation.navigate(name);
   const goToPremium = () => {
     navigation.closeDrawer();
     parentNav?.navigate('DatingPremium', { datingType: datingType ?? 'NonSpiritual' });
@@ -110,6 +108,10 @@ function DatingDrawerContent({ navigation }: DrawerContentComponentProps) {
    * the move; SpiritualEntryScreen carries the profile across and finishes in
    * the Discover deck.
    */
+  const goToBlockList = () => {
+    navigation.closeDrawer();
+    parentNav?.navigate('DatingBlockList');
+  };
   const goToSpiritualSwitch = () => {
     navigation.closeDrawer();
     parentNav?.navigate('SpiritualEntry');
@@ -135,7 +137,7 @@ function DatingDrawerContent({ navigation }: DrawerContentComponentProps) {
     { label: 'Switch to Penpal', icon: 'create', onPress: () => goToRoot('Penpal') },
     { label: 'My Subscription', icon: 'cash', onPress: goToPremium },
     { label: 'Configure Ice Breaker', icon: 'chatbox-ellipses', onPress: goToIceBreakers },
-    { label: 'Block List', icon: 'remove-circle', onPress: () => goDrawer('DatingBlockList') },
+    { label: 'Block List', icon: 'remove-circle', onPress: goToBlockList },
     { label: 'Dating Tips and Guidelines', icon: 'alert-circle', onPress: () => setLegalModal('tips') },
     { label: 'Terms & Conditions', icon: 'calendar', onPress: () => setLegalModal('tc') },
     { label: 'Privacy Policy', icon: 'document-text', onPress: () => setLegalModal('privacy') },
@@ -254,18 +256,6 @@ export default function DatingDrawerNavigator() {
       <Drawer.Screen name="DatingMatches" component={DatingMatchesScreen} />
       <Drawer.Screen name="DatingChats" component={DatingChatsScreen} />
       <Drawer.Screen name="DatingMyProfile" component={DatingMyProfileScreen} />
-      <Drawer.Screen
-        name="DatingBlockList"
-        component={DatingBlockListScreen}
-        options={{
-          headerShown: true,
-          title: 'Block List',
-          headerStyle: { backgroundColor: Colors.background },
-          headerTintColor: Colors.dating,
-          headerTitleStyle: { color: Colors.text, fontWeight: '700' as const },
-          headerShadowVisible: false,
-        }}
-      />
     </Drawer.Navigator>
   );
 }

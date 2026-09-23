@@ -9,10 +9,8 @@ import {
   StyleSheet,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import type { CompositeScreenProps } from '@react-navigation/native';
-import type { DrawerScreenProps } from '@react-navigation/drawer';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { DatingDrawerParamList, DatingStackParamList } from '../../types/navigation';
+import type { DatingStackParamList } from '../../types/navigation';
 import { datingApi } from '../../api/dating';
 import AppAlert from '../../components/common/AppAlert';
 import { Colors } from '../../utils/colors';
@@ -20,10 +18,7 @@ import RemoteImage from '../../components/common/RemoteImage';
 import type { BlockedUser } from '../../utils/blockedUsers';
 import { parseApiDate } from '../../utils/datetime';
 
-type Props = CompositeScreenProps<
-  DrawerScreenProps<DatingDrawerParamList, 'DatingBlockList'>,
-  NativeStackScreenProps<DatingStackParamList>
->;
+type Props = NativeStackScreenProps<DatingStackParamList, 'DatingBlockList'>;
 
 export default function DatingBlockListScreen(_props: Props) {
   const [blocked, setBlocked] = useState<BlockedUser[]>([]);

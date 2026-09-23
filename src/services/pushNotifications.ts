@@ -17,6 +17,8 @@ import {
 import type { RemoteMessage } from '@react-native-firebase/messaging';
 import { authApi } from '../api/auth';
 import { getDeviceId } from '../utils/device';
+import { withTimeout } from '../utils/withTimeout';
+import { isBlockedUser } from '../utils/blockedUsers';
 import { displayLocalNotification, onLocalNotificationTap } from './localNotifications';
 import type { PushPayload } from '../types/notifications';
 
@@ -109,6 +111,9 @@ export async function hasNotificationPermission(): Promise<boolean> {
  * declined, or the device has no Play Services. Callers must treat null as
  * "no push for this device" rather than an error.
  */
+/** How long {@link getPushToken} waits for Firebase before going on without a token. */
+const PUSH_TOKEN_TIMEOUT_MS = 5000;
+
 export async function getPushToken(): Promise<string | null> {
   if (!isPushAvailable()) {
     // Much easier to spot than a silent null when push "just doesn't work".
@@ -127,10 +132,14 @@ export async function getPushToken(): Promise<string | null> {
       log('APNs registration has not completed yet — a token may not be available');
     }
 
-    const token = (await getToken(messaging)) || null;
+    // Sign-in and sign-up wait on this, and the token is optional there (the
+    // heartbeat syncs it later), so a getToken that never answers — which is
+    // what an APNs registration stuck on the Simulator looks like — can't hold
+    // them up.
+    const token = (await withTimeout(getToken(messaging), PUSH_TOKEN_TIMEOUT_MS, null)) || null;
     // On its own line so it can be selected and copied cleanly from Metro.
     if (token) log(`FCM token (${token.length} chars):\n${token}`);
-    else log('FCM returned an empty token');
+    else log('FCM returned no token (empty, or none within the time limit)');
     return token;
   } catch (err) {
     const message = (err as Error)?.message ?? String(err);
@@ -205,6 +214,17 @@ export function watchPushToken(): () => void {
 export type PushHandler = (payload: PushPayload) => void;
 
 /**
+ * A chat message from someone the user has blocked. The backend still sends
+ * those (gap #29); the ones the app draws itself are dropped. What iOS/Android
+ * draws on its own while the app is backgrounded can only be stopped
+ * server-side.
+ */
+function isFromBlockedUser(payload: PushPayload): boolean {
+  const senderId = Number(payload.data.senderId);
+  return Number.isFinite(senderId) && isBlockedUser(senderId);
+}
+
+/**
  * Registers the handler FCM invokes when the app is in the background or
  * killed. Must run at module scope in `index.js`, before the app renders —
  * the JS context for a background message has no component tree.
@@ -214,6 +234,10 @@ export function registerBackgroundHandler(handler?: PushHandler): void {
   try {
     setBackgroundMessageHandler(getMessaging(), async (message) => {
       const payload = toPushPayload(message);
+      if (isFromBlockedUser(payload)) {
+        log('background message from a blocked user — not shown');
+        return;
+      }
       // A message carrying a `notification` block is drawn by the OS itself
       // while we're backgrounded — displaying it again would show it twice.
       // Data-only messages are never drawn, so those we raise ourselves.
@@ -241,6 +265,10 @@ export function onForegroundMessage(handler?: PushHandler): () => void {
   try {
     return onMessage(getMessaging(), async (message) => {
       const payload = toPushPayload(message);
+      if (isFromBlockedUser(payload)) {
+        log('foreground message from a blocked user — not shown');
+        return;
+      }
       log(`foreground message received: ${payload.title ?? '(no title)'}`);
       // Swallowing this is what made a broken foreground notification look
       // like a message that never arrived — the re-raise is the only thing

@@ -4,13 +4,10 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import type { MentorStackParamList } from '../types/navigation';
 import { Colors } from '../utils/colors';
 import { mentorApi } from '../api/mentor';
-import { useSubscription } from '../store/SubscriptionContext';
-import { isIapSupported } from '../services/iap';
 import MentorProfileSetupScreen from '../screens/mentor/MentorProfileSetupScreen';
 import MentorSubscriptionScreen from '../screens/mentor/MentorSubscriptionScreen';
 import MentorEditProfileScreen from '../screens/mentor/MentorEditProfileScreen';
 import MentorDrawerNavigator from './MentorDrawerNavigator';
-import DatingNavigator from './DatingNavigator';
 import NotificationsScreen from '../screens/main/NotificationsScreen';
 import ChangePasswordScreen from '../screens/main/ChangePasswordScreen';
 import EditProfileScreen from '../screens/main/EditProfileScreen';
@@ -29,7 +26,6 @@ const SHARED_HEADER = {
 export default function MentorNavigator() {
   const [profileLoading, setProfileLoading] = useState(true);
   const [hasProfile, setHasProfile] = useState(false);
-  const { isPremium, loading: subscriptionLoading } = useSubscription('mentor');
 
   useEffect(() => {
     mentorApi.getProfile()
@@ -38,11 +34,7 @@ export default function MentorNavigator() {
       .finally(() => setProfileLoading(false));
   }, []);
 
-  // The mentor programme is subscription-only. Android has no billing yet, so
-  // gating it there would lock those accounts out with no way to pay.
-  const gated = isIapSupported && !isPremium;
-
-  if (profileLoading || (isIapSupported && subscriptionLoading)) {
+  if (profileLoading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.background }}>
         <ActivityIndicator size="large" color={Colors.mentor} />
@@ -50,13 +42,11 @@ export default function MentorNavigator() {
     );
   }
 
-  // Landing on the paywall as the stack's initial route is what makes the gate
-  // hard: there is nothing beneath it to go back to.
-  const initialRoute: keyof MentorStackParamList = !hasProfile
-    ? 'MentorProfileSetup'
-    : gated
-      ? 'MentorSubscription'
-      : 'MentorMain';
+  // Subscribing is optional (the dashboard offers it), so the plan screen is
+  // never the landing route — it is always pushed, and always has a way back.
+  const initialRoute: keyof MentorStackParamList = hasProfile
+    ? 'MentorMain'
+    : 'MentorProfileSetup';
 
   return (
     <Stack.Navigator initialRouteName={initialRoute} screenOptions={SHARED_HEADER}>
@@ -66,15 +56,9 @@ export default function MentorNavigator() {
         options={{ headerShown: false }}
       />
       <Stack.Screen
-        name="MentorDating"
-        component={DatingNavigator}
-        options={{ headerShown: false }}
-      />
-      <Stack.Screen
         name="MentorSubscription"
         component={MentorSubscriptionScreen}
         options={{ headerShown: false }}
-        initialParams={{ gate: gated }}
       />
       <Stack.Screen
         name="MentorMain"
@@ -84,9 +68,10 @@ export default function MentorNavigator() {
       <Stack.Screen
         name="MentorEditProfile"
         component={MentorEditProfileScreen}
-        options={{ title: 'Edit Profile' }}
+        options={{ headerShown: false }}
       />
-      {/* Shared utility screens — accessible from drawer menu */}
+      {/* Shared utility screens — accessible from drawer menu. Notifications,
+          Change Password, FAQs and Contact Us draw their own header. */}
       <Stack.Screen
         name="Notifications"
         component={NotificationsScreen as any}
@@ -95,7 +80,7 @@ export default function MentorNavigator() {
       <Stack.Screen
         name="ChangePassword"
         component={ChangePasswordScreen as any}
-        options={{ title: 'Change Password' }}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         name="EditProfile"
@@ -105,12 +90,12 @@ export default function MentorNavigator() {
       <Stack.Screen
         name="Faqs"
         component={FaqsScreen as any}
-        options={{ title: 'FAQs' }}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         name="ContactUs"
         component={ContactUsScreen as any}
-        options={{ title: 'Contact Us' }}
+        options={{ headerShown: false }}
       />
     </Stack.Navigator>
   );

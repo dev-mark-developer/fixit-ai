@@ -1,5 +1,7 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { ActivityIndicator, View } from 'react-native';
+import { clearBlockedUsers, loadBlockedUsers } from '../utils/blockedUsers';
+import { clearUnreadCounts, refreshUnreadCount } from '../utils/unreadNotifications';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useModuleStatus } from '../store/ModuleStatusContext';
 import { Colors } from '../utils/colors';
@@ -24,6 +26,19 @@ const SHARED_HEADER = {
 
 export default function MainNavigator() {
   const { isMentor, hasDating, hasPenpal, loading } = useModuleStatus();
+
+  // Signed in: know who is blocked before any notification arrives, not only
+  // once a chat screen has been opened. Signed out: forget them.
+  // The Dating bell's count too, so the first Dating screen opens with its
+  // badge already there rather than popping in.
+  useEffect(() => {
+    loadBlockedUsers();
+    refreshUnreadCount('Dating');
+    return () => {
+      clearBlockedUsers();
+      clearUnreadCounts();
+    };
+  }, []);
 
   if (loading) {
     return (

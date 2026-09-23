@@ -518,7 +518,7 @@ export default function PenpalConnectionsScreen({ navigation }: Props) {
         </TouchableOpacity>
         <View style={styles.headerRight}>
           <TouchableOpacity
-            onPress={() => navigation.navigate('PenpalEntry')}
+            onPress={() => navigation.navigate('PenpalEntry', { infoOnly: true })}
             hitSlop={8}
           >
             <Text style={styles.headerIcon}>ⓘ</Text>

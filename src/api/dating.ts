@@ -100,6 +100,10 @@ export interface DatingMatch {
   unreadCount: number;
   lastMessage?: string;
   lastMessageAt?: string;
+  /** This user has blocked the other one (added by the backend 2026-09-21, gap #29). */
+  isBlockedByMe?: boolean;
+  /** The other user has blocked this one — the only way the app can know. */
+  hasBlockedMe?: boolean;
 }
 
 /** The only attachment kinds the chat hub accepts. */

@@ -120,11 +120,12 @@ export default function RegisterScreen({ navigation }: Props) {
     try {
       // Push and location were both asked for at app launch (App.tsx), so this
       // reads the fix that warmed. Still optional: `coords` is null when it was
-      // refused or is unavailable, and the fields are then left out.
+      // refused or is unavailable, and the fields are then left out. A fresh
+      // fix gets 3 seconds at most — the user is waiting on the button.
       const [deviceId, pushToken, coords] = await Promise.all([
         getDeviceId(),
         getPushToken(),
-        getCurrentCoords(),
+        getCurrentCoords({ timeoutMs: 3000 }),
       ]);
 
       // Sign-up photo is uploaded first (no auth needed); the returned URL is

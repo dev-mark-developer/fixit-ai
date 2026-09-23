@@ -1,6 +1,8 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { datingApi } from '../api/dating';
+import type { DatingMatch } from '../api/dating';
+import { parseApiDate } from './datetime';
 
 /** A row of `GET /blocks` — someone the signed-in user has blocked. */
 export interface BlockedUser {
@@ -9,6 +11,38 @@ export interface BlockedUser {
   lastName: string;
   profileImageUrl?: string;
   blockedAt: string;
+}
+
+/**
+ * The last list loaded, for code that runs outside a screen — the push
+ * handlers check it so a blocked person's messages don't pop up while the app
+ * is open. Loaded at sign-in (MainNavigator) and on every screen refresh.
+ */
+let latestBlockedIds = new Set<number>();
+
+export function isBlockedUser(userId: number): boolean {
+  return latestBlockedIds.has(userId);
+}
+
+/**
+ * `GET /blocks`, remembered for {@link isBlockedUser}. Null when the request
+ * failed — the last known list is kept rather than emptied, so a failed
+ * refresh can't make blocked people reappear mid-session.
+ */
+export async function loadBlockedUsers(): Promise<BlockedUser[] | null> {
+  try {
+    const res = await datingApi.getBlocks();
+    const rows: BlockedUser[] = res.data?.data ?? [];
+    latestBlockedIds = new Set(rows.map((b) => b.blockedId));
+    return rows;
+  } catch {
+    return null;
+  }
+}
+
+/** On sign-out, so the next account doesn't inherit this one's list. */
+export function clearBlockedUsers(): void {
+  latestBlockedIds = new Set();
 }
 
 /**
@@ -29,15 +63,11 @@ export function useBlockedUsers() {
   const [loaded, setLoaded] = useState(false);
 
   const refresh = useCallback(async () => {
-    try {
-      const res = await datingApi.getBlocks();
-      setBlocked(res.data?.data ?? []);
-    } catch {
-      // Keep the last known list rather than falling back to an empty one —
-      // a failed refresh must not make blocked people reappear mid-session.
-    } finally {
-      setLoaded(true);
-    }
+    const rows = await loadBlockedUsers();
+    // On failure keep the last known list rather than falling back to an
+    // empty one — a failed refresh must not make blocked people reappear.
+    if (rows) setBlocked(rows);
+    setLoaded(true);
   }, []);
 
   useFocusEffect(
@@ -52,4 +82,36 @@ export function useBlockedUsers() {
   );
 
   return { blocked, blockedIds, loaded, refresh };
+}
+
+/**
+ * A match's block state, both ways. `GET /dating/matches` now carries
+ * `isBlockedByMe` / `hasBlockedMe` (gap #29); the user's own `GET /blocks`
+ * list still counts too, so a block shows straight away even before the
+ * matches have been reloaded.
+ */
+export function matchBlockState(
+  match: Pick<DatingMatch, 'otherUserId' | 'isBlockedByMe' | 'hasBlockedMe'>,
+  blockedIds: ReadonlySet<number>,
+): { blockedByMe: boolean; blockedMe: boolean } {
+  return {
+    blockedByMe: match.isBlockedByMe === true || blockedIds.has(match.otherUserId),
+    blockedMe: match.hasBlockedMe === true,
+  };
+}
+
+/**
+ * Whether a chat message should be hidden: sent by someone the user has
+ * blocked, after the block. The backend still delivers those (gap #29), but
+ * the history from before the block stays readable. A block without a
+ * readable time hides nothing, rather than guessing.
+ */
+export function isAfterBlock(
+  message: { senderId: number; sentAt: string },
+  block: Pick<BlockedUser, 'blockedId' | 'blockedAt'> | undefined,
+): boolean {
+  if (!block || message.senderId !== block.blockedId) return false;
+  const blockedAt = parseApiDate(block.blockedAt).getTime();
+  if (Number.isNaN(blockedAt)) return false;
+  return parseApiDate(message.sentAt).getTime() > blockedAt;
 }

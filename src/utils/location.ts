@@ -1,5 +1,6 @@
 import { PermissionsAndroid, Platform } from 'react-native';
 import Geolocation from '@react-native-community/geolocation';
+import { withTimeout } from './withTimeout';
 
 /**
  * The device's position, sent with sign-up / sign-in (`latitude` / `longitude`
@@ -32,6 +33,9 @@ const CACHE_MS = 5 * 60_000;
 /** Set once the user says no, so every later call stops re-prompting. */
 let refused = false;
 
+/** iOS: this run's permission request, pending or answered (see below). */
+let iosPermission: Promise<boolean> | null = null;
+
 export async function requestLocationPermission(): Promise<boolean> {
   if (Platform.OS === 'android') {
     const fine = PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION;
@@ -43,11 +47,19 @@ export async function requestLocationPermission(): Promise<boolean> {
     const result = await PermissionsAndroid.request(fine);
     return result === PermissionsAndroid.RESULTS.GRANTED;
   }
-  // iOS calls back as soon as the user answers, or straight away if they
-  // already have.
-  return new Promise<boolean>((resolve) => {
-    Geolocation.requestAuthorization(() => resolve(true), () => resolve(false));
-  });
+  // The iOS library answers only when the authorization *changes*: the first
+  // call is answered (iOS reports the status when the location manager is
+  // created, and again when the user picks), but a later call waits for a
+  // change that never comes. That left sign-in spinning forever once the
+  // 5-minute cache had lapsed. So iOS is asked once per run and every caller
+  // shares the answer; a later refusal in Settings still shows up, as an error
+  // from getCurrentPosition.
+  if (!iosPermission) {
+    iosPermission = new Promise<boolean>((resolve) => {
+      Geolocation.requestAuthorization(() => resolve(true), () => resolve(false));
+    });
+  }
+  return iosPermission;
 }
 
 /**
@@ -68,41 +80,34 @@ export async function getCurrentCoords(
 
   if (refused) return cached?.coords ?? null;
 
-  const granted = await requestLocationPermission().catch(() => false);
-  if (!granted) {
-    refused = true;
-    return null;
-  }
+  const lookup = (async (): Promise<Coords | null> => {
+    const granted = await requestLocationPermission().catch(() => false);
+    if (!granted) {
+      refused = true;
+      return null;
+    }
+    return new Promise<Coords | null>((resolve) => {
+      Geolocation.getCurrentPosition(
+        (position) => {
+          const coords: Coords = {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+          };
+          cached = { coords, at: Date.now() };
+          resolve(coords);
+        },
+        () => resolve(null),
+        { enableHighAccuracy: false, timeout, maximumAge: CACHE_MS },
+      );
+    });
+  })();
 
-  return new Promise<Coords | null>((resolve) => {
-    let settled = false;
-    const finish = (value: Coords | null) => {
-      if (settled) return;
-      settled = true;
-      resolve(value);
-    };
-
-    // The native timeout isn't always honoured — Android with location switched
-    // off can simply go quiet — so the caller gets its own ceiling.
-    const timer = setTimeout(() => finish(cached?.coords ?? null), timeout + 500);
-
-    Geolocation.getCurrentPosition(
-      (position) => {
-        clearTimeout(timer);
-        const coords: Coords = {
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-        };
-        cached = { coords, at: Date.now() };
-        finish(coords);
-      },
-      () => {
-        clearTimeout(timer);
-        finish(cached?.coords ?? null);
-      },
-      { enableHighAccuracy: false, timeout, maximumAge: CACHE_MS },
-    );
-  });
+  // One ceiling over the whole lookup, the permission step included. Neither
+  // native call is guaranteed to answer — the iOS permission call above, or
+  // Android with location switched off — and a caller like sign-in must not
+  // wait on them. A permission prompt still up keeps going in the background.
+  const coords = await withTimeout(lookup, timeout + 500, null);
+  return coords ?? cached?.coords ?? null;
 }
 
 /**

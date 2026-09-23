@@ -23,10 +23,11 @@ export default function ProfileNavigator() {
     >
       <Stack.Screen name="ProfileMain" component={ProfileScreen} options={{ title: 'Profile', headerShown: false }} />
       <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ headerShown: false }} />
-      <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} options={{ title: 'Change Password' }} />
+      {/* These three draw their own header (ScreenHeader) */}
+      <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} options={{ headerShown: false }} />
       <Stack.Screen name="EditProfile" component={EditProfileScreen} options={{ title: 'Edit Profile' }} />
-      <Stack.Screen name="Faqs" component={FaqsScreen} options={{ title: 'FAQs' }} />
-      <Stack.Screen name="ContactUs" component={ContactUsScreen} options={{ title: 'Contact Us' }} />
+      <Stack.Screen name="Faqs" component={FaqsScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="ContactUs" component={ContactUsScreen} options={{ headerShown: false }} />
     </Stack.Navigator>
   );
 }

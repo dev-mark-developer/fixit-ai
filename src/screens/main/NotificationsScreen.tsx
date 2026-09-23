@@ -10,8 +10,9 @@ import { Colors } from '../../utils/colors';
 import { useModuleStatus } from '../../store/ModuleStatusContext';
 import api from '../../api/axios';
 import { parseApiDate } from '../../utils/datetime';
+import { adjustUnreadCount, NotificationModule } from '../../utils/unreadNotifications';
 
-type Module = 'Dating' | 'Penpal' | 'Mentor';
+type Module = NotificationModule;
 
 interface Notification {
   id: number;
@@ -89,27 +90,30 @@ export default function NotificationsScreen() {
   useFocusEffect(fetchUnreadCount);
 
   /**
-   * Marks an unread notification read — and does nothing to one that already
-   * is. The endpoint is a *toggle*, so the previous version flipped a read
-   * notification back to unread on the next tap: that is exactly the "dot
-   * disappears, then reappears" QA reported. Reading is one-way from the
-   * user's point of view, so the toggle is only ever driven in one direction.
+   * Marks an unread notification read. `PATCH /notifications/read` takes a
+   * list of ids and is one-way (gap #31) — it replaced the old
+   * `{id}/toggle-read`, which now 404s, so every tap was being reverted and
+   * the dot never cleared.
    */
   const handleMarkRead = async (id: number, isRead: boolean) => {
     if (isRead) return;
 
+    // The list is filtered by module, so the row belongs to the active tab.
+    const mod = activeTab;
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, isRead: true } : n)),
     );
     setUnreadCount((c) => Math.max(0, c - 1));
+    adjustUnreadCount(mod, -1);
     try {
-      await api.patch(`/notifications/${id}/toggle-read`);
+      await api.patch('/notifications/read', [id]);
     } catch {
       // revert on failure
       setNotifications((prev) =>
         prev.map((n) => (n.id === id ? { ...n, isRead } : n)),
       );
       setUnreadCount((c) => c + 1);
+      adjustUnreadCount(mod, 1);
     }
   };
 

@@ -30,14 +30,9 @@ export type MentorDrawerParamList = {
 
 export type MentorStackParamList = {
   MentorProfileSetup: undefined;
-  /**
-   * `gate: true` when this is the mandatory post-signup paywall — no back
-   * button, and the only ways out are subscribing or signing out.
-   */
-  MentorSubscription: { gate?: boolean } | undefined;
+  // Optional — mentors can subscribe any time (dashboard prompt, drawer).
+  MentorSubscription: undefined;
   MentorEditProfile: undefined;
-  // Mentors can still use the dating module (drawer → Explore Dating)
-  MentorDating: NavigatorScreenParams<DatingStackParamList> | undefined;
   MentorMain: NavigatorScreenParams<MentorDrawerParamList> | undefined;
   // Shared utility screens accessible from the mentor drawer
   Notifications: undefined;
@@ -70,7 +65,8 @@ export type PenpalDrawerParamList = {
 };
 
 export type PenpalStackParamList = {
-  PenpalEntry: undefined;
+  /** `infoOnly`: opened from the info icon, to read — no Continue into setup. */
+  PenpalEntry: { infoOnly?: boolean } | undefined;
   PenpalSetup: undefined;
   PenpalMain: NavigatorScreenParams<PenpalDrawerParamList> | undefined;
   PenpalLetterDetail: { letterId: number };
@@ -83,7 +79,6 @@ export type DatingDrawerParamList = {
   DatingDiscover: undefined;
   DatingMatches: undefined;
   DatingChats: undefined;
-  DatingBlockList: undefined;
   DatingMyProfile: undefined;
 };
 
@@ -110,6 +105,7 @@ export type DatingStackParamList = {
   };
   DatingChatDetail: { matchId: number; matchedUserId: number; matchedUserName: string };
   DatingPremium: { datingType: 'NonSpiritual' | 'Spiritual' };
+  DatingBlockList: undefined;
   // Spiritual
   SpiritualEntry: undefined;
   VettingQuiz: undefined;

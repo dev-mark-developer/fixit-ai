@@ -57,8 +57,11 @@ export default function OtpScreen({ navigation, route }: Props) {
       if (purpose === 'Registration') {
         if (password) {
           try {
-            // Same optional location as the sign-in screen sends.
-            const [deviceId, coords] = await Promise.all([getDeviceId(), getCurrentCoords()]);
+            // Same optional location as the sign-in screen sends, same 3s cap.
+            const [deviceId, coords] = await Promise.all([
+              getDeviceId(),
+              getCurrentCoords({ timeoutMs: 3000 }),
+            ]);
             const loginRes = await api.post('/auth/login', {
               email, password, deviceId, platform: getPlatform(), deviceName: 'Mobile App',
               ...(coords ?? {}),

@@ -13,7 +13,6 @@ import AppButton from '../../components/common/AppButton';
 import AppAlert, { AlertButton } from '../../components/common/AppAlert';
 import ActivatingSubscriptionModal from '../../components/common/ActivatingSubscriptionModal';
 import { useSubscription } from '../../store/SubscriptionContext';
-import { useAuth } from '../../store/AuthContext';
 import { fetchSubscriptionProduct, isIapSupported } from '../../services/iap';
 import { MENTOR_PRODUCT_ID } from '../../utils/subscriptionProducts';
 
@@ -22,12 +21,7 @@ type Props = NativeStackScreenProps<MentorStackParamList, 'MentorSubscription'>;
 /** Shown only if the store listing can't be read; keep it in step with App Store Connect. */
 const PLAN_PRICE_FALLBACK = '$5.99';
 
-export default function MentorSubscriptionScreen({ route, navigation }: Props) {
-  // The mandatory paywall right after mentor signup: nothing to go back to,
-  // and the account can't reach the dashboard until it's paid.
-  const gate = route.params?.gate ?? false;
-
-  const { logout } = useAuth();
+export default function MentorSubscriptionScreen({ navigation }: Props) {
   const {
     status, isPremium, refresh, purchase, restore, checkPendingActivation,
   } = useSubscription('mentor');
@@ -62,13 +56,9 @@ export default function MentorSubscriptionScreen({ route, navigation }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const proceed = () => {
-    if (gate) {
-      // The gate is this stack's initial route, so there is nothing to pop —
-      // hand the mentor their dashboard instead.
-      navigation.replace('MentorMain');
-      return;
-    }
+  // Subscribing is optional, so this screen is always pushed on top of
+  // something; the dashboard is the fallback if it ever isn't.
+  const leave = () => {
     if (navigation.canGoBack()) navigation.goBack();
     else navigation.replace('MentorMain');
   };
@@ -162,33 +152,15 @@ export default function MentorSubscriptionScreen({ route, navigation }: Props) {
     }
   }, [checkPendingActivation]);
 
-  const confirmLogout = () =>
-    setAlert({
-      title: 'Sign Out',
-      message: 'You can subscribe next time you sign in.',
-      buttons: [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Sign Out', style: 'destructive', onPress: () => { logout(); } },
-      ],
-    });
-
-  // Header — the gate has no way back, only a way out of the account.
   const header = (
-    <View style={[styles.header, gate && styles.headerGate]}>
-      {gate ? (
-        <TouchableOpacity onPress={confirmLogout} hitSlop={8}>
-          <Text style={styles.logoutText}>Sign Out</Text>
-        </TouchableOpacity>
-      ) : (
-        <TouchableOpacity onPress={() => navigation.canGoBack() && navigation.goBack()} hitSlop={8}>
-          <Icon name="arrow-back" size={24} color={Colors.text} />
-        </TouchableOpacity>
-      )}
+    <View style={styles.header}>
+      <TouchableOpacity onPress={leave} hitSlop={8}>
+        <Icon name="arrow-back" size={24} color={Colors.text} />
+      </TouchableOpacity>
     </View>
   );
 
-  // Back / Sign Out stay usable while the plan loads — the alert has to be
-  // here too, or Sign Out would open nothing.
+  // Back stays usable while the plan loads.
   if (fetching) {
     return (
       <SafeAreaView style={styles.root} edges={['top']}>
@@ -232,7 +204,7 @@ export default function MentorSubscriptionScreen({ route, navigation }: Props) {
           </Text>
         </View>
         <View style={styles.successFooter}>
-          <AppButton title="Continue" onPress={proceed} style={styles.continueBtn} />
+          <AppButton title="Continue" onPress={leave} style={styles.continueBtn} />
         </View>
       </SafeAreaView>
     );
@@ -244,13 +216,6 @@ export default function MentorSubscriptionScreen({ route, navigation }: Props) {
 
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
         <Text style={styles.pageTitle}>Subscription Plan</Text>
-
-        {gate && !isActive && (
-          <Text style={styles.gateNote}>
-            A subscription is required to guide seekers. Subscribe to unlock
-            your mentor dashboard.
-          </Text>
-        )}
 
         {/* Plan card */}
         <View style={styles.planCard}>
@@ -374,15 +339,6 @@ const styles = StyleSheet.create({
   },
   activeBadgeText: { fontSize: 14, fontWeight: '700', color: '#065F46' },
 
-  headerGate: { alignItems: 'flex-end' },
-  logoutText: { fontSize: 15, fontWeight: '700', color: Colors.mentor },
-  gateNote: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    lineHeight: 21,
-    marginTop: -12,
-    marginBottom: 20,
-  },
   restore: {
     textAlign: 'center',
     fontSize: 15,

@@ -58,11 +58,15 @@ function failureFrom(errorCode: string): PickFailure {
 }
 
 /**
- * `react-native-image-picker` checks camera permission itself on iOS, but on
- * Android it deliberately does not: because this app declares CAMERA in its
- * manifest, the OS requires the runtime grant, and launching the capture
- * intent without it opens a dead black viewfinder that can still "take" a
- * blank photo — exactly what QA reported.
+ * Without camera access, opening the camera shows a dead black viewfinder
+ * that can still "take" a blank photo — QA reported it on both platforms.
+ *
+ * - Android: `react-native-image-picker` deliberately doesn't ask (this app
+ *   declares CAMERA in its manifest, so the OS wants the runtime grant), so
+ *   it is asked for here.
+ * - iOS: 8.2.1 has a permission check but never calls it; it is wired in by
+ *   `patches/react-native-image-picker+8.2.1.patch` (applied on install by
+ *   patch-package), which returns the `permission` error instead.
  */
 async function ensureCameraPermission(): Promise<boolean> {
   if (Platform.OS !== 'android') return true;
@@ -144,10 +148,13 @@ export async function pickFromLibrary(remainingSlots: number): Promise<PickResul
   );
 }
 
-/** Camera capture — photo or video, one at a time. */
-export async function pickFromCamera(mediaType: 'photo' | 'video' = 'photo'): Promise<PickResult> {
+/**
+ * Camera capture — one photo. Recording a video from chat was removed on
+ * request; videos already in the library can still be sent.
+ */
+export async function pickFromCamera(): Promise<PickResult> {
   const options: CameraOptions = {
-    mediaType,
+    mediaType: 'photo',
     quality: 0.8,
     maxWidth: 1920,
     maxHeight: 1920,
