@@ -20,6 +20,12 @@ interface BaseProps {
   /** Spinner colour; pick one that reads against the surface behind it. */
   indicatorColor?: string;
   indicatorSize?: 'small' | 'large';
+  /**
+   * False leaves the plain placeholder with no spinner in it. For images that
+   * are prefetched before they're shown — the Discover deck — a spinner only
+   * flickers for a frame, which reads as a glitch rather than as progress.
+   */
+  indicator?: boolean;
   resizeMode?: ImageResizeMode;
 }
 
@@ -48,6 +54,7 @@ export default function RemoteImage({
   resizeMode,
   indicatorColor = Colors.textMuted,
   indicatorSize = 'small',
+  indicator = true,
   fallback,
   blurRadius,
   onLoadEnd,
@@ -71,7 +78,7 @@ export default function RemoteImage({
     <View style={[styles.container, style as StyleProp<ViewStyle>]}>
       {loading && (
         <View style={[StyleSheet.absoluteFill, styles.placeholder]}>
-          <ActivityIndicator color={indicatorColor} size={indicatorSize} />
+          {indicator && <ActivityIndicator color={indicatorColor} size={indicatorSize} />}
         </View>
       )}
       <Image

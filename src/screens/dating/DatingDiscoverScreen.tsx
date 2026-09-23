@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Dimensions,
@@ -15,7 +15,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import type { CompositeScreenProps } from '@react-navigation/native';
 import type { DrawerScreenProps } from '@react-navigation/drawer';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   interpolate,
   runOnJS,
@@ -40,6 +40,7 @@ import { useAuth } from '../../store/AuthContext';
 import DailyLimitOverlay from '../../components/dating/DailyLimitOverlay';
 import { usePrefetchImages } from '../../utils/imageCache';
 import RemoteImage from '../../components/common/RemoteImage';
+import Shimmer from '../../components/common/Shimmer';
 import { useModuleStatus } from '../../store/ModuleStatusContext';
 import { isLimitRefusal, limitFor, useSwipeLimits } from '../../utils/swipeLimits';
 import type { SwipeAction, SwipeLimit } from '../../utils/swipeLimits';
@@ -74,20 +75,26 @@ const PILL_OVERHANG = 42;
 const DECK_BOTTOM_GAP = 8;
 const MIN_CARD_H = 280;
 
+/** The bars inside the loading skeleton — darker than the block they sit on. */
+const SKELETON_INK = 'rgba(17,24,39,0.09)';
+
 /** Filter defaults — the values "Clear Filters" restores. */
 const DEFAULT_DISTANCE_KM = 30;
 const DEFAULT_MAX_AGE = 26;
 const SWIPE_THRESHOLD = 120;
 const ROTATION_FACTOR = 15;
 
-/** The toast once the server has taken a swipe — a match gets its own screen instead. */
-const SWIPE_DONE: Record<SwipeAction, { icon: string; text: (name: string) => string }> = {
-  Like: { icon: 'heart', text: (name) => `You liked ${name}` },
-  SuperLike: { icon: 'star', text: (name) => `You super liked ${name}` },
-  Ignore: { icon: 'close', text: (name) => `You passed on ${name}` },
-};
+/** How the stack behind the top card is drawn, and how long a promotion takes. */
+const STACK_SCALE = [1, 0.96, 0.92];
+const STACK_OFFSET = [0, 14, 28];
+const PROMOTE_MS = 180;
 
-/** For the error toast when the server gives no reason of its own. */
+/**
+ * A swipe that worked says nothing: the card leaving is the confirmation, and a
+ * toast on every single swipe was both noise and a re-render mid-animation
+ * (asked for 2026-09-23). Only a failure speaks — this is the wording for when
+ * the server gives no reason of its own.
+ */
 const SWIPE_VERB: Record<SwipeAction, string> = {
   Like: 'like',
   SuperLike: 'super like',
@@ -325,25 +332,50 @@ const sliderStyles = StyleSheet.create({
 // ──────────────────────────────────────────────────────────────
 interface SwipeCardProps {
   user: DiscoverUser;
-  index: number;  // 0 = top, 1 = second, 2 = third
+  /** 0 = top, 1 = second, 2 = third, -1 = just swiped and still flying off. */
+  index: number;
   /** Sized by the deck rather than the screen — see PILL_OVERHANG. */
   cardHeight: number;
   /** No swipes (likes and passes) / no super likes left: that swipe settles back instead of throwing the card. */
   likeLocked: boolean;
   superLikeLocked: boolean;
-  /** A swipe is waiting on the server: hold this card still until it answers. */
-  busy: boolean;
   /** False when the screen refused the swipe, which brings the card back. */
   onSwipe: (user: DiscoverUser, direction: 'left' | 'right' | 'super') => boolean;
   onInfo: (user: DiscoverUser) => void;
 }
 
-function SwipeCard({
-  user, index, cardHeight, likeLocked, superLikeLocked, busy, onSwipe, onInfo,
+/**
+ * Memoised: the deck re-renders on every index change, and without this all
+ * three cards rebuilt their gestures and animated styles each time, which
+ * stuttered the card still under the user's finger.
+ */
+const SwipeCard = React.memo(function SwipeCard({
+  user, index, cardHeight, likeLocked, superLikeLocked, onSwipe, onInfo,
 }: SwipeCardProps) {
   const translateX = useSharedValue(0);
   const translateY = useSharedValue(0);
+  /**
+   * Position in the stack, as an animated value. Reading the `index` prop
+   * straight from the style worklet made a promoted card jump from 0.96 to 1
+   * in a single frame; animating it lets the card behind grow into place as
+   * the one in front flies off.
+   */
+  const depth = useSharedValue(index);
   const isTop = index === 0;
+  // -1 is this card on its way out; its LIKE / NOPE stamp rides along with it
+  // rather than blinking off the frame the deck advances.
+  const isFront = index <= 0;
+
+  useEffect(() => {
+    depth.value = withTiming(index, { duration: PROMOTE_MS });
+    // A card the server refused comes back into the deck while it is still
+    // parked off screen, because it never unmounted. Fly it home rather than
+    // leave an invisible card sitting on top of the stack.
+    if (index >= 0 && (translateX.value !== 0 || translateY.value !== 0)) {
+      translateX.value = withSpring(0, { damping: 15 });
+      translateY.value = withSpring(0, { damping: 15 });
+    }
+  }, [index, depth, translateX, translateY]);
 
   const imageUri = user.displayImageUrl ?? user.profileImageUrl;
 
@@ -358,46 +390,48 @@ function SwipeCard({
     [onSwipe, user, translateX, translateY],
   );
 
-  const pan = Gesture.Pan()
-    .enabled(isTop && !busy)
-    .onUpdate((e) => {
-      translateX.value = e.translationX;
-      translateY.value = e.translationY;
-    })
-    .onEnd((e) => {
-      const dir =
-        Math.abs(e.translationX) > SWIPE_THRESHOLD
-          ? (e.translationX > 0 ? 'right' : 'left')
-          : e.translationY < -SWIPE_THRESHOLD ? 'super' : null;
-      // A pass uses up a swipe just as a like does, so the two lock together.
-      const locked =
-        ((dir === 'right' || dir === 'left') && likeLocked) || (dir === 'super' && superLikeLocked);
+  // Built once per lock state rather than per render: a new Gesture object
+  // makes the detector re-attach its handler, which drops an in-progress drag.
+  const pan = useMemo(
+    () => Gesture.Pan()
+      .enabled(isTop)
+      .onUpdate((e) => {
+        translateX.value = e.translationX;
+        translateY.value = e.translationY;
+      })
+      .onEnd((e) => {
+        const dir =
+          Math.abs(e.translationX) > SWIPE_THRESHOLD
+            ? (e.translationX > 0 ? 'right' : 'left')
+            : e.translationY < -SWIPE_THRESHOLD ? 'super' : null;
+        // A pass uses up a swipe just as a like does, so the two lock together.
+        const locked =
+          ((dir === 'right' || dir === 'left') && likeLocked) || (dir === 'super' && superLikeLocked);
 
-      if ((dir === 'left' || dir === 'right') && !locked) {
-        const exitX = dir === 'right' ? SCREEN_W * 1.5 : -SCREEN_W * 1.5;
-        translateX.value = withTiming(exitX, { duration: 250 }, () => {
+        if ((dir === 'left' || dir === 'right') && !locked) {
+          const exitX = dir === 'right' ? SCREEN_W * 1.5 : -SCREEN_W * 1.5;
+          // The deck is told at once, so the next card is live while this one
+          // is still flying out — the throw is decoration, not a gate.
           runOnJS(commitSwipe)(dir);
-        });
-      } else if (dir === 'super' && !locked) {
-        translateY.value = withTiming(-SCREEN_H, { duration: 250 }, () => {
+          translateX.value = withTiming(exitX, { duration: 220 });
+        } else if (dir === 'super' && !locked) {
           runOnJS(commitSwipe)('super');
-        });
-      } else {
-        translateX.value = withSpring(0, { damping: 15 });
-        translateY.value = withSpring(0, { damping: 15 });
-        // Out of that allowance: the card stays, and the screen still hears
-        // about the attempt so it can say why.
-        if (locked && dir) runOnJS(commitSwipe)(dir);
-      }
-    });
+          translateY.value = withTiming(-SCREEN_H, { duration: 220 });
+        } else {
+          translateX.value = withSpring(0, { damping: 15 });
+          translateY.value = withSpring(0, { damping: 15 });
+          // Out of that allowance: the card stays, and the screen still hears
+          // about the attempt so it can say why.
+          if (locked && dir) runOnJS(commitSwipe)(dir);
+        }
+      }),
+    [isTop, likeLocked, superLikeLocked, commitSwipe, translateX, translateY],
+  );
 
+  // One transform list for every position in the stack, so a card keeps
+  // animating the same properties as it is promoted instead of swapping to a
+  // differently shaped list (which Reanimated can only snap between).
   const animatedStyle = useAnimatedStyle(() => {
-    if (!isTop) {
-      // Back cards: scale and slight translate based on stack position
-      const scale = interpolate(index, [0, 1, 2], [1, 0.96, 0.92]);
-      const offsetY = interpolate(index, [0, 1, 2], [0, 14, 28]);
-      return { transform: [{ scale }, { translateY: offsetY }] };
-    }
     const rotate = interpolate(
       translateX.value,
       [-SCREEN_W / 2, 0, SCREEN_W / 2],
@@ -406,30 +440,37 @@ function SwipeCard({
     return {
       transform: [
         { translateX: translateX.value },
-        { translateY: translateY.value },
+        { translateY: translateY.value + interpolate(depth.value, [0, 1, 2], STACK_OFFSET, 'clamp') },
         { rotate: `${rotate}deg` },
+        { scale: interpolate(depth.value, [0, 1, 2], STACK_SCALE, 'clamp') },
       ],
     };
   });
 
   // Like / Ignore label opacity
   const likeOpacity = useAnimatedStyle(() => ({
-    opacity: isTop ? interpolate(translateX.value, [20, 80], [0, 1], 'clamp') : 0,
+    opacity: isFront ? interpolate(translateX.value, [20, 80], [0, 1], 'clamp') : 0,
   }));
   const ignoreOpacity = useAnimatedStyle(() => ({
-    opacity: isTop ? interpolate(translateX.value, [-80, -20], [1, 0], 'clamp') : 0,
+    opacity: isFront ? interpolate(translateX.value, [-80, -20], [1, 0], 'clamp') : 0,
   }));
 
   return (
     <GestureDetector gesture={pan}>
-      <Animated.View style={[styles.card, { height: cardHeight, zIndex: 10 - index }, animatedStyle]}>
-        {/* Photo */}
+      {/* Only the top card takes touches: the one flying out sits above the
+          deck (zIndex 11) and would otherwise open a profile on its way off. */}
+      <Animated.View
+        style={[styles.card, { height: cardHeight, zIndex: 10 - index }, animatedStyle]}
+        pointerEvents={isTop ? 'auto' : 'none'}
+      >
+        {/* Photo — no spinner: the deck's photos are prefetched as it loads, so
+            one would only flash for a frame (see usePrefetchImages). */}
         {imageUri ? (
           <RemoteImage
             uri={imageUri}
             style={styles.cardImage}
             resizeMode="cover"
-            indicatorSize="large"
+            indicator={false}
           />
         ) : (
           <View style={[styles.cardImage, styles.cardImageFallback]}>
@@ -469,7 +510,7 @@ function SwipeCard({
       </Animated.View>
     </GestureDetector>
   );
-}
+});
 
 // ──────────────────────────────────────────────────────────────
 // Main screen
@@ -485,6 +526,19 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
   usePrefetchImages(users.map(u => u.displayImageUrl ?? u.profileImageUrl));
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
+
+  /**
+   * The deck, readable between renders. Swipes are optimistic and can land in
+   * quick succession, so which card is on top has to be known the instant a
+   * gesture ends rather than after React has re-rendered.
+   */
+  const usersRef = useRef<DiscoverUser[]>(users);
+  const currentIndexRef = useRef(0);
+  const setDeckIndex = useCallback((next: number) => {
+    currentIndexRef.current = next;
+    setCurrentIndex(next);
+  }, []);
+
   const [alert, setAlert] = useState<
     { title: string; message: string; buttons?: AlertButton[] } | null
   >(null);
@@ -598,19 +652,17 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
       .catch(() => {});
   }, [advanceVisible, interestCategories.length, datingType]);
 
-  // One swipe at a time: set from the moment a swipe goes out until the server
-  // answers, so taps and drags in between are ignored.
-  const swipingRef = useRef(false);
-  /** The swipe waiting on the server — its button shows a spinner meanwhile. */
-  const [pendingAction, setPendingAction] = useState<SwipeAction | null>(null);
+  /**
+   * The users whose swipe is still with the server. Swipes no longer queue
+   * behind one another — each is its own request for its own profile, and
+   * holding the deck still until the last one answered is what made swiping
+   * feel stuck. This only stops the same card being sent twice (a throw and a
+   * button tap racing each other).
+   */
+  const inFlightRef = useRef<Set<number>>(new Set());
 
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const hideToast = useCallback(() => setToast(null), []);
-
-  // The card stack advances optimistically, so a swipe the backend refuses has
-  // to be able to put the user back on the card they were looking at.
-  const currentIndexRef = useRef(0);
-  useEffect(() => { currentIndexRef.current = currentIndex; }, [currentIndex]);
 
   // Whether the current deck came from a filtered query — a refresh on focus
   // has to preserve the user's filters instead of silently resetting them.
@@ -653,8 +705,10 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
           : {}),
       });
       if (requestId !== requestIdRef.current) return;
-      setUsers(res.data?.data ?? []);
-      setCurrentIndex(0);
+      const deck = res.data?.data ?? [];
+      usersRef.current = deck;
+      setUsers(deck);
+      setDeckIndex(0);
     } catch {
       if (requestId !== requestIdRef.current) return;
       // A silent refresh keeps whatever deck is already on screen — interrupting
@@ -668,7 +722,7 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
         if (!silent) setLoading(false);
       }
     }
-  }, [filterCountry, filterGender, filterAge, filterDistance, selectedInterests]);
+  }, [filterCountry, filterGender, filterAge, filterDistance, selectedInterests, setDeckIndex]);
 
   // `loadUsers` is a new function on every filter change, so the focus effect
   // reads it through a ref — depending on it directly would refetch mid-drag
@@ -693,24 +747,32 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
   }, []);
 
 
-  // Refresh on every focus so returning from a profile, a chat or the drawer
-  // shows a fresh deck. Only the first load blocks with a spinner; later ones
-  // swap the deck in underneath the user.
+  /**
+   * Fetch on focus only when there is nothing left to swipe.
+   *
+   * It used to refetch every time, which reset the deck to the top: opening a
+   * profile and coming back replayed cards the user had already swiped, and the
+   * new deck landing mid-gesture was the worst of the stutter. A deck with
+   * cards still in it is left exactly where the user left it.
+   */
   useFocusEffect(
     useCallback(() => {
       // Discover stays mounted in the drawer, so a limit from yesterday would
       // otherwise still be blocking today.
       clearExpired();
-      loadUsersRef.current(filtersAppliedRef.current, hasLoadedRef.current);
+      const exhausted = currentIndexRef.current >= usersRef.current.length;
+      if (!hasLoadedRef.current || exhausted) {
+        loadUsersRef.current(filtersAppliedRef.current, hasLoadedRef.current);
+      }
     }, [clearExpired]),
   );
 
   /** Returns false when the swipe is refused here, so the card comes back. */
   const handleSwipe = useCallback(
     (user: DiscoverUser, direction: 'left' | 'right' | 'super'): boolean => {
-      if (swipingRef.current) return false;
+      if (inFlightRef.current.has(user.userId)) return false;
 
-      const action =
+      const action: SwipeAction =
         direction === 'right' ? 'Like' : direction === 'super' ? 'SuperLike' : 'Ignore';
 
       // An allowance already known to be spent: nothing goes out and the card
@@ -721,34 +783,36 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
         return false;
       }
 
-      swipingRef.current = true;
-      setPendingAction(action);
-
-      // The deck moves on straight away; the button spins until the server
-      // answers, and nothing else can be swiped meanwhile.
+      // The deck moves on straight away and the request runs in the background.
+      // Nothing on screen waits for it, so the next card can be dragged while
+      // this one is still in the air.
       const swipedAt = currentIndexRef.current;
       const deck = requestIdRef.current;
-      setCurrentIndex((prev) => prev + 1);
-      setLimitOverlayVisible(false);
+      inFlightRef.current.add(user.userId);
+      setDeckIndex(swipedAt + 1);
+      // Returning the same value makes React bail out, so a swipe with no cover
+      // up doesn't cost a render.
+      setLimitOverlayVisible((prev) => (prev ? false : prev));
 
       datingApi.swipe(user.userId, action)
         .then((res) => {
           const result = res.data?.data as SwipeResult | undefined;
           applyCounters(result);
           if (result?.isMatch) {
-            // The match screen says it all — no toast on top of it.
             setMatchedUser(user);
             setMatchId(result.matchId ?? null);
             setMatchVisible(true);
-            return;
           }
-          const done = SWIPE_DONE[action];
-          setToast({ id: Date.now(), icon: done.icon, text: done.text(user.firstName) });
+          // Otherwise nothing: the card leaving is the confirmation.
         })
         .catch((err) => {
-          // The swipe didn't count, so the card comes back — unless the deck
-          // was reloaded meanwhile and that index now means someone else.
-          if (requestIdRef.current === deck) setCurrentIndex(swipedAt);
+          // The swipe didn't count, so the card comes back — but only when it
+          // is still the card that just left. Rewinding a deck the user has
+          // already swiped past would yank profiles back under their finger,
+          // and the deck being reloaded meanwhile makes that index someone else.
+          const stillTheLastCard =
+            requestIdRef.current === deck && currentIndexRef.current === swipedAt + 1;
+          if (stillTheLastCard) setDeckIndex(swipedAt);
           if (isLimitRefusal(err)) {
             // That allowance just ran out: the cover or alert says why.
             markReached(limit);
@@ -766,12 +830,11 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
           });
         })
         .finally(() => {
-          swipingRef.current = false;
-          setPendingAction(null);
+          inFlightRef.current.delete(user.userId);
         });
       return true;
     },
-    [applyCounters, explainLimit, isReached, markReached],
+    [applyCounters, explainLimit, isReached, markReached, setDeckIndex],
   );
 
   const handleInfo = useCallback(
@@ -794,353 +857,275 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
     [navigation],
   );
 
+  // Reads the deck through the refs, so two quick taps swipe two cards rather
+  // than sending the same one twice while React catches up.
   const handleActionButton = useCallback(
-    (action: 'Like' | 'SuperLike' | 'Ignore') => {
-      if (currentIndex >= users.length) return;
+    (action: SwipeAction) => {
+      const deck = usersRef.current;
+      const at = currentIndexRef.current;
+      if (at >= deck.length) return;
       const dir =
         action === 'Like' ? 'right' : action === 'Ignore' ? 'left' : 'super';
-      handleSwipe(users[currentIndex], dir);
+      handleSwipe(deck[at], dir);
     },
-    [currentIndex, handleSwipe, users],
+    [handleSwipe],
   );
 
-  const visibleUsers = users.slice(currentIndex, currentIndex + 3);
+  /**
+   * What the deck renders, back to front, each card with its position relative
+   * to the top one.
+   *
+   * The window reaches one card *behind* the top so the card that was just
+   * swiped stays mounted at position -1 and finishes flying off screen. The
+   * deck advances the moment a gesture ends rather than waiting on that
+   * animation, which is what lets the next card be dragged straight away.
+   */
+  const stack = useMemo(() => {
+    const from = Math.max(0, currentIndex - 1);
+    return users
+      .slice(from, currentIndex + 3)
+      .map((user, i) => ({ user, index: from + i - currentIndex }))
+      .reverse();  // back to front, so the top card gets the touches
+  }, [users, currentIndex]);
 
+  /** False once every card has been swiped — the pill and cover go with them. */
+  const hasCards = currentIndex < users.length;
+
+  // App.tsx already mounts the one GestureHandlerRootView the app needs;
+  // nesting a second one here only added a view for every frame to composite.
   return (
-    <GestureHandlerRootView style={styles.root}>
-      <SafeAreaView style={styles.root}>
-        <DatingTopBar />
+    <SafeAreaView style={styles.root}>
+      <DatingTopBar />
 
-        {/* Heading + filter */}
-        <View style={styles.headingRow}>
-          <Text style={styles.heading}>
-            Discover & Find{' '}
-            <Text style={[styles.headingAccent, { color: accent }]}>
-              Your Perfect Match
-            </Text>
+      {/* Heading + filter */}
+      <View style={styles.headingRow}>
+        <Text style={styles.heading}>
+          Discover & Find{' '}
+          <Text style={[styles.headingAccent, { color: accent }]}>
+            Your Perfect Match
           </Text>
-          <TouchableOpacity
-            onPress={() => setFilterVisible(true)}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel={filtersApplied ? 'Filters, applied' : 'Filters'}
-          >
-            <Icon name="options-outline" size={26} color={lime} />
-            {/* The deck on screen is filtered */}
-            {filtersApplied && (
-              <View style={[styles.filterDot, { backgroundColor: accent }]} />
+        </Text>
+        <TouchableOpacity
+          onPress={() => setFilterVisible(true)}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={filtersApplied ? 'Filters, applied' : 'Filters'}
+        >
+          <Icon name="options-outline" size={26} color={lime} />
+          {/* The deck on screen is filtered */}
+          {filtersApplied && (
+            <View style={[styles.filterDot, { backgroundColor: accent }]} />
+          )}
+        </TouchableOpacity>
+      </View>
+
+      {/* Card stack */}
+      <View
+        style={styles.cardStack}
+        onLayout={(e) => {
+          // Rotation and keyboard events re-fire onLayout with the same
+          // height; setting state each time re-rendered the whole deck.
+          const h = e.nativeEvent.layout.height;
+          setDeckHeight((prev) => (Math.abs(prev - h) < 1 ? prev : h));
+        }}
+      >
+        {loading ? (
+          // The first load stands a shimmering card where the real one will be,
+          // rather than a spinner or an empty screen: the deck arrives into a
+          // shape that is already there, so nothing jumps when it does.
+          <>
+            <Shimmer style={[styles.card, { height: cardHeight }]}>
+              <View style={styles.skeletonMeta}>
+                <View style={styles.skeletonName} />
+                <View style={styles.skeletonLocation} />
+              </View>
+            </Shimmer>
+            {/* The pill too, so it doesn't pop in over the first card */}
+            <View style={[styles.actionPill, { top: cardHeight - 36 }]} pointerEvents="none">
+              <View style={[styles.actionBtn, styles.skeletonBtn]} />
+              <View style={[styles.actionBtn, styles.skeletonBtn]} />
+              <View style={[styles.actionBtn, styles.skeletonBtn]} />
+            </View>
+          </>
+        ) : (
+          <>
+            {/* Sits underneath the cards, which are absolutely positioned, so
+                the last one swiped uncovers it as it flies off. */}
+            {!hasCards && (
+              <View style={styles.emptyState}>
+                <Image
+                  source={require('../../assets/spiritual.png')}
+                  style={styles.emptyImage}
+                  resizeMode="contain"
+                />
+                <Text style={[styles.emptyScript, { color: lime }]}>That's all for today!</Text>
+                <Text style={styles.emptyTitle}>
+                  Check Back Later For More{' '}
+                  <Text style={{ color: accent }}>Matches.</Text>
+                </Text>
+                <Text style={styles.emptySub}>
+                  New members join every day. Adjust your filters or come back soon
+                  to meet more people.
+                </Text>
+              </View>
             )}
-          </TouchableOpacity>
-        </View>
-
-        {/* Card stack */}
-        <View
-          style={styles.cardStack}
-          onLayout={(e) => setDeckHeight(e.nativeEvent.layout.height)}
-        >
-          {loading ? (
-            // The first load waits here, under the top bar, heading and bottom
-            // bar, instead of blanking the whole screen.
-            <View style={styles.centered}>
-              <ActivityIndicator color={accent} size="large" />
-            </View>
-          ) : visibleUsers.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Image
-                source={require('../../assets/spiritual.png')}
-                style={styles.emptyImage}
-                resizeMode="contain"
+            {stack.map(({ user, index }) => (
+              <SwipeCard
+                key={user.userId}
+                user={user}
+                index={index}
+                cardHeight={cardHeight}
+                likeLocked={likeLimitReached}
+                superLikeLocked={superLikeLimitReached}
+                onSwipe={handleSwipe}
+                onInfo={handleInfo}
               />
-              <Text style={[styles.emptyScript, { color: lime }]}>That's all for today!</Text>
-              <Text style={styles.emptyTitle}>
-                Check Back Later For More{' '}
-                <Text style={{ color: accent }}>Matches.</Text>
-              </Text>
-              <Text style={styles.emptySub}>
-                New members join every day. Adjust your filters or come back soon
-                to meet more people.
-              </Text>
-            </View>
-          ) : (
-            // Render from back to front so front card receives touches
-            [...visibleUsers].reverse().map((user, reversedIdx) => {
-              const index = visibleUsers.length - 1 - reversedIdx;
-              return (
-                <SwipeCard
-                  key={user.userId}
-                  user={user}
-                  index={index}
-                  cardHeight={cardHeight}
-                  likeLocked={likeLimitReached}
-                  superLikeLocked={superLikeLimitReached}
-                  busy={pendingAction !== null}
-                  onSwipe={handleSwipe}
-                  onInfo={handleInfo}
-                />
-              );
-            })
-          )}
+            ))}
+          </>
+        )}
 
-          {/* Out of swipes — cover the card (Figma pg 26). The pill sits above
-              it, dimmed; tapping any of its buttons brings the cover back. */}
-          {likeLimitReached && limitOverlayVisible && visibleUsers.length > 0 && (
-            <DailyLimitOverlay
-              accent={accent}
-              height={cardHeight}
-              isPremium={isPremium}
-              onSubscribe={goPremium}
-              onDismiss={() => setLimitOverlayVisible(false)}
-            />
-          )}
+        {/* Out of swipes — cover the card (Figma pg 26). The pill sits above
+            it, dimmed; tapping any of its buttons brings the cover back. */}
+        {likeLimitReached && limitOverlayVisible && hasCards && (
+          <DailyLimitOverlay
+            accent={accent}
+            height={cardHeight}
+            isPremium={isPremium}
+            onSubscribe={goPremium}
+            onDismiss={() => setLimitOverlayVisible(false)}
+          />
+        )}
 
-          {/* Action pill overlapping the card bottom (Figma) */}
-          {visibleUsers.length > 0 && (
-            <View style={[styles.actionPill, { top: cardHeight - 36 }]}>
-              <TouchableOpacity
-                style={[
-                  styles.actionBtn,
-                  styles.actionGhost,
-                  likeLimitReached && styles.actionBtnSpent,
-                ]}
-                onPress={() => handleActionButton('Ignore')}
-                activeOpacity={0.8}
-                disabled={pendingAction !== null}
-              >
-                {pendingAction === 'Ignore'
-                  ? <ActivityIndicator color={lime} />
-                  : <Icon name="close" size={26} color={lime} />}
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.actionBtn,
-                  { backgroundColor: limeLight },
-                  superLikeLimitReached && styles.actionBtnSpent,
-                ]}
-                onPress={() => handleActionButton('SuperLike')}
-                activeOpacity={0.8}
-                disabled={pendingAction !== null}
-              >
-                {pendingAction === 'SuperLike'
-                  ? <ActivityIndicator color={lime} />
-                  : <Icon name="star" size={24} color={lime} />}
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.actionBtn,
-                  { backgroundColor: accent },
-                  likeLimitReached && styles.actionBtnSpent,
-                ]}
-                onPress={() => handleActionButton('Like')}
-                activeOpacity={0.8}
-                disabled={pendingAction !== null}
-              >
-                {pendingAction === 'Like'
-                  ? <ActivityIndicator color={isSpiritual ? Colors.spiritualLime : Colors.white} />
-                  : <Icon name="heart" size={26} color={isSpiritual ? Colors.spiritualLime : Colors.white} />}
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {/* Swipe confirmations and errors, over the top of the card */}
-          <Toast toast={toast} onHide={hideToast} style={styles.toast} />
-        </View>
-
-        <DatingBottomBar active="DatingDiscover" />
-
-        {/* Filter bottom sheet */}
-        <Modal
-          visible={filterVisible}
-          transparent
-          animationType="slide"
-          onRequestClose={() => setFilterVisible(false)}
-        >
-          <View style={styles.sheetOverlay}>
+        {/* Action pill overlapping the card bottom (Figma). The buttons never
+            spin or disable: the swipe is sent in the background, so a tap is
+            answered by the card leaving, not by a loader. */}
+        {hasCards && (
+          <View style={[styles.actionPill, { top: cardHeight - 36 }]}>
             <TouchableOpacity
-              style={styles.sheetDismiss}
-              activeOpacity={1}
-              onPress={() => setFilterVisible(false)}
-            />
-            <View style={styles.sheet}>
-              <View style={styles.sheetHandle} />
+              style={[
+                styles.actionBtn,
+                styles.actionGhost,
+                likeLimitReached && styles.actionBtnSpent,
+              ]}
+              onPress={() => handleActionButton('Ignore')}
+              activeOpacity={0.8}
+            >
+              <Icon name="close" size={26} color={lime} />
+            </TouchableOpacity>
 
-              {advanceVisible ? (
-                /* ── Advance Filters (Figma pg 29) ───────────────── */
-                <ScrollView showsVerticalScrollIndicator={false}>
-                  <TouchableOpacity
-                    onPress={() => setAdvanceVisible(false)}
-                    hitSlop={8}
-                    style={styles.advanceBack}
-                  >
-                    <Icon name="arrow-back" size={22} color={Colors.text} />
-                  </TouchableOpacity>
-                  <Text style={styles.sheetTitle}>Advance Filters</Text>
-                  <Text style={styles.fieldLabel}>Choose Interests</Text>
+            <TouchableOpacity
+              style={[
+                styles.actionBtn,
+                { backgroundColor: limeLight },
+                superLikeLimitReached && styles.actionBtnSpent,
+              ]}
+              onPress={() => handleActionButton('SuperLike')}
+              activeOpacity={0.8}
+            >
+              <Icon name="star" size={24} color={lime} />
+            </TouchableOpacity>
 
-                  {interestCategories.length === 0 ? (
-                    <ActivityIndicator color={accent} style={styles.advanceLoader} />
-                  ) : (
-                    interestCategories.map((cat) => {
-                      const open = expandedCategory === cat.id;
-                      return (
-                        <View key={cat.id}>
-                          <TouchableOpacity
-                            style={styles.categoryRow}
-                            onPress={() => setExpandedCategory(open ? null : cat.id)}
-                            activeOpacity={0.75}
-                          >
-                            <Text style={[styles.categoryName, { color: accent }]}>
-                              {cat.name}
-                            </Text>
-                            <Icon
-                              name={open ? 'chevron-up' : 'chevron-down'}
-                              size={18}
-                              color={accent}
-                            />
-                          </TouchableOpacity>
-                          {open && (
-                            <View style={styles.interestChips}>
-                              {cat.interests.map((interest) => {
-                                const selected = selectedInterests.has(interest.id);
-                                return (
-                                  <TouchableOpacity
-                                    key={interest.id}
-                                    style={[
-                                      styles.interestChip,
-                                      selected && { backgroundColor: lime, borderColor: lime },
-                                    ]}
-                                    onPress={() => toggleInterest(interest.id)}
-                                    activeOpacity={0.75}
-                                  >
-                                    <Text
-                                      style={[
-                                        styles.interestChipText,
-                                        { color: selected ? Colors.text : accent },
-                                      ]}
-                                    >
-                                      {interest.name}
-                                    </Text>
-                                  </TouchableOpacity>
-                                );
-                              })}
-                            </View>
-                          )}
-                        </View>
-                      );
-                    })
-                  )}
+            <TouchableOpacity
+              style={[
+                styles.actionBtn,
+                { backgroundColor: accent },
+                likeLimitReached && styles.actionBtnSpent,
+              ]}
+              onPress={() => handleActionButton('Like')}
+              activeOpacity={0.8}
+            >
+              <Icon name="heart" size={26} color={isSpiritual ? Colors.spiritualLime : Colors.white} />
+            </TouchableOpacity>
+          </View>
+        )}
 
-                  <View style={styles.sheetActions}>
-                    <TouchableOpacity
-                      style={[styles.clearBtn, { borderColor: accent }]}
-                      onPress={clearFilters}
-                      activeOpacity={0.85}
-                    >
-                      <Text style={[styles.clearBtnText, { color: accent }]}>Clear Filters</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.applyBtn, styles.sheetActionBtn, { backgroundColor: accent }]}
-                      onPress={() => {
-                        setAdvanceVisible(false);
-                        setFilterVisible(false);
-                        loadUsers(true);
-                      }}
-                      activeOpacity={0.85}
-                    >
-                      <Text style={styles.applyBtnText}>Apply</Text>
-                    </TouchableOpacity>
-                  </View>
-                </ScrollView>
-              ) : (
+        {/* Swipe confirmations and errors, over the top of the card */}
+        <Toast toast={toast} onHide={hideToast} style={styles.toast} />
+      </View>
+
+      <DatingBottomBar active="DatingDiscover" />
+
+      {/* Filter bottom sheet */}
+      <Modal
+        visible={filterVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setFilterVisible(false)}
+      >
+        <View style={styles.sheetOverlay}>
+          <TouchableOpacity
+            style={styles.sheetDismiss}
+            activeOpacity={1}
+            onPress={() => setFilterVisible(false)}
+          />
+          <View style={styles.sheet}>
+            <View style={styles.sheetHandle} />
+
+            {advanceVisible ? (
+              /* ── Advance Filters (Figma pg 29) ───────────────── */
               <ScrollView showsVerticalScrollIndicator={false}>
-                <Text style={styles.sheetTitle}>Filter</Text>
-
-                {/* Country */}
-                <Text style={styles.fieldLabel}>Country</Text>
                 <TouchableOpacity
-                  style={styles.selectBox}
-                  onPress={() => setCountryPickerVisible(true)}
+                  onPress={() => setAdvanceVisible(false)}
+                  hitSlop={8}
+                  style={styles.advanceBack}
                 >
-                  <Text style={filterCountry ? styles.selectText : styles.selectPlaceholder}>
-                    {filterCountry || 'Select country'}
-                  </Text>
-                  <Icon name="chevron-down" size={18} color={Colors.textMuted} />
+                  <Icon name="arrow-back" size={22} color={Colors.text} />
                 </TouchableOpacity>
+                <Text style={styles.sheetTitle}>Advance Filters</Text>
+                <Text style={styles.fieldLabel}>Choose Interests</Text>
 
-                {/* Distance */}
-                <Text style={styles.fieldLabel}>Distance</Text>
-                <TrackSlider
-                  min={DISTANCE_MIN_KM}
-                  max={DISTANCE_MAX_KM}
-                  value={filterDistance}
-                  accent={accent}
-                  labelLeft={`${DISTANCE_MIN_KM} km`}
-                  labelValue={`${filterDistance} km`}
-                  onChange={setFilterDistance}
-                />
-
-                {/* Age */}
-                <Text style={styles.fieldLabel}>Age</Text>
-                <TrackSlider
-                  min={AGE_MIN}
-                  max={AGE_MAX}
-                  value={filterAge}
-                  accent={accent}
-                  labelLeft={`${AGE_MIN}`}
-                  labelValue={`${filterAge}`}
-                  onChange={setFilterAge}
-                />
-
-                {/* Interested In */}
-                <Text style={styles.fieldLabel}>Interested In</Text>
-                <View style={styles.genderRow}>
-                  {(['Male', 'Female'] as const).map((g) => {
-                    const selected = filterGender === g;
+                {interestCategories.length === 0 ? (
+                  <ActivityIndicator color={accent} style={styles.advanceLoader} />
+                ) : (
+                  interestCategories.map((cat) => {
+                    const open = expandedCategory === cat.id;
                     return (
-                      <TouchableOpacity
-                        key={g}
-                        style={[
-                          styles.genderPill,
-                          selected ? { backgroundColor: accent } : styles.genderPillInactive,
-                        ]}
-                        onPress={() => setFilterGender(g)}
-                        activeOpacity={0.8}
-                      >
-                        <Text style={styles.genderPillText}>{g}</Text>
-                      </TouchableOpacity>
+                      <View key={cat.id}>
+                        <TouchableOpacity
+                          style={styles.categoryRow}
+                          onPress={() => setExpandedCategory(open ? null : cat.id)}
+                          activeOpacity={0.75}
+                        >
+                          <Text style={[styles.categoryName, { color: accent }]}>
+                            {cat.name}
+                          </Text>
+                          <Icon
+                            name={open ? 'chevron-up' : 'chevron-down'}
+                            size={18}
+                            color={accent}
+                          />
+                        </TouchableOpacity>
+                        {open && (
+                          <View style={styles.interestChips}>
+                            {cat.interests.map((interest) => {
+                              const selected = selectedInterests.has(interest.id);
+                              return (
+                                <TouchableOpacity
+                                  key={interest.id}
+                                  style={[
+                                    styles.interestChip,
+                                    selected && { backgroundColor: lime, borderColor: lime },
+                                  ]}
+                                  onPress={() => toggleInterest(interest.id)}
+                                  activeOpacity={0.75}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.interestChipText,
+                                      { color: selected ? Colors.text : accent },
+                                    ]}
+                                  >
+                                    {interest.name}
+                                  </Text>
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
+                        )}
+                      </View>
                     );
-                  })}
-                </View>
-
-                {/* Advance Filters — premium only; free accounts get the paywall */}
-                <TouchableOpacity
-                  style={[
-                    styles.advanceBtn,
-                    isPremium && { backgroundColor: lime, borderColor: lime },
-                  ]}
-                  onPress={() => {
-                    if (isPremium) {
-                      setAdvanceVisible(true);
-                      return;
-                    }
-                    setFilterVisible(false);
-                    goPremium();
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <Image
-                    source={require('../../assets/crownSmall.png')}
-                    style={styles.advanceCrown}
-                    resizeMode="contain"
-                  />
-                  <Text style={[styles.advanceBtnText, isPremium && styles.advanceBtnTextActive]}>
-                    Advance Filters
-                  </Text>
-                  {!isPremium && (
-                    <Icon name="lock-closed" size={16} color={Colors.textMuted} />
-                  )}
-                </TouchableOpacity>
+                  })
+                )}
 
                 <View style={styles.sheetActions}>
                   <TouchableOpacity
@@ -1153,6 +1138,7 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
                   <TouchableOpacity
                     style={[styles.applyBtn, styles.sheetActionBtn, { backgroundColor: accent }]}
                     onPress={() => {
+                      setAdvanceVisible(false);
                       setFilterVisible(false);
                       loadUsers(true);
                     }}
@@ -1162,51 +1148,159 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
                   </TouchableOpacity>
                 </View>
               </ScrollView>
-              )}
-            </View>
+            ) : (
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={styles.sheetTitle}>Filter</Text>
+
+              {/* Country */}
+              <Text style={styles.fieldLabel}>Country</Text>
+              <TouchableOpacity
+                style={styles.selectBox}
+                onPress={() => setCountryPickerVisible(true)}
+              >
+                <Text style={filterCountry ? styles.selectText : styles.selectPlaceholder}>
+                  {filterCountry || 'Select country'}
+                </Text>
+                <Icon name="chevron-down" size={18} color={Colors.textMuted} />
+              </TouchableOpacity>
+
+              {/* Distance */}
+              <Text style={styles.fieldLabel}>Distance</Text>
+              <TrackSlider
+                min={DISTANCE_MIN_KM}
+                max={DISTANCE_MAX_KM}
+                value={filterDistance}
+                accent={accent}
+                labelLeft={`${DISTANCE_MIN_KM} km`}
+                labelValue={`${filterDistance} km`}
+                onChange={setFilterDistance}
+              />
+
+              {/* Age */}
+              <Text style={styles.fieldLabel}>Age</Text>
+              <TrackSlider
+                min={AGE_MIN}
+                max={AGE_MAX}
+                value={filterAge}
+                accent={accent}
+                labelLeft={`${AGE_MIN}`}
+                labelValue={`${filterAge}`}
+                onChange={setFilterAge}
+              />
+
+              {/* Interested In */}
+              <Text style={styles.fieldLabel}>Interested In</Text>
+              <View style={styles.genderRow}>
+                {(['Male', 'Female'] as const).map((g) => {
+                  const selected = filterGender === g;
+                  return (
+                    <TouchableOpacity
+                      key={g}
+                      style={[
+                        styles.genderPill,
+                        selected ? { backgroundColor: accent } : styles.genderPillInactive,
+                      ]}
+                      onPress={() => setFilterGender(g)}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.genderPillText}>{g}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {/* Advance Filters — premium only; free accounts get the paywall */}
+              <TouchableOpacity
+                style={[
+                  styles.advanceBtn,
+                  isPremium && { backgroundColor: lime, borderColor: lime },
+                ]}
+                onPress={() => {
+                  if (isPremium) {
+                    setAdvanceVisible(true);
+                    return;
+                  }
+                  setFilterVisible(false);
+                  goPremium();
+                }}
+                activeOpacity={0.8}
+              >
+                <Image
+                  source={require('../../assets/crownSmall.png')}
+                  style={styles.advanceCrown}
+                  resizeMode="contain"
+                />
+                <Text style={[styles.advanceBtnText, isPremium && styles.advanceBtnTextActive]}>
+                  Advance Filters
+                </Text>
+                {!isPremium && (
+                  <Icon name="lock-closed" size={16} color={Colors.textMuted} />
+                )}
+              </TouchableOpacity>
+
+              <View style={styles.sheetActions}>
+                <TouchableOpacity
+                  style={[styles.clearBtn, { borderColor: accent }]}
+                  onPress={clearFilters}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.clearBtnText, { color: accent }]}>Clear Filters</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.applyBtn, styles.sheetActionBtn, { backgroundColor: accent }]}
+                  onPress={() => {
+                    setFilterVisible(false);
+                    loadUsers(true);
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.applyBtnText}>Apply</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+            )}
           </View>
+        </View>
 
-          <CountryPicker
-            visible={countryPickerVisible}
-            selected={filterCountry}
-            onSelect={(c) => setFilterCountry(c)}
-            onClose={() => setCountryPickerVisible(false)}
-          />
-        </Modal>
-
-        {/* Match modal */}
-        <MatchOverlay
-          visible={matchVisible}
-          matchedUser={matchedUser}
-          accent={accent}
-          onSayHi={() => {
-            setMatchVisible(false);
-            if (matchedUser && matchId) {
-              navigation.navigate('DatingChatDetail', {
-                matchId: matchId,
-                matchedUserId: matchedUser.userId,
-                matchedUserName: `${matchedUser.firstName} ${matchedUser.lastName}`,
-              });
-            }
-          }}
-          onKeepSwiping={() => setMatchVisible(false)}
+        <CountryPicker
+          visible={countryPickerVisible}
+          selected={filterCountry}
+          onSelect={(c) => setFilterCountry(c)}
+          onClose={() => setCountryPickerVisible(false)}
         />
+      </Modal>
 
-        <AppAlert
-          visible={!!alert}
-          title={alert?.title ?? ''}
-          message={alert?.message}
-          buttons={alert?.buttons}
-          onClose={() => setAlert(null)}
-        />
-      </SafeAreaView>
-    </GestureHandlerRootView>
+      {/* Match modal */}
+      <MatchOverlay
+        visible={matchVisible}
+        matchedUser={matchedUser}
+        accent={accent}
+        onSayHi={() => {
+          setMatchVisible(false);
+          if (matchedUser && matchId) {
+            navigation.navigate('DatingChatDetail', {
+              matchId: matchId,
+              matchedUserId: matchedUser.userId,
+              matchedUserName: `${matchedUser.firstName} ${matchedUser.lastName}`,
+            });
+          }
+        }}
+        onKeepSwiping={() => setMatchVisible(false)}
+      />
+
+      <AppAlert
+        visible={!!alert}
+        title={alert?.title ?? ''}
+        message={alert?.message}
+        buttons={alert?.buttons}
+        onClose={() => setAlert(null)}
+      />
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.background },
 
   headingRow: {
     flexDirection: 'row',
@@ -1256,6 +1350,12 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 8,
   },
+  // Stands in for the deck while the first page is on its way: the card's own
+  // shape, with bars where the name and location will be.
+  skeletonMeta: { position: 'absolute', left: 20, bottom: 58, gap: 10 },
+  skeletonName: { width: 152, height: 22, borderRadius: 6, backgroundColor: SKELETON_INK },
+  skeletonLocation: { width: 108, height: 13, borderRadius: 5, backgroundColor: SKELETON_INK },
+  skeletonBtn: { backgroundColor: SKELETON_INK },
   cardImage: {
     width: '100%',
     height: '100%',
