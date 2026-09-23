@@ -278,6 +278,11 @@ export default function RegisterScreen({ navigation }: Props) {
                 mode="date"
                 display="spinner"
                 maximumDate={MAX_DOB}
+                // The wheel follows the *system* appearance unless told
+                // otherwise, so on a phone in dark mode it drew light text on
+                // this light container and the date was unreadable. The app's
+                // palette is light-only, so the picker is pinned to match.
+                themeVariant="light"
                 onChange={(_, date) => {
                   if (date) { setDob(date); setErrors((e) => ({ ...e, dob: '' })); }
                 }}

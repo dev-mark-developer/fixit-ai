@@ -400,6 +400,10 @@ export default function DatingMyProfileScreen() {
                     mode="date"
                     display="spinner"
                     maximumDate={MAX_DOB}
+                    // Pinned light: the wheel otherwise follows the system
+                    // appearance and drew light text on this light container
+                    // in dark mode. The app's palette is light-only.
+                    themeVariant="light"
                     onChange={(_, date) => { if (date) setDob(date); }}
                   />
                 </View>
