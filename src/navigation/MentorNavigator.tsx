@@ -8,6 +8,7 @@ import MentorProfileSetupScreen from '../screens/mentor/MentorProfileSetupScreen
 import MentorSubscriptionScreen from '../screens/mentor/MentorSubscriptionScreen';
 import MentorEditProfileScreen from '../screens/mentor/MentorEditProfileScreen';
 import MentorDrawerNavigator from './MentorDrawerNavigator';
+import PenpalNavigator from './PenpalNavigator';
 import NotificationsScreen from '../screens/main/NotificationsScreen';
 import ChangePasswordScreen from '../screens/main/ChangePasswordScreen';
 import EditProfileScreen from '../screens/main/EditProfileScreen';
@@ -68,6 +69,14 @@ export default function MentorNavigator() {
       <Stack.Screen
         name="MentorEditProfile"
         component={MentorEditProfileScreen}
+        options={{ headerShown: false }}
+      />
+      {/* The penpal module, for a mentor switching into it from the drawer.
+          MainNavigator swaps the root stack out for mentors, so penpal is
+          pushed here instead of navigated to as a root route. */}
+      <Stack.Screen
+        name="MentorPenpal"
+        component={PenpalNavigator}
         options={{ headerShown: false }}
       />
       {/* Shared utility screens — accessible from drawer menu. Notifications,

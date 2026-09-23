@@ -21,6 +21,7 @@ import { Colors } from '../utils/colors';
 import RemoteImage from '../components/common/RemoteImage';
 import { usersApi } from '../api/users';
 import { useAuth } from '../store/AuthContext';
+import { useModuleStatus } from '../store/ModuleStatusContext';
 // import PenpalHomeScreen from '../screens/penpal/PenpalHomeScreen';
 import PenpalConnectionsScreen from '../screens/penpal/PenpalConnectionsScreen';
 import PenpalLettersScreen from '../screens/penpal/PenpalLettersScreen';
@@ -53,7 +54,16 @@ function PenpalDrawerContent({ navigation }: DrawerContentComponentProps) {
     ? `${user.firstName.charAt(0)}${user.lastName.charAt(0)}`.toUpperCase()
     : '–';
 
-  // Two levels up: DrawerNav → PenpalNavigator → Root
+  /**
+   * Two levels up: DrawerNav → PenpalNavigator → Root.
+   *
+   * For a mentor that grandparent is the *mentor* stack, not the root one:
+   * MainNavigator swaps the tree for mentors and penpal is mounted there as
+   * `MentorPenpal`. That stack holds the shared screens directly rather than
+   * behind a Profile navigator, and has no Dating route at all — so both the
+   * destinations below and the Explore Dating entry differ.
+   */
+  const { isMentor } = useModuleStatus();
   const rootNav = navigation.getParent()?.getParent();
 
   const goDrawer = (name: keyof PenpalDrawerParamList) => {
@@ -62,7 +72,8 @@ function PenpalDrawerContent({ navigation }: DrawerContentComponentProps) {
 
   const goProfile = (screen: 'Faqs' | 'ContactUs' | 'ChangePassword') => {
     navigation.closeDrawer();
-    (rootNav as any)?.navigate('Profile', { screen });
+    if (isMentor) (rootNav as any)?.navigate(screen);
+    else (rootNav as any)?.navigate('Profile', { screen });
   };
 
   const goRoot = (screen: 'Dating' | 'Notifications' | 'Profile') => {
@@ -120,7 +131,22 @@ function PenpalDrawerContent({ navigation }: DrawerContentComponentProps) {
   ];
 
   const moreItems: { label: string; icon: any; onPress: () => void }[] = [
-    { label: 'Explore Dating', icon: require('../assets/exploreDating.png'), onPress: () => goRoot('Dating') },
+    // A mentor reaches penpal by pushing it onto their own stack, and none of
+    // the penpal screens draw a back button — without this the only way out is
+    // the Android hardware back. Popping keeps the dashboard's state.
+    // They get no Explore Dating: the mentor stack has no Dating route
+    // (removed in 8448b23), so the entry would only dead-end.
+    ...(isMentor
+      ? [{
+          label: 'My Seekers',
+          icon: require('../assets/home.png'),
+          onPress: () => { navigation.closeDrawer(); (rootNav as any)?.goBack(); },
+        }]
+      : [{
+          label: 'Explore Dating',
+          icon: require('../assets/exploreDating.png'),
+          onPress: () => goRoot('Dating'),
+        }]),
     // { label: 'Notifications', icon: '🔔', onPress: () => goRoot('Notifications') },
     // { label: 'Profile & Settings', icon: '👤', onPress: () => goRoot('Profile') },
   ];

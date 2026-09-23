@@ -57,6 +57,14 @@ function MentorDrawerContent({ navigation }: DrawerContentComponentProps) {
   };
   const goDrawer = (name: keyof MentorDrawerParamList) => navigation.navigate(name);
 
+  // Mentors are still regular members — let them into the penpal module.
+  // MainNavigator swaps the tree for mentors, so the penpal stack is opened as
+  // a screen on the mentor stack rather than a root route.
+  const goToPenpal = () => {
+    navigation.closeDrawer();
+    parentNav?.navigate('MentorPenpal');
+  };
+
   const handleLogout = () => {
     Alert.alert('Log Out', 'Are you sure you want to log out?', [
       { text: 'Cancel', style: 'cancel' },
@@ -66,6 +74,7 @@ function MentorDrawerContent({ navigation }: DrawerContentComponentProps) {
 
   const items: { label: string; icon: string; onPress: () => void }[] = [
     { label: 'My Seekers', icon: 'home-outline', onPress: () => goDrawer('MentorDashboard') },
+    { label: 'Penpal Group', icon: 'mail-outline', onPress: goToPenpal },
     { label: 'Edit Profile', icon: 'create-outline', onPress: () => goToStack('MentorEditProfile') },
     { label: 'My Subscription', icon: 'ribbon-outline', onPress: () => goToStack('MentorSubscription') },
     { label: 'Terms & Conditions', icon: 'document-text-outline', onPress: () => setLegalModal('tc') },
