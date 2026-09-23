@@ -34,6 +34,10 @@ export type MentorStackParamList = {
   MentorSubscription: undefined;
   MentorEditProfile: undefined;
   MentorMain: NavigatorScreenParams<MentorDrawerParamList> | undefined;
+  // Mentors are members too and can switch into the penpal module. Their tree
+  // replaces the root stack (see MainNavigator), so penpal is mounted here as
+  // a screen rather than reached as a root route.
+  MentorPenpal: undefined;
   // Shared utility screens accessible from the mentor drawer
   Notifications: undefined;
   ChangePassword: undefined;

@@ -3,6 +3,7 @@ import { clearImageCacheRecord } from '../utils/imageCache';
 import { saveSession, saveUser, clearSession, isLoggedIn, getUser, AuthUser } from './auth';
 import { registerForceLogout } from './authEventBridge';
 import { clearPushToken, syncPushToken, watchPushToken } from '../services/pushNotifications';
+import { clearNotificationBadge } from '../services/localNotifications';
 import LoadingOverlay from '../components/common/LoadingOverlay';
 
 interface AuthContextType {
@@ -39,6 +40,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setAuthenticated(loggedIn);
       setUser(u);
       setLoading(false);
+      /**
+       * The app-icon badge is OS state, and it outlives the app: deleting and
+       * reinstalling left the previous account's count sitting on the icon,
+       * because nothing here has ever written to it — the number only comes
+       * from the backend's `aps.badge`, so it stayed wrong until the next push
+       * happened to carry a new one (QA 2026-09-23).
+       *
+       * With no session there is nobody it could be counting, so it goes. A
+       * signed-in launch is left alone: the backend is the authority on that
+       * account's count.
+       */
+      if (!loggedIn) clearNotificationBadge();
     });
   }, []);
 
@@ -66,6 +79,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Drop the registration before the session goes, so this device stops
       // receiving notifications meant for the account signing out.
       await clearPushToken().catch(() => {});
+      // The count belonged to the account that is leaving — same reasoning as
+      // the launch path above, so whoever signs in next starts clean.
+      clearNotificationBadge();
       await clearSession();
       // The next account gets its own images; don't let them inherit a record
       // saying someone else's avatars are already painted.
