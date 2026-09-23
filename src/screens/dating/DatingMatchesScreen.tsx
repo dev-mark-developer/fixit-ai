@@ -720,7 +720,10 @@ const styles = StyleSheet.create({
 
   body: { flex: 1 },
 
-  gridRow: { justifyContent: 'space-between', paddingHorizontal: 20 },
+  // `flexDirection` is redundant as a FlatList `columnWrapperStyle` (that
+  // wrapper is already a row) but not when the locked Likes Received preview
+  // uses this on a plain View — without it those tiles stacked one per row.
+  gridRow: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 20 },
   gridContent: { paddingBottom: 120 },
 
   emptyState: { alignItems: 'center', paddingHorizontal: 36, paddingTop: 30 },
