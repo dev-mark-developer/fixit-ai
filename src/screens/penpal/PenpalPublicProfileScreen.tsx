@@ -26,6 +26,7 @@ import AppAlert, { AlertButton } from '../../components/common/AppAlert';
 import ReportModal from '../../components/common/ReportModal';
 import { extractApiError } from '../../utils/apiError';
 import { parseApiDate, timeAgo } from '../../utils/datetime';
+import { blockPenpal } from '../../utils/penpalBlocks';
 
 type Props = NativeStackScreenProps<PenpalStackParamList, 'PenpalPublicProfile'>;
 
@@ -39,7 +40,7 @@ type ConnectionState =
 const { height: SCREEN_H } = Dimensions.get('window');
 const HEADER_H = Math.round(SCREEN_H * 0.52);
 
-type PendingAction = 'connect' | 'cancel' | 'decline' | 'accept' | 'remove' | null;
+type PendingAction = 'connect' | 'cancel' | 'decline' | 'accept' | 'remove' | 'block' | null;
 
 export default function PenpalPublicProfileScreen({ route, navigation }: Props) {
   const {
@@ -73,6 +74,7 @@ export default function PenpalPublicProfileScreen({ route, navigation }: Props) 
     buttons?: AlertButton[];
   } | null>(null);
   const [reportVisible, setReportVisible] = useState(false);
+  const [flagMenuVisible, setFlagMenuVisible] = useState(false);
 
   // Accept-confirm modal (digital + physical variants)
   const [confirmModal, setConfirmModal] = useState<{
@@ -294,6 +296,43 @@ export default function PenpalPublicProfileScreen({ route, navigation }: Props) 
     ]);
   };
 
+  const handleBlock = () => {
+    setFlagMenuVisible(false);
+    showAlert(
+      'Block User',
+      `Are you sure you want to block ${pseudoName}? They will be removed from your penpals and will no longer be able to contact you.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Block',
+          style: 'destructive',
+          onPress: async () => {
+            setPendingAction('block');
+            try {
+              await blockPenpal(
+                userId,
+                pseudoName,
+                profileImageUrl,
+                currentUserId,
+                connection
+                  ? {
+                      connectionId: connection.id,
+                      status: connection.status,
+                      requesterId: connection.requesterId,
+                    }
+                  : undefined,
+              );
+              navigation.goBack();
+            } catch (err: any) {
+              setPendingAction(null);
+              showAlert('Error', extractApiError(err));
+            }
+          },
+        },
+      ],
+    );
+  };
+
   /**
    * Letters can only go to an accepted connection. The composer used to open
    * regardless and the request was refused on Send — after the user had
@@ -405,7 +444,7 @@ export default function PenpalPublicProfileScreen({ route, navigation }: Props) 
               <Text style={styles.headerFallbackText}>{initials}</Text>
             </View>
           )}
-          {/* Top row: back + report */}
+          {/* Top row: back + block/report */}
           <View style={[styles.topRow, { top: insets.top + 8 }]}>
             <TouchableOpacity
               style={styles.headerIconBtn}
@@ -416,16 +455,42 @@ export default function PenpalPublicProfileScreen({ route, navigation }: Props) 
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.headerIconBtn}
-              onPress={() => setReportVisible(true)}
+              onPress={() => setFlagMenuVisible(v => !v)}
+              disabled={pendingAction === 'block'}
               hitSlop={8}
             >
-              <Image
-                source={require('../../assets/flag.png')}
-                style={styles.flagIcon}
-                resizeMode="contain"
-              />
+              {pendingAction === 'block' ? (
+                <ActivityIndicator color={Colors.white} size="small" />
+              ) : (
+                <Image
+                  source={require('../../assets/flag.png')}
+                  style={styles.flagIcon}
+                  resizeMode="contain"
+                />
+              )}
             </TouchableOpacity>
           </View>
+
+          {/* Block / Report popup — same as the Dating profile */}
+          {flagMenuVisible && (
+            <View style={[styles.flagMenu, { top: insets.top + 54 }]}>
+              <TouchableOpacity style={styles.flagMenuItem} onPress={handleBlock}>
+                <Icon name="trash" size={16} color={Colors.error} />
+                <Text style={styles.flagMenuText}>Block</Text>
+              </TouchableOpacity>
+              <View style={styles.flagMenuDivider} />
+              <TouchableOpacity
+                style={styles.flagMenuItem}
+                onPress={() => {
+                  setFlagMenuVisible(false);
+                  setReportVisible(true);
+                }}
+              >
+                <Icon name="flag" size={16} color={Colors.error} />
+                <Text style={styles.flagMenuText}>Report</Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
           {/* Name + location */}
           <View style={styles.nameOverlay}>
@@ -813,6 +878,28 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   flagIcon: { width: 20, height: 20, tintColor: Colors.white },
+  flagMenu: {
+    position: 'absolute',
+    right: 18,
+    backgroundColor: Colors.white,
+    borderRadius: 10,
+    paddingVertical: 4,
+    width: 150,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  flagMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+  },
+  flagMenuDivider: { height: 1, backgroundColor: Colors.border, marginHorizontal: 10 },
+  flagMenuText: { fontSize: 14, fontWeight: '500', color: Colors.text },
 
   nameOverlay: { position: 'absolute', left: 20, bottom: 26 },
   nameText: {

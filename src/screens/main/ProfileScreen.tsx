@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { ProfileStackParamList } from '../../types/navigation';
@@ -8,6 +8,9 @@ import { Colors } from '../../utils/colors';
 import { getUser, AuthUser } from '../../store/auth';
 import { useAuth } from '../../store/AuthContext';
 import AppAlert, { AlertButton } from '../../components/common/AppAlert';
+import LegalPageModal from '../../components/common/LegalPageModal';
+import type { ContentPageSlug } from '../../api/content';
+import { confirmDeleteAccount } from '../../utils/deleteAccount';
 
 type Props = NativeStackScreenProps<ProfileStackParamList, 'ProfileMain'>;
 
@@ -21,7 +24,7 @@ interface MenuItem {
 export default function ProfileScreen({ navigation }: Props) {
   const { logout } = useAuth();
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [legalModal, setLegalModal] = useState<'tc' | 'privacy' | null>(null);
+  const [legalModal, setLegalModal] = useState<ContentPageSlug | null>(null);
   const [alert, setAlert] = useState<{ title: string; message: string; buttons?: AlertButton[] } | null>(null);
 
   useEffect(() => {
@@ -60,13 +63,20 @@ export default function ProfileScreen({ navigation }: Props) {
       label: 'Change Password',
       onPress: () => navigation.navigate('ChangePassword'),
     },
+    {
+      icon: '🗑️',
+      label: 'Delete Account',
+      onPress: () => confirmDeleteAccount(logout),
+      destructive: true,
+    },
   ];
 
   const supportItems: MenuItem[] = [
     { icon: '❓', label: 'FAQs', onPress: () => navigation.navigate('Faqs') },
     { icon: '📧', label: 'Contact Us', onPress: () => navigation.navigate('ContactUs') },
-    { icon: '📄', label: 'Terms & Conditions', onPress: () => setLegalModal('tc') },
-    { icon: '🔒', label: 'Privacy Policy', onPress: () => setLegalModal('privacy') },
+    { icon: '📄', label: 'Terms & Conditions', onPress: () => setLegalModal('terms-and-conditions') },
+    { icon: '🛡️', label: 'User Guidelines', onPress: () => setLegalModal('user-guidelines') },
+    { icon: '🔒', label: 'Privacy Policy', onPress: () => setLegalModal('privacy-policy') },
   ];
 
   return (
@@ -98,7 +108,9 @@ export default function ProfileScreen({ navigation }: Props) {
               activeOpacity={0.7}
             >
               <Text style={styles.menuIcon}>{item.icon}</Text>
-              <Text style={styles.menuLabel}>{item.label}</Text>
+              <Text style={[styles.menuLabel, item.destructive && styles.menuLabelDestructive]}>
+                {item.label}
+              </Text>
               <Text style={styles.menuChevron}>›</Text>
             </TouchableOpacity>
           ))}
@@ -137,28 +149,7 @@ export default function ProfileScreen({ navigation }: Props) {
         onClose={() => setAlert(null)}
       />
 
-      <Modal visible={legalModal !== null} animationType="slide" onRequestClose={() => setLegalModal(null)}>
-        <View style={styles.legalModal}>
-          <View style={styles.legalHeader}>
-            <Text style={styles.legalTitle}>
-              {legalModal === 'tc' ? 'Terms & Conditions' : 'Privacy Policy'}
-            </Text>
-            <TouchableOpacity onPress={() => setLegalModal(null)} style={styles.legalClose}>
-              <Text style={styles.legalCloseText}>✕</Text>
-            </TouchableOpacity>
-          </View>
-          <ScrollView style={styles.legalScroll} showsVerticalScrollIndicator={false}>
-            <Text style={styles.legalBody}>
-              {legalModal === 'tc'
-                ? `Welcome to Fixit. By creating an account, you agree to these Terms & Conditions.\n\n1. Eligibility\nYou must be at least 18 years old to use Fixit.\n\n2. Acceptable Use\nYou agree not to use Fixit for any unlawful purpose or in any way that harms other users. Harassment, hate speech, or abusive behaviour will result in immediate account termination.\n\n3. User Content\nYou are responsible for all content you post. Fixit reserves the right to remove content that violates these terms.\n\n4. Privacy\nYour use of Fixit is also governed by our Privacy Policy.\n\n5. Subscriptions\nPaid subscriptions are billed monthly. You may cancel at any time through your device's app store.\n\n6. Account Termination\nFixit reserves the right to suspend or terminate your account for violations of these terms.\n\nFor questions, contact us at support@fixit.com`
-                : `Fixit is committed to protecting your privacy.\n\n1. Information We Collect\n- Account information (name, email, date of birth, gender, location)\n- Profile information (photos, bio, preferences)\n- Usage data (swipes, matches, messages)\n- Device information (device ID, platform, push token)\n\n2. How We Use Your Information\n- To provide and improve our services\n- To match you with other users\n- To send push notifications\n- To ensure safety and security\n\n3. Information Sharing\nWe do not sell your personal information.\n\n4. Your Rights\nYou may request access to, correction of, or deletion of your personal data by contacting support@fixit.com.\n\nContact: support@fixit.com`}
-            </Text>
-          </ScrollView>
-          <TouchableOpacity style={styles.legalDoneBtn} onPress={() => setLegalModal(null)}>
-            <Text style={styles.legalDoneBtnText}>Close</Text>
-          </TouchableOpacity>
-        </View>
-      </Modal>
+      <LegalPageModal slug={legalModal} onClose={() => setLegalModal(null)} />
     </View>
   );
 }
@@ -224,6 +215,7 @@ const styles = StyleSheet.create({
   },
   menuIcon: { fontSize: 20, marginRight: 14 },
   menuLabel: { flex: 1, fontSize: 15, color: Colors.text, fontWeight: '500' },
+  menuLabelDestructive: { color: Colors.error },
   menuChevron: { fontSize: 20, color: Colors.textMuted },
 
   logoutBtn: {
@@ -244,21 +236,4 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     marginTop: 20,
   },
-
-  legalModal: { flex: 1, backgroundColor: Colors.background },
-  legalHeader: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingTop: 52, paddingBottom: 16,
-    borderBottomWidth: 1, borderBottomColor: Colors.border,
-  },
-  legalTitle: { fontSize: 18, fontWeight: '700', color: Colors.text },
-  legalClose: { padding: 4 },
-  legalCloseText: { fontSize: 18, color: Colors.textSecondary },
-  legalScroll: { flex: 1, paddingHorizontal: 20, paddingTop: 16 },
-  legalBody: { fontSize: 14, color: Colors.textSecondary, lineHeight: 22, paddingBottom: 24 },
-  legalDoneBtn: {
-    margin: 20, backgroundColor: Colors.primary, borderRadius: 12,
-    paddingVertical: 14, alignItems: 'center',
-  },
-  legalDoneBtnText: { color: Colors.white, fontSize: 15, fontWeight: '700' },
 });

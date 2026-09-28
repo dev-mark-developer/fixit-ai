@@ -35,6 +35,8 @@
 	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>Fixit uses your camera so you can send photos and videos in chat.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Fixit uses your location to show you people nearby and to sort matches by distance. Your location is only used while you are using the app.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Fixit uses your location to show you people nearby and to sort matches by distance.</string>
 	<key>NSMicrophoneUsageDescription</key>

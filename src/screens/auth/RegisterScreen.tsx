@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, Image, Platform, Modal, ScrollView,
+  View, Text, StyleSheet, TouchableOpacity, Image, Platform,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { launchImageLibrary } from 'react-native-image-picker';
@@ -17,6 +17,8 @@ import AppInput from '../../components/common/AppInput';
 import AppButton from '../../components/common/AppButton';
 import AppAlert, { AlertButton } from '../../components/common/AppAlert';
 import CountryPicker from '../../components/common/CountryPicker';
+import LegalPageModal from '../../components/common/LegalPageModal';
+import type { ContentPageSlug } from '../../api/content';
 import KeyboardAwareScrollView from '../../components/common/KeyboardAwareScrollView';
 import api from '../../api/axios';
 import { usersApi } from '../../api/users';
@@ -57,7 +59,7 @@ export default function RegisterScreen({ navigation }: Props) {
   const [profileImageUri, setProfileImageUri] = useState<string | null>(null);
   const [profileImageType, setProfileImageType] = useState('image/jpeg');
   const [tcAccepted, setTcAccepted] = useState(false);
-  const [legalModal, setLegalModal] = useState<'tc' | 'privacy' | null>(null);
+  const [legalModal, setLegalModal] = useState<ContentPageSlug | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [alert, setAlert] = useState<{ title: string; message: string; buttons?: AlertButton[] } | null>(null);
@@ -361,9 +363,11 @@ export default function RegisterScreen({ navigation }: Props) {
           </View>
           <Text style={styles.tcText}>
             By continuing, you agree to our{' '}
-            <Text style={styles.tcLink} onPress={() => setLegalModal('tc')}>Terms & Conditions</Text>
+            <Text style={styles.tcLink} onPress={() => setLegalModal('terms-and-conditions')}>Terms & Conditions</Text>
+            ,{' '}
+            <Text style={styles.tcLink} onPress={() => setLegalModal('user-guidelines')}>User Guidelines</Text>
             {' '}and{' '}
-            <Text style={styles.tcLink} onPress={() => setLegalModal('privacy')}>Privacy Policy</Text>.
+            <Text style={styles.tcLink} onPress={() => setLegalModal('privacy-policy')}>Privacy Policy</Text>.
           </Text>
         </TouchableOpacity>
         {!!errors.tc && <Text style={styles.errorText}>{errors.tc}</Text>}
@@ -385,33 +389,8 @@ export default function RegisterScreen({ navigation }: Props) {
         onClose={() => setShowCountryPicker(false)}
       />
 
-      {/* Legal Modals */}
-      <Modal visible={legalModal !== null} animationType="slide" onRequestClose={() => setLegalModal(null)}>
-        <View style={styles.legalModal}>
-          <View style={styles.legalHeader}>
-            <Text style={styles.legalTitle}>
-              {legalModal === 'tc' ? 'Terms & Conditions' : 'Privacy Policy'}
-            </Text>
-            <TouchableOpacity onPress={() => setLegalModal(null)} style={styles.legalClose}>
-              <Text style={styles.legalCloseText}>✕</Text>
-            </TouchableOpacity>
-          </View>
-          <ScrollView style={styles.legalScroll} showsVerticalScrollIndicator={false}>
-            {legalModal === 'tc' ? (
-              <Text style={styles.legalBody}>
-                {`Welcome to Fixit. By creating an account, you agree to these Terms & Conditions.\n\n1. Eligibility\nYou must be at least 18 years old to use Fixit.\n\n2. Acceptable Use\nYou agree not to use Fixit for any unlawful purpose or in any way that harms other users. Harassment, hate speech, or abusive behaviour will result in immediate account termination.\n\n3. User Content\nYou are responsible for all content you post. Fixit reserves the right to remove content that violates these terms.\n\n4. Privacy\nYour use of Fixit is also governed by our Privacy Policy.\n\n5. Subscriptions\nPaid subscriptions are billed monthly. You may cancel at any time through your device's app store. Refunds are subject to the app store's policies.\n\n6. Account Termination\nFixit reserves the right to suspend or terminate your account for violations of these terms.\n\n7. Changes\nWe may update these terms from time to time. Continued use of the app after changes constitutes acceptance.\n\nFor questions, contact us at support@fixit.com`}
-              </Text>
-            ) : (
-              <Text style={styles.legalBody}>
-                {`Fixit ("we", "us", "our") is committed to protecting your privacy.\n\n1. Information We Collect\n- Account information (name, email, date of birth, gender, location)\n- Profile information (photos, bio, preferences)\n- Usage data (swipes, matches, messages)\n- Device information (device ID, platform, push token)\n\n2. How We Use Your Information\n- To provide and improve our services\n- To match you with other users\n- To send push notifications\n- To ensure safety and security\n\n3. Information Sharing\nWe do not sell your personal information. We may share data with:\n- Other users as part of the matching experience\n- Service providers who help us operate the platform\n- Law enforcement when required by law\n\n4. Data Security\nWe use industry-standard encryption to protect your data.\n\n5. Your Rights\nYou may request access to, correction of, or deletion of your personal data by contacting us at support@fixit.com.\n\n6. Retention\nWe retain your data for as long as your account is active. Deleted accounts are purged within 30 days.\n\n7. Changes\nWe may update this policy. We will notify you of significant changes via the app.\n\nContact: support@fixit.com`}
-              </Text>
-            )}
-          </ScrollView>
-          <TouchableOpacity style={styles.legalDoneBtn} onPress={() => setLegalModal(null)}>
-            <Text style={styles.legalDoneBtnText}>Close</Text>
-          </TouchableOpacity>
-        </View>
-      </Modal>
+      {/* Terms, User Guidelines, Privacy Policy — from the admin panel */}
+      <LegalPageModal slug={legalModal} onClose={() => setLegalModal(null)} />
 
       {/* Aesthetic Alert */}
       <AppAlert
@@ -522,20 +501,4 @@ const styles = StyleSheet.create({
   tcText: { flex: 1, fontSize: 13, color: Colors.textSecondary, lineHeight: 20 },
   tcLink: { color: Colors.primary, fontWeight: '600', textDecorationLine: 'underline' },
 
-  legalModal: { flex: 1, backgroundColor: Colors.background },
-  legalHeader: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingTop: 52, paddingBottom: 16,
-    borderBottomWidth: 1, borderBottomColor: Colors.border,
-  },
-  legalTitle: { fontSize: 18, fontWeight: '700', color: Colors.text },
-  legalClose: { padding: 4 },
-  legalCloseText: { fontSize: 18, color: Colors.textSecondary },
-  legalScroll: { flex: 1, paddingHorizontal: 20, paddingTop: 16 },
-  legalBody: { fontSize: 14, color: Colors.textSecondary, lineHeight: 22, paddingBottom: 24 },
-  legalDoneBtn: {
-    margin: 20, backgroundColor: Colors.primary, borderRadius: 12,
-    paddingVertical: 14, alignItems: 'center',
-  },
-  legalDoneBtnText: { color: Colors.white, fontSize: 15, fontWeight: '700' },
 });
