@@ -122,8 +122,26 @@ export default function DatingChatsScreen({ navigation }: Props) {
         );
       });
 
+      // A deleted message may be the row's preview (and may have been unread).
+      // The server falls back to the previous message, so take its numbers —
+      // quietly, no spinner.
+      const unsubDeleted = chatHub.onMessageDeleted(({ matchId }) => {
+        datingApi.getMatches()
+          .then((res) => {
+            const fresh: DatingMatch | undefined = (res.data?.data ?? []).find(
+              (m: DatingMatch) => m.id === matchId,
+            );
+            if (!fresh) return;
+            setMatches((prev) => prev.map((m) => (m.id === matchId ? fresh : m)));
+          })
+          .catch(() => {
+            // The next focus refetch catches up.
+          });
+      });
+
       return () => {
         unsubscribe();
+        unsubDeleted();
         chatHub.disconnect();
       };
     }, []),

@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator,
 } from 'react-native';
@@ -9,6 +10,7 @@ import type { PenpalDrawerParamList, PenpalStackParamList } from '../../types/na
 import { Colors } from '../../utils/colors';
 import { penpalApi, PenpalLetter } from '../../api/penpal';
 import { parseApiDate } from '../../utils/datetime';
+import { useBlockedUsers } from '../../utils/blockedUsers';
 
 type Props = CompositeScreenProps<
   DrawerScreenProps<PenpalDrawerParamList, 'PenpalLetters'>,
@@ -20,6 +22,11 @@ export default function PenpalLettersScreen({ navigation }: Props) {
   const [tab, setTab] = useState<Tab>('Inbox');
   const [items, setItems] = useState<PenpalLetter[]>([]);
   const [loading, setLoading] = useState(false);
+  // The letters endpoints don't filter blocked people (beta, 2026-09-26).
+  const { blockedIds } = useBlockedUsers();
+  const visibleItems = items.filter(
+    l => !blockedIds.has(tab === 'Inbox' ? l.senderId : l.receiverId),
+  );
 
   const loadLetters = async (direction: Tab) => {
     setLoading(true);
@@ -33,7 +40,8 @@ export default function PenpalLettersScreen({ navigation }: Props) {
     }
   };
 
-  useEffect(() => { loadLetters(tab); }, [tab]);
+  // On focus too, so a letter deleted from its detail screen is gone on return.
+  useFocusEffect(useCallback(() => { loadLetters(tab); }, [tab]));
 
   const formatDate = (dateStr: string) => {
     const d = parseApiDate(dateStr);
@@ -85,7 +93,7 @@ export default function PenpalLettersScreen({ navigation }: Props) {
         </View>
       ) : (
         <FlatList
-          data={items}
+          data={visibleItems}
           keyExtractor={(item) => item.id.toString()}
           renderItem={renderItem}
           contentContainerStyle={styles.list}

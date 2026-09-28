@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   Alert,
   Linking,
+  Pressable,
   SafeAreaView,
   StyleSheet,
 } from 'react-native';
@@ -92,6 +93,10 @@ export default function DatingChatDetailScreen({ route, navigation }: Props) {
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
   const [inputText, setInputText] = useState('');
   const [reportVisible, setReportVisible] = useState(false);
+  /** Long-pressed message: its action sheet (delete own / report theirs). */
+  const [selectedMessage, setSelectedMessage] = useState<ChatMessage | null>(null);
+  /** A report about one message rather than the person. */
+  const [reportedMessage, setReportedMessage] = useState<ChatMessage | null>(null);
   const [menuVisible, setMenuVisible] = useState(false);
   const [attachMenuVisible, setAttachMenuVisible] = useState(false);
   const [matchedAvatar, setMatchedAvatar] = useState<string | null>(null);
@@ -172,6 +177,28 @@ export default function DatingChatDetailScreen({ route, navigation }: Props) {
       ],
     );
   }, [matchId, matchedUserName, navigation]);
+
+  /** Unsend — the API only lets the sender delete, and removes it for both. */
+  const handleDeleteMessage = useCallback((message: ChatMessage) => {
+    Alert.alert(
+      'Delete Message',
+      'This message will be deleted for both of you.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete', style: 'destructive',
+          onPress: async () => {
+            try {
+              await datingApi.deleteMessage(message.id);
+              setMessages((prev) => prev.filter((m) => m.id !== message.id));
+            } catch (err) {
+              Alert.alert('Error', errorMessage(err, 'Could not delete this message.'));
+            }
+          },
+        },
+      ],
+    );
+  }, []);
 
   /** Hub first, REST as the fallback so the unread badge clears either way. */
   const markRead = useCallback(async (peerId: number) => {
@@ -289,6 +316,15 @@ export default function DatingChatDetailScreen({ route, navigation }: Props) {
       );
     });
 
+    // Either side deleting — the other person's copy goes the moment it
+    // happens, and so does this device's if the delete came from another one.
+    const unsubDeleted = chatHub.onMessageDeleted(({ messageId, matchId: deletedIn }) => {
+      if (deletedIn !== matchId) return;
+      setMessages((prev) => prev.filter((m) => m.id !== messageId));
+      // Its action sheet has nothing left to act on.
+      setSelectedMessage((current) => (current?.id === messageId ? null : current));
+    });
+
     const unsubOnline = chatHub.onUserOnline((userId) => {
       if (userId === matchedUserId) setPeerOnline(true);
     });
@@ -306,6 +342,7 @@ export default function DatingChatDetailScreen({ route, navigation }: Props) {
     return () => {
       unsubMessage();
       unsubRead();
+      unsubDeleted();
       unsubOnline();
       unsubOffline();
       unsubError();
@@ -598,7 +635,10 @@ export default function DatingChatDetailScreen({ route, navigation }: Props) {
               )
             )}
 
-            <View style={[styles.bubbleStack, isMine ? styles.stackRight : styles.stackLeft]}>
+            <Pressable
+              style={[styles.bubbleStack, isMine ? styles.stackRight : styles.stackLeft]}
+              onLongPress={() => setSelectedMessage(item)}
+            >
               {voiceNote && (
                 <VoiceNoteBubble attachment={voiceNote} isMine={isMine} accent={accent} />
               )}
@@ -608,6 +648,7 @@ export default function DatingChatDetailScreen({ route, navigation }: Props) {
                   attachments={media}
                   accent={accent}
                   onPressAttachment={(i) => setViewer({ attachments: media, index: i })}
+                  onLongPress={() => setSelectedMessage(item)}
                 />
               )}
 
@@ -622,7 +663,7 @@ export default function DatingChatDetailScreen({ route, navigation }: Props) {
                   </Text>
                 </View>
               )}
-            </View>
+            </Pressable>
           </View>
 
           <View style={[styles.metaRow, isMine ? styles.metaRowRight : styles.metaRowLeft]}>
@@ -689,12 +730,54 @@ export default function DatingChatDetailScreen({ route, navigation }: Props) {
         keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
       >
         <ReportModal
-          visible={reportVisible}
+          visible={reportVisible || reportedMessage !== null}
           reportedUserId={matchedUserId}
           reportedName={matchedUserName}
           module="Dating"
-          onClose={() => setReportVisible(false)}
+          target={reportedMessage ? { type: 'ChatMessage', id: reportedMessage.id } : undefined}
+          onClose={() => { setReportVisible(false); setReportedMessage(null); }}
         />
+
+        {/* Long-press actions for one message */}
+        <Modal
+          visible={selectedMessage !== null}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setSelectedMessage(null)}
+        >
+          <TouchableOpacity style={styles.menuOverlay} activeOpacity={1} onPress={() => setSelectedMessage(null)}>
+            <View style={styles.menuSheet}>
+              <Text style={styles.menuTitle}>Message</Text>
+              {selectedMessage?.senderId === currentUserId ? (
+                <TouchableOpacity
+                  style={styles.menuItem}
+                  onPress={() => {
+                    const message = selectedMessage;
+                    setSelectedMessage(null);
+                    if (message) handleDeleteMessage(message);
+                  }}
+                >
+                  <Icon name="trash" size={18} color={Colors.error} style={styles.menuItemIcon} />
+                  <Text style={[styles.menuItemText, { color: Colors.error }]}>Delete Message</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={styles.menuItem}
+                  onPress={() => {
+                    setReportedMessage(selectedMessage);
+                    setSelectedMessage(null);
+                  }}
+                >
+                  <Icon name="flag" size={18} color={Colors.error} style={styles.menuItemIcon} />
+                  <Text style={styles.menuItemText}>Report Message</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity style={[styles.menuItem, styles.menuCancel]} onPress={() => setSelectedMessage(null)}>
+                <Text style={styles.menuCancelText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </Modal>
 
         <AttachmentViewer
           visible={viewer !== null}

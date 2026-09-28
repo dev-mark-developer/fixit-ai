@@ -27,6 +27,7 @@ import { useSubscription } from '../../store/SubscriptionContext';
 import { hasLoaded, usePrefetchImages } from '../../utils/imageCache';
 import { resolveImageUrl } from '../../utils/imageUrl';
 import { matchBlockState, useBlockedUsers } from '../../utils/blockedUsers';
+import { showBlockReportMenu } from '../../utils/blockReportMenu';
 import RemoteImage from '../../components/common/RemoteImage';
 import { useModuleStatus } from '../../store/ModuleStatusContext';
 import { parseApiDate } from '../../utils/datetime';
@@ -268,7 +269,7 @@ export default function DatingMatchesScreen({ navigation }: Props) {
 
   const [activeTab, setActiveTab] = useState<TabKey>('matches');
   const [matches, setMatches] = useState<DatingMatch[]>([]);
-  const { blockedIds } = useBlockedUsers();
+  const { blockedIds, refresh: refreshBlocked } = useBlockedUsers();
   /**
    * `GET /dating/matches` still returns blocked matches — the Chats list needs
    * them — but now flags them both ways (gap #29). Neither side sees a
@@ -467,10 +468,19 @@ export default function DatingMatchesScreen({ navigation }: Props) {
             accent={accent}
             onOpenProfile={() => openMatchProfile(item)}
             onChat={() => openChat(item)}
-            onReport={() => {
-              setReportUserId(item.otherUserId);
-              setReportName(item.otherFirstName);
-            }}
+            onReport={() =>
+              showBlockReportMenu(item.otherFirstName, {
+                onBlock: async () => {
+                  await datingApi.block(item.otherUserId);
+                  // The grid filters on the block list, so this hides the card.
+                  await refreshBlocked();
+                },
+                onReport: () => {
+                  setReportUserId(item.otherUserId);
+                  setReportName(item.otherFirstName);
+                },
+              })
+            }
           />
         )}
         refreshControl={

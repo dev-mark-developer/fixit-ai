@@ -37,6 +37,9 @@ import { getUser } from '../../store/auth';
 import ReportModal from '../../components/common/ReportModal';
 import DisabilityBadge from '../../components/penpal/DisabilityBadge';
 import { timeAgo } from '../../utils/datetime';
+import { useBlockedUsers } from '../../utils/blockedUsers';
+import { blockPenpal } from '../../utils/penpalBlocks';
+import { showBlockReportMenu } from '../../utils/blockReportMenu';
 
 type Props = CompositeScreenProps<
   DrawerScreenProps<PenpalDrawerParamList, 'PenpalConnections'>,
@@ -125,6 +128,9 @@ export default function PenpalConnectionsScreen({ navigation }: Props) {
   const [connectingId, setConnectingId] = useState<number | null>(null);
   const [reportUserId, setReportUserId] = useState<number | null>(null);
   const [reportName, setReportName] = useState<string>('');
+  // `/penpal/discover` still returns people the user blocked (verified on
+  // beta 2026-09-26), so they're taken out here, on every tab.
+  const { blockedIds, refresh: refreshBlocked } = useBlockedUsers();
 
   // Unified accept-confirm modal (digital + physical variants)
   const [confirmModal, setConfirmModal] = useState<{
@@ -428,13 +434,26 @@ export default function PenpalConnectionsScreen({ navigation }: Props) {
 
     const CardOverlay = (
       <>
-        {/* Top-left: report */}
+        {/* Top-left: block / report */}
         <TouchableOpacity
           style={[styles.iconBtn, styles.iconBtnTL]}
-          onPress={() => {
-            setReportUserId(otherId);
-            setReportName(otherName);
-          }}
+          onPress={() =>
+            showBlockReportMenu(otherName, {
+              onBlock: async () => {
+                await blockPenpal(otherId, otherName, otherImageUrl, currentUserId, {
+                  connectionId: item.connectionId,
+                  status: 'Accepted',
+                  requesterId: item.requesterId,
+                });
+                // Every tab filters on the block list, so this hides the card.
+                await refreshBlocked();
+              },
+              onReport: () => {
+                setReportUserId(otherId);
+                setReportName(otherName);
+              },
+            })
+          }
         >
           <Image
             source={require('../../assets/flag.png')}
@@ -499,13 +518,14 @@ export default function PenpalConnectionsScreen({ navigation }: Props) {
   // (also covers servers that ignore the search param). One list, so this now
   // covers all three tabs.
   const q = search.trim().toLowerCase();
+  const visiblePeople = people.filter(p => !blockedIds.has(p.userId));
   const filteredPeople = q
-    ? people.filter(p =>
+    ? visiblePeople.filter(p =>
         [p.pseudoName, p.firstName, p.lastName]
           .filter(Boolean)
           .some(n => (n as string).toLowerCase().includes(q)),
       )
-    : people;
+    : visiblePeople;
 
   const rootNav = navigation.getParent()?.getParent();
 

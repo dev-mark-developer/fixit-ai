@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, Linking, StyleSheet } from 'react-native';
+import Icon from 'react-native-vector-icons/Ionicons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { ProfileStackParamList } from '../../types/navigation';
 import { Colors } from '../../utils/colors';
@@ -13,6 +14,9 @@ import api from '../../api/axios';
 import { extractApiError } from '../../utils/apiError';
 
 type Props = NativeStackScreenProps<ProfileStackParamList, 'ContactUs'>;
+
+/** Same address the Terms, Privacy Policy and User Guidelines pages give. */
+const SUPPORT_EMAIL = 'support@fixitapp.com';
 
 export default function ContactUsScreen({ navigation }: Props) {
   const [name, setName] = useState('');
@@ -76,10 +80,38 @@ export default function ContactUsScreen({ navigation }: Props) {
     }
   };
 
+  // No mail app (e.g. the iOS simulator) — still give the address.
+  const openEmail = () => {
+    Linking.openURL(`mailto:${SUPPORT_EMAIL}`).catch(() =>
+      setAlert({ title: 'Email Us', message: `You can reach us at ${SUPPORT_EMAIL}` }),
+    );
+  };
+
   return (
     <View style={styles.root}>
       <ScreenHeader title="Contact Us" />
       <KeyboardAwareScrollView contentContainerStyle={styles.container}>
+        {/* Direct contact — also how users report inappropriate activity */}
+        <View style={styles.contactCard}>
+          <Text style={styles.contactTitle}>Email Us</Text>
+          <Text style={styles.contactText}>
+            Questions, feedback, or want to report inappropriate activity or an
+            abusive user? Email us and our team will get back to you.
+          </Text>
+          <TouchableOpacity
+            style={styles.emailRow}
+            onPress={openEmail}
+            activeOpacity={0.7}
+            accessibilityRole="link"
+            accessibilityLabel={`Email ${SUPPORT_EMAIL}`}
+          >
+            <Icon name="mail-outline" size={20} color={Colors.primary} />
+            <Text style={styles.emailText}>{SUPPORT_EMAIL}</Text>
+          </TouchableOpacity>
+        </View>
+
+        <Text style={styles.formTitle}>Or send us a message</Text>
+
         <AppInput
           label="Your Name"
           placeholder="John Doe"
@@ -152,6 +184,24 @@ const styles = StyleSheet.create({
     paddingTop: 24,
     paddingBottom: 40,
   },
+  contactCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: 16,
+    marginBottom: 24,
+  },
+  contactTitle: { fontSize: 16, fontWeight: '700', color: Colors.text, marginBottom: 6 },
+  contactText: { fontSize: 14, color: Colors.textSecondary, lineHeight: 20, marginBottom: 12 },
+  emailRow: { flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-start' },
+  emailText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.primary,
+    textDecorationLine: 'underline',
+  },
+  formTitle: { fontSize: 16, fontWeight: '700', color: Colors.text, marginBottom: 12 },
   messageInput: { height: 120, textAlignVertical: 'top' },
   btn: { marginTop: 8 },
 });

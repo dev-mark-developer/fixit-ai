@@ -5,8 +5,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   Alert,
-  Modal,
-  ScrollView,
   Image,
 } from 'react-native';
 import {
@@ -19,7 +17,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { PenpalDrawerParamList } from '../types/navigation';
 import { Colors } from '../utils/colors';
 import RemoteImage from '../components/common/RemoteImage';
+import LegalPageModal from '../components/common/LegalPageModal';
+import type { ContentPageSlug } from '../api/content';
 import { usersApi } from '../api/users';
+import { confirmDeleteAccount } from '../utils/deleteAccount';
 import { useAuth } from '../store/AuthContext';
 import { useModuleStatus } from '../store/ModuleStatusContext';
 // import PenpalHomeScreen from '../screens/penpal/PenpalHomeScreen';
@@ -29,14 +30,10 @@ import PenpalMyProfileScreen from '../screens/penpal/PenpalMyProfileScreen';
 
 const Drawer = createDrawerNavigator<PenpalDrawerParamList>();
 
-const LEGAL_TC = `Welcome to Fixit. By creating an account, you agree to these Terms & Conditions.\n\n1. Eligibility\nYou must be at least 18 years old to use Fixit.\n\n2. Acceptable Use\nYou agree not to use Fixit for any unlawful purpose or in any way that harms other users. Harassment, hate speech, or abusive behaviour will result in immediate account termination.\n\n3. User Content\nYou are responsible for all content you post. Fixit reserves the right to remove content that violates these terms.\n\n4. Privacy\nYour use of Fixit is also governed by our Privacy Policy.\n\n5. Subscriptions\nPaid subscriptions are billed monthly. You may cancel at any time through your device's app store.\n\n6. Account Termination\nFixit reserves the right to suspend or terminate your account for violations of these terms.\n\nFor questions, contact us at support@fixit.com`;
-
-const LEGAL_PRIVACY = `Fixit is committed to protecting your privacy.\n\n1. Information We Collect\n- Account information (name, email, date of birth, gender, location)\n- Profile information (photos, bio, preferences)\n- Usage data (swipes, matches, messages)\n- Device information (device ID, platform, push token)\n\n2. How We Use Your Information\n- To provide and improve our services\n- To match you with other users\n- To send push notifications\n- To ensure safety and security\n\n3. Information Sharing\nWe do not sell your personal information.\n\n4. Your Rights\nYou may request access to, correction of, or deletion of your personal data by contacting support@fixit.com.\n\nContact: support@fixit.com`;
-
 function PenpalDrawerContent({ navigation }: DrawerContentComponentProps) {
   const { user, logout } = useAuth();
   const insets = useSafeAreaInsets();
-  const [legalModal, setLegalModal] = useState<'tc' | 'privacy' | null>(null);
+  const [legalModal, setLegalModal] = useState<ContentPageSlug | null>(null);
 
   // Profile image: refetched whenever the drawer opens, so a photo changed on
   // the Profile screen shows here too. Changing it is that screen's job now.
@@ -104,14 +101,29 @@ function PenpalDrawerContent({ navigation }: DrawerContentComponentProps) {
       tinted: true,
     },
     {
+      label: 'Block List',
+      icon: require('../assets/remove.png'),
+      onPress: () => {
+        navigation.closeDrawer();
+        // One level up: the penpal stack, which works the same for a mentor.
+        (navigation.getParent() as any)?.navigate('PenpalBlockList');
+      },
+      tinted: true,
+    },
+    {
       label: 'Terms & Conditions',
       icon: require('../assets/terms.png'),
-      onPress: () => setLegalModal('tc'),
+      onPress: () => setLegalModal('terms-and-conditions'),
+    },
+    {
+      label: 'User Guidelines',
+      icon: require('../assets/terms.png'),
+      onPress: () => setLegalModal('user-guidelines'),
     },
     {
       label: 'Privacy Policy',
       icon: require('../assets/privacy.png'),
-      onPress: () => setLegalModal('privacy'),
+      onPress: () => setLegalModal('privacy-policy'),
     },
     {
       label: 'Contact Us',
@@ -127,6 +139,12 @@ function PenpalDrawerContent({ navigation }: DrawerContentComponentProps) {
       label: 'Change Password',
       icon: require('../assets/changePassword.png'),
       onPress: () => goProfile('ChangePassword'),
+    },
+    {
+      label: 'Delete Account',
+      icon: require('../assets/trash.png'),
+      onPress: () => confirmDeleteAccount(logout),
+      tinted: true,
     },
   ];
 
@@ -243,37 +261,8 @@ function PenpalDrawerContent({ navigation }: DrawerContentComponentProps) {
         </TouchableOpacity>
       </View>
 
-      {/* Legal modal */}
-      <Modal
-        visible={legalModal !== null}
-        animationType="slide"
-        onRequestClose={() => setLegalModal(null)}
-      >
-        <View style={styles.legalModal}>
-          <View style={styles.legalHeader}>
-            <Text style={styles.legalTitle}>
-              {legalModal === 'tc' ? 'Terms & Conditions' : 'Privacy Policy'}
-            </Text>
-            <TouchableOpacity onPress={() => setLegalModal(null)} hitSlop={8}>
-              <Text style={styles.legalCloseText}>✕</Text>
-            </TouchableOpacity>
-          </View>
-          <ScrollView
-            style={styles.legalScroll}
-            showsVerticalScrollIndicator={false}
-          >
-            <Text style={styles.legalBody}>
-              {legalModal === 'tc' ? LEGAL_TC : LEGAL_PRIVACY}
-            </Text>
-          </ScrollView>
-          <TouchableOpacity
-            style={styles.legalDoneBtn}
-            onPress={() => setLegalModal(null)}
-          >
-            <Text style={styles.legalDoneBtnText}>Close</Text>
-          </TouchableOpacity>
-        </View>
-      </Modal>
+      {/* Terms, User Guidelines, Privacy Policy — from the admin panel */}
+      <LegalPageModal slug={legalModal} onClose={() => setLegalModal(null)} accent={Colors.penpal} />
     </View>
   );
 }
@@ -415,28 +404,4 @@ const styles = StyleSheet.create({
   },
   logoutIcon: { fontSize: 16, color: Colors.white },
   logoutText: { fontSize: 15, fontWeight: '700', color: Colors.white },
-
-  // Legal modal
-  legalModal: { flex: 1, backgroundColor: Colors.background, paddingTop: 56 },
-  legalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  legalTitle: { fontSize: 18, fontWeight: '800', color: Colors.text },
-  legalCloseText: { fontSize: 18, color: Colors.text },
-  legalScroll: { flex: 1, paddingHorizontal: 20, paddingTop: 16 },
-  legalBody: { fontSize: 14, color: Colors.text, lineHeight: 22 },
-  legalDoneBtn: {
-    margin: 20,
-    backgroundColor: Colors.penpal,
-    borderRadius: 14,
-    paddingVertical: 15,
-    alignItems: 'center',
-  },
-  legalDoneBtnText: { fontSize: 15, fontWeight: '700', color: Colors.white },
 });

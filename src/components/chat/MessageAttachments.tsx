@@ -13,13 +13,20 @@ interface Props {
   accent: string;
   /** Opens the full-screen viewer at this position within `attachments`. */
   onPressAttachment: (index: number) => void;
+  /** The whole message's actions (delete / report) — tiles swallow the touch. */
+  onLongPress?: () => void;
 }
 
 /**
  * The image/video part of a message. Voice notes are rendered separately by
  * `VoiceNoteBubble` — they need their own transport controls.
  */
-export default function MessageAttachments({ attachments, accent, onPressAttachment }: Props) {
+export default function MessageAttachments({
+  attachments,
+  accent,
+  onPressAttachment,
+  onLongPress,
+}: Props) {
   if (attachments.length === 0) return null;
 
   const visible = attachments.slice(0, MAX_TILES);
@@ -38,6 +45,7 @@ export default function MessageAttachments({ attachments, accent, onPressAttachm
             style={single ? styles.tileSingle : styles.tile}
             activeOpacity={0.85}
             onPress={() => onPressAttachment(index)}
+            onLongPress={onLongPress}
             accessibilityRole="imagebutton"
             accessibilityLabel={isVideo ? 'Open video' : 'Open photo'}
           >

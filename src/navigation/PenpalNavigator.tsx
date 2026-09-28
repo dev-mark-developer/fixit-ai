@@ -8,6 +8,7 @@ import PenpalSetupScreen from '../screens/penpal/PenpalSetupScreen';
 import PenpalLetterDetailScreen from '../screens/penpal/PenpalLetterDetailScreen';
 import PenpalComposeScreen from '../screens/penpal/PenpalComposeScreen';
 import PenpalPublicProfileScreen from '../screens/penpal/PenpalPublicProfileScreen';
+import PenpalBlockListScreen from '../screens/penpal/PenpalBlockListScreen';
 import PenpalDrawerNavigator from './PenpalDrawerNavigator';
 
 const Stack = createNativeStackNavigator<PenpalStackParamList>();
@@ -56,6 +57,11 @@ export default function PenpalNavigator() {
       <Stack.Screen
         name="PenpalPublicProfile"
         component={PenpalPublicProfileScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="PenpalBlockList"
+        component={PenpalBlockListScreen}
         options={{ headerShown: false }}
       />
     </Stack.Navigator>

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, Alert, Modal, ScrollView, Image,
+  View, Text, StyleSheet, TouchableOpacity, Alert, Modal, ScrollView,
 } from 'react-native';
 import {
   createDrawerNavigator,
@@ -16,17 +16,16 @@ import { Colors } from '../utils/colors';
 import { useAuth } from '../store/AuthContext';
 import { useModuleStatus } from '../store/ModuleStatusContext';
 import { usersApi } from '../api/users';
+import { confirmDeleteAccount } from '../utils/deleteAccount';
 import RemoteImage from '../components/common/RemoteImage';
+import LegalPageModal from '../components/common/LegalPageModal';
+import type { ContentPageSlug } from '../api/content';
 import DatingDiscoverScreen from '../screens/dating/DatingDiscoverScreen';
 import DatingMatchesScreen from '../screens/dating/DatingMatchesScreen';
 import DatingChatsScreen from '../screens/dating/DatingChatsScreen';
 import DatingMyProfileScreen from '../screens/dating/DatingMyProfileScreen';
 
 const Drawer = createDrawerNavigator<DatingDrawerParamList>();
-
-const LEGAL_TC = `Welcome to Fixit. By creating an account, you agree to these Terms & Conditions.\n\n1. Eligibility\nYou must be at least 18 years old to use Fixit.\n\n2. Acceptable Use\nYou agree not to use Fixit for any unlawful purpose or in any way that harms other users. Harassment, hate speech, or abusive behaviour will result in immediate account termination.\n\n3. User Content\nYou are responsible for all content you post. Fixit reserves the right to remove content that violates these terms.\n\n4. Privacy\nYour use of Fixit is also governed by our Privacy Policy.\n\n5. Subscriptions\nPaid subscriptions are billed monthly. You may cancel at any time through your device's app store.\n\n6. Account Termination\nFixit reserves the right to suspend or terminate your account for violations of these terms.\n\nFor questions, contact us at support@fixit.com`;
-
-const LEGAL_PRIVACY = `Fixit is committed to protecting your privacy.\n\n1. Information We Collect\n- Account information (name, email, date of birth, gender, location)\n- Profile information (photos, bio, preferences)\n- Usage data (swipes, matches, messages)\n- Device information (device ID, platform, push token)\n\n2. How We Use Your Information\n- To provide and improve our services\n- To match you with other users\n- To send push notifications\n- To ensure safety and security\n\n3. Information Sharing\nWe do not sell your personal information.\n\n4. Your Rights\nYou may request access to, correction of, or deletion of your personal data by contacting support@fixit.com.\n\nContact: support@fixit.com`;
 
 const DATING_TIPS = `Stay Safe While Dating
 
@@ -51,13 +50,12 @@ Authentic profiles make authentic connections. Use recent photos and honest info
 7. Respect others
 Treat every member with kindness and respect. Harassment or abusive behaviour leads to account removal.`;
 
-type LegalKey = 'tc' | 'privacy' | 'tips' | null;
-
 function DatingDrawerContent({ navigation }: DrawerContentComponentProps) {
   const { user, logout } = useAuth();
   const { datingType } = useModuleStatus();
   const insets = useSafeAreaInsets();
-  const [legalModal, setLegalModal] = useState<LegalKey>(null);
+  const [legalModal, setLegalModal] = useState<ContentPageSlug | null>(null);
+  const [tipsVisible, setTipsVisible] = useState(false);
 
   const isSpiritual = datingType === 'Spiritual';
   const accent = isSpiritual ? Colors.spiritual : Colors.dating;
@@ -138,23 +136,16 @@ function DatingDrawerContent({ navigation }: DrawerContentComponentProps) {
     { label: 'My Subscription', icon: 'cash', onPress: goToPremium },
     { label: 'Configure Ice Breaker', icon: 'chatbox-ellipses', onPress: goToIceBreakers },
     { label: 'Block List', icon: 'remove-circle', onPress: goToBlockList },
-    { label: 'Dating Tips and Guidelines', icon: 'alert-circle', onPress: () => setLegalModal('tips') },
-    { label: 'Terms & Conditions', icon: 'calendar', onPress: () => setLegalModal('tc') },
-    { label: 'Privacy Policy', icon: 'document-text', onPress: () => setLegalModal('privacy') },
+    { label: 'Dating Tips and Guidelines', icon: 'alert-circle', onPress: () => setTipsVisible(true) },
+    { label: 'Terms & Conditions', icon: 'calendar', onPress: () => setLegalModal('terms-and-conditions') },
+    { label: 'User Guidelines', icon: 'shield-checkmark', onPress: () => setLegalModal('user-guidelines') },
+    { label: 'Privacy Policy', icon: 'document-text', onPress: () => setLegalModal('privacy-policy') },
     { label: 'Contact Us', icon: 'call', onPress: () => goToRoot('Profile', { screen: 'ContactUs' }) },
     { label: 'FAQs', icon: 'help-circle', onPress: () => goToRoot('Profile', { screen: 'Faqs' }) },
     { label: 'Change Password', icon: 'lock-closed', onPress: () => goToRoot('Profile', { screen: 'ChangePassword' }) },
     { label: 'Notifications', icon: 'notifications', onPress: () => goToRoot('Notifications') },
+    { label: 'Delete Account', icon: 'trash', onPress: () => confirmDeleteAccount(logout) },
   ];
-
-  const legalTitle =
-    legalModal === 'tc' ? 'Terms & Conditions'
-      : legalModal === 'privacy' ? 'Privacy Policy'
-        : 'Dating Tips and Guidelines';
-  const legalBody =
-    legalModal === 'tc' ? LEGAL_TC
-      : legalModal === 'privacy' ? LEGAL_PRIVACY
-        : DATING_TIPS;
 
   return (
     <View style={styles.drawerRoot}>
@@ -216,21 +207,24 @@ function DatingDrawerContent({ navigation }: DrawerContentComponentProps) {
         </TouchableOpacity>
       </View>
 
-      {/* Legal / tips modal */}
-      <Modal visible={legalModal !== null} animationType="slide" onRequestClose={() => setLegalModal(null)}>
+      {/* Terms, User Guidelines, Privacy Policy — from the admin panel */}
+      <LegalPageModal slug={legalModal} onClose={() => setLegalModal(null)} accent={accent} />
+
+      {/* Dating tips — app text, not an admin page */}
+      <Modal visible={tipsVisible} animationType="slide" onRequestClose={() => setTipsVisible(false)}>
         <View style={styles.legalModal}>
           <View style={styles.legalHeader}>
-            <Text style={styles.legalTitle}>{legalTitle}</Text>
-            <TouchableOpacity onPress={() => setLegalModal(null)} hitSlop={8}>
+            <Text style={styles.legalTitle}>Dating Tips and Guidelines</Text>
+            <TouchableOpacity onPress={() => setTipsVisible(false)} hitSlop={8}>
               <Text style={styles.legalCloseText}>✕</Text>
             </TouchableOpacity>
           </View>
           <ScrollView style={styles.legalScroll} showsVerticalScrollIndicator={false}>
-            <Text style={styles.legalBody}>{legalBody}</Text>
+            <Text style={styles.legalBody}>{DATING_TIPS}</Text>
           </ScrollView>
           <TouchableOpacity
             style={[styles.legalDoneBtn, { backgroundColor: accent }]}
-            onPress={() => setLegalModal(null)}
+            onPress={() => setTipsVisible(false)}
           >
             <Text style={styles.legalDoneBtnText}>Close</Text>
           </TouchableOpacity>

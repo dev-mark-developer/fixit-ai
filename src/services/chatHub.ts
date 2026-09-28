@@ -16,6 +16,15 @@ export type ReadHandler = (matchId: number) => void;
 export type OnlineHandler = (userId: number) => void;
 export type ErrorHandler = (message: string) => void;
 
+/** `MessageDeleted` — sent to both people (and the deleter's other devices). */
+export interface MessageDeletedEvent {
+  messageId: number;
+  matchId: number;
+  /** The sender — only they can delete. */
+  deletedBy: number;
+}
+export type DeletedHandler = (event: MessageDeletedEvent) => void;
+
 export type ChatConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
 export type StateHandler = (state: ChatConnectionState) => void;
 
@@ -66,6 +75,7 @@ class ChatHubService {
 
   private messages = createEmitter<ChatMessage>();
   private reads = createEmitter<number>();
+  private deletions = createEmitter<MessageDeletedEvent>();
   private online = createEmitter<number>();
   private offline = createEmitter<number>();
   private errors = createEmitter<string>();
@@ -160,6 +170,18 @@ class ChatHubService {
     connection.on('MessagesRead', (payload: unknown) => {
       const matchId = readNumber(payload, 'matchId');
       if (matchId !== null) this.reads.emit(matchId);
+    });
+
+    // Verified on beta 2026-09-26: `{ messageId, matchId, deletedBy }`.
+    connection.on('MessageDeleted', (payload: unknown) => {
+      const messageId = readNumber(payload, 'messageId');
+      const matchId = readNumber(payload, 'matchId');
+      if (messageId === null || matchId === null) return;
+      this.deletions.emit({
+        messageId,
+        matchId,
+        deletedBy: readNumber(payload, 'deletedBy') ?? 0,
+      });
     });
 
     connection.on('UserOnline', (payload: unknown) => {
@@ -263,6 +285,7 @@ class ChatHubService {
 
   onMessage(handler: MessageHandler): () => void { return this.messages.add(handler); }
   onRead(handler: ReadHandler): () => void { return this.reads.add(handler); }
+  onMessageDeleted(handler: DeletedHandler): () => void { return this.deletions.add(handler); }
   onUserOnline(handler: OnlineHandler): () => void { return this.online.add(handler); }
   onUserOffline(handler: OnlineHandler): () => void { return this.offline.add(handler); }
   onError(handler: ErrorHandler): () => void { return this.errors.add(handler); }

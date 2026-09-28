@@ -14,13 +14,15 @@ import {
   Platform,
 } from 'react-native';
 import { Colors } from '../../utils/colors';
-import { sharedApi } from '../../api/shared';
+import { sharedApi, ReportTarget } from '../../api/shared';
 
 interface Props {
   visible: boolean;
   reportedUserId: number;
   module: 'Dating' | 'Penpal';
   reportedName?: string;
+  /** A specific message or letter; omitted, the report is about the person. */
+  target?: ReportTarget;
   onClose: () => void;
 }
 
@@ -31,6 +33,16 @@ const REASONS = [
   'Spam or commercial',
   'Hate speech',
   'Underage',
+  'Other',
+];
+
+/** Profile-level reasons ("Fake profile", "Underage") don't fit a single message. */
+const CONTENT_REASONS = [
+  'Rude or abusive',
+  'Harassment or threats',
+  'Sexual or inappropriate content',
+  'Hate speech',
+  'Spam or scam',
   'Other',
 ];
 
@@ -46,8 +58,11 @@ export default function ReportModal({
   reportedUserId,
   module,
   reportedName,
+  target,
   onClose,
 }: Props) {
+  const reasons = target ? CONTENT_REASONS : REASONS;
+  const targetNoun = target?.type === 'ChatMessage' ? 'message' : 'letter';
   const [selected, setSelected] = useState<string | null>(null);
   const [otherText, setOtherText] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -79,7 +94,7 @@ export default function ReportModal({
     setSubmitting(true);
     setError('');
     try {
-      await sharedApi.reportUser(reportedUserId, reason, module);
+      await sharedApi.reportUser(reportedUserId, reason, module, target);
       setDone(true);
     } catch (err: any) {
       setError(
@@ -123,6 +138,7 @@ export default function ReportModal({
                 <Text style={styles.title}>
                   Report{' '}
                   <Text style={{ color: accent }}>{reportedName ?? 'User'}</Text>
+                  {target ? `'s ${targetNoun}` : ''}
                 </Text>
                 <TouchableOpacity onPress={handleClose} hitSlop={8}>
                   <Text style={styles.close}>✕</Text>
@@ -134,7 +150,7 @@ export default function ReportModal({
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
               >
-                {REASONS.map(reason => {
+                {reasons.map(reason => {
                   const active = selected === reason;
                   return (
                     <TouchableOpacity
