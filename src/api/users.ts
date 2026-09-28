@@ -30,6 +30,9 @@ export const usersApi = {
 
   updateProfile: (data: UpdateProfilePayload) => api.patch('/users/me', data),
 
+  // Permanent, no body, untyped 200 — the caller signs the user out afterwards.
+  deleteAccount: () => api.delete('/users/delete-account'),
+
   uploadProfileImage: (uri: string, mimeType = 'image/jpeg') => {
     const form = new FormData();
     form.append('file', { uri, name: 'profile.jpg', type: mimeType } as any);

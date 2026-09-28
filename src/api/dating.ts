@@ -1,4 +1,5 @@
 import api from './axios';
+import { sharedApi } from './shared';
 import { buildUploadPart } from '../utils/uploadPart';
 
 export interface DatingProfile {
@@ -393,8 +394,15 @@ export const datingApi = {
   // Matches
   unmatch: (matchId: number) => api.delete(`/dating/matches/${matchId}`),
 
-  // Blocks
-  getBlocks: () => api.get('/blocks'),
-  block: (blockedUserId: number) => api.post('/blocks', { blockedUserId }),
-  unblock: (blockedUserId: number) => api.delete(`/blocks/${blockedUserId}`),
+  /**
+   * Unsend: only the sender may delete, and it goes for both people (anyone
+   * else gets 404 "Message not found."). The hub then sends `MessageDeleted`
+   * to both sides — see `chatHub.onMessageDeleted`.
+   */
+  deleteMessage: (messageId: number) => api.delete(`/dating/delete-message/${messageId}`),
+
+  // Blocks — account-wide, shared with Penpal
+  getBlocks: sharedApi.getBlocks,
+  block: sharedApi.block,
+  unblock: sharedApi.unblock,
 };

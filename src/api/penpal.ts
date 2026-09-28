@@ -155,4 +155,10 @@ export const penpalApi = {
 
   sendLetter: (receiverId: number, title: string, content: string) =>
     api.post('/penpal/letters', { receiverId, title, content }),
+
+  /**
+   * Unsend: only the sender may delete, and it goes for both people. The
+   * receiver gets 404 "Letter not found." — there is no hide-for-me yet.
+   */
+  deleteLetter: (letterId: number) => api.delete(`/penpal/delete-letter/${letterId}`),
 };

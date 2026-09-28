@@ -76,6 +76,7 @@ export type PenpalStackParamList = {
   PenpalLetterDetail: { letterId: number };
   PenpalCompose: { receiverId: number; receiverPseudoName: string };
   PenpalPublicProfile: PenpalPublicProfileParams;
+  PenpalBlockList: undefined;
 };
 
 // ── Dating drawer (main area) ───────────────────────────────────

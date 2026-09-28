@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, Alert, Modal, ScrollView,
+  View, Text, StyleSheet, TouchableOpacity, Alert,
 } from 'react-native';
 import {
   createDrawerNavigator,
@@ -14,22 +14,21 @@ import type { MentorDrawerParamList, MentorStackParamList } from '../types/navig
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Colors } from '../utils/colors';
 import RemoteImage from '../components/common/RemoteImage';
+import LegalPageModal from '../components/common/LegalPageModal';
+import type { ContentPageSlug } from '../api/content';
 import { useAuth } from '../store/AuthContext';
 import { usersApi, UserProfile } from '../api/users';
+import { confirmDeleteAccount } from '../utils/deleteAccount';
 import MentorDashboardScreen from '../screens/mentor/MentorDashboardScreen';
 
 const Drawer = createDrawerNavigator<MentorDrawerParamList>();
 
 const ICON_TINT = '#AEC63B'; // lime accent used for the mentor drawer icons
 
-const LEGAL_TC = `Welcome to Fixit. By creating an account, you agree to these Terms & Conditions.\n\n1. Eligibility\nYou must be at least 18 years old to use Fixit.\n\n2. Acceptable Use\nYou agree not to use Fixit for any unlawful purpose or in any way that harms other users. Harassment, hate speech, or abusive behaviour will result in immediate account termination.\n\n3. User Content\nYou are responsible for all content you post. Fixit reserves the right to remove content that violates these terms.\n\n4. Privacy\nYour use of Fixit is also governed by our Privacy Policy.\n\n5. Subscriptions\nPaid subscriptions are billed monthly. You may cancel at any time through your device's app store.\n\n6. Account Termination\nFixit reserves the right to suspend or terminate your account for violations of these terms.\n\nFor questions, contact us at support@fixit.com`;
-
-const LEGAL_PRIVACY = `Fixit is committed to protecting your privacy.\n\n1. Information We Collect\n- Account information (name, email, date of birth, gender, location)\n- Profile information (photos, bio, preferences)\n- Usage data (swipes, matches, messages)\n- Device information (device ID, platform, push token)\n\n2. How We Use Your Information\n- To provide and improve our services\n- To match you with other users\n- To send push notifications\n- To ensure safety and security\n\n3. Information Sharing\nWe do not sell your personal information.\n\n4. Your Rights\nYou may request access to, correction of, or deletion of your personal data by contacting support@fixit.com.\n\nContact: support@fixit.com`;
-
 function MentorDrawerContent({ navigation }: DrawerContentComponentProps) {
   const { user, logout } = useAuth();
   const insets = useSafeAreaInsets();
-  const [legalModal, setLegalModal] = useState<'tc' | 'privacy' | null>(null);
+  const [legalModal, setLegalModal] = useState<ContentPageSlug | null>(null);
 
   // Refetch the profile each time the drawer opens so name/photo edits
   // made on Edit Profile show up immediately.
@@ -77,12 +76,14 @@ function MentorDrawerContent({ navigation }: DrawerContentComponentProps) {
     { label: 'Penpal Group', icon: 'mail-outline', onPress: goToPenpal },
     { label: 'Edit Profile', icon: 'create-outline', onPress: () => goToStack('MentorEditProfile') },
     { label: 'My Subscription', icon: 'ribbon-outline', onPress: () => goToStack('MentorSubscription') },
-    { label: 'Terms & Conditions', icon: 'document-text-outline', onPress: () => setLegalModal('tc') },
-    { label: 'Privacy Policy', icon: 'lock-closed-outline', onPress: () => setLegalModal('privacy') },
+    { label: 'Terms & Conditions', icon: 'document-text-outline', onPress: () => setLegalModal('terms-and-conditions') },
+    { label: 'User Guidelines', icon: 'shield-checkmark-outline', onPress: () => setLegalModal('user-guidelines') },
+    { label: 'Privacy Policy', icon: 'lock-closed-outline', onPress: () => setLegalModal('privacy-policy') },
     { label: 'Contact Us', icon: 'call-outline', onPress: () => goToStack('ContactUs') },
     { label: 'FAQs', icon: 'help-circle-outline', onPress: () => goToStack('Faqs') },
     { label: 'Change Password', icon: 'key-outline', onPress: () => goToStack('ChangePassword') },
     { label: 'Notifications', icon: 'notifications-outline', onPress: () => goToStack('Notifications') },
+    { label: 'Delete Account', icon: 'trash-outline', onPress: () => confirmDeleteAccount(logout) },
   ];
 
   return (
@@ -142,25 +143,8 @@ function MentorDrawerContent({ navigation }: DrawerContentComponentProps) {
         </TouchableOpacity>
       </View>
 
-      {/* Legal modal */}
-      <Modal visible={legalModal !== null} animationType="slide" onRequestClose={() => setLegalModal(null)}>
-        <View style={styles.legalModal}>
-          <View style={styles.legalHeader}>
-            <Text style={styles.legalTitle}>
-              {legalModal === 'tc' ? 'Terms & Conditions' : 'Privacy Policy'}
-            </Text>
-            <TouchableOpacity onPress={() => setLegalModal(null)} hitSlop={8}>
-              <Text style={styles.legalCloseText}>✕</Text>
-            </TouchableOpacity>
-          </View>
-          <ScrollView style={styles.legalScroll} showsVerticalScrollIndicator={false}>
-            <Text style={styles.legalBody}>{legalModal === 'tc' ? LEGAL_TC : LEGAL_PRIVACY}</Text>
-          </ScrollView>
-          <TouchableOpacity style={styles.legalDoneBtn} onPress={() => setLegalModal(null)}>
-            <Text style={styles.legalDoneBtnText}>Close</Text>
-          </TouchableOpacity>
-        </View>
-      </Modal>
+      {/* Terms, User Guidelines, Privacy Policy — from the admin panel */}
+      <LegalPageModal slug={legalModal} onClose={() => setLegalModal(null)} accent={Colors.mentor} />
     </View>
   );
 }
@@ -240,19 +224,4 @@ const styles = StyleSheet.create({
   },
   logoutText: { fontSize: 15, fontWeight: '700', color: Colors.white },
 
-  legalModal: { flex: 1, backgroundColor: Colors.background, paddingTop: 56 },
-  legalHeader: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingBottom: 16,
-    borderBottomWidth: 1, borderBottomColor: Colors.border,
-  },
-  legalTitle: { fontSize: 18, fontWeight: '800', color: Colors.text },
-  legalCloseText: { fontSize: 18, color: Colors.text },
-  legalScroll: { flex: 1, paddingHorizontal: 20, paddingTop: 16 },
-  legalBody: { fontSize: 14, color: Colors.text, lineHeight: 22 },
-  legalDoneBtn: {
-    margin: 20, backgroundColor: Colors.mentor, borderRadius: 14,
-    paddingVertical: 15, alignItems: 'center',
-  },
-  legalDoneBtnText: { fontSize: 15, fontWeight: '700', color: Colors.white },
 });
