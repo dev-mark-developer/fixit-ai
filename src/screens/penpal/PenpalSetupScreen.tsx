@@ -10,6 +10,7 @@ import { Colors } from '../../utils/colors';
 import AppInput from '../../components/common/AppInput';
 import AppAlert from '../../components/common/AppAlert';
 import { penpalApi, PenpalProfile } from '../../api/penpal';
+import { useModuleStatus } from '../../store/ModuleStatusContext';
 
 type Props = NativeStackScreenProps<PenpalStackParamList, 'PenpalSetup'>;
 
@@ -27,6 +28,7 @@ const IDENTITY_OPTIONS: { value: string; label: string; hint?: string }[] = [
 ];
 
 export default function PenpalSetupScreen({ navigation }: Props) {
+  const { refresh: refreshModuleStatus } = useModuleStatus();
   const [letterType, setLetterType] = useState<'Online' | 'Physical'>('Online');
   const [pseudoName, setPseudoName] = useState('');
   const [identityVisibility, setIdentityVisibility] = useState('No');
@@ -115,6 +117,10 @@ export default function PenpalSetupScreen({ navigation }: Props) {
         postalCode: letterType === 'Physical' ? postalCode.trim() : undefined,
         physicalConsentGiven: letterType === 'Physical' ? physicalConsent : false,
       });
+      // `hasPenpal` decides PenpalNavigator's landing screen — without this,
+      // leaving penpal and coming back lands on PenpalEntry again until the
+      // next app start. Fire-and-forget: navigation shouldn't wait on it.
+      refreshModuleStatus();
       navigation.replace('PenpalMain');
     } catch (err: any) {
       setAlert({

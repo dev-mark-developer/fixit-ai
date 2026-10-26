@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Modal,
   View,
@@ -14,7 +14,7 @@ import {
   Platform,
 } from 'react-native';
 import { Colors } from '../../utils/colors';
-import { sharedApi, ReportTarget } from '../../api/shared';
+import { sharedApi, ReportTarget, ReportReason } from '../../api/shared';
 
 interface Props {
   visible: boolean;
@@ -26,7 +26,12 @@ interface Props {
   onClose: () => void;
 }
 
-const REASONS = [
+/**
+ * Fallbacks, shown only when /Reports/GetReportReasons can't be reached —
+ * the user must still be able to report. POST /reports takes the reason as
+ * free text, so a fallback reason is accepted the same as a server one.
+ */
+const FALLBACK_REASONS = [
   "I'm not interested in this person",
   'Fake profile',
   'Rude or abusive behaviour',
@@ -37,7 +42,7 @@ const REASONS = [
 ];
 
 /** Profile-level reasons ("Fake profile", "Underage") don't fit a single message. */
-const CONTENT_REASONS = [
+const FALLBACK_CONTENT_REASONS = [
   'Rude or abusive',
   'Harassment or threats',
   'Sexual or inappropriate content',
@@ -45,6 +50,9 @@ const CONTENT_REASONS = [
   'Spam or scam',
   'Other',
 ];
+
+// The server list rarely changes, so one fetch serves the whole app session.
+let cachedReasons: string[] | null = null;
 
 /**
  * QA asked for ~300 characters on the free-text reason. It is a report, not a
@@ -61,16 +69,46 @@ export default function ReportModal({
   target,
   onClose,
 }: Props) {
-  const reasons = target ? CONTENT_REASONS : REASONS;
   const targetNoun = target?.type === 'ChatMessage' ? 'message' : 'letter';
   const [selected, setSelected] = useState<string | null>(null);
   const [otherText, setOtherText] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState('');
+  const [apiReasons, setApiReasons] = useState<string[] | null>(cachedReasons);
+  const [loadingReasons, setLoadingReasons] = useState(false);
+
+  useEffect(() => {
+    if (!visible || apiReasons) return;
+    let cancelled = false;
+    setLoadingReasons(true);
+    sharedApi
+      .getReportReasons()
+      .then(res => {
+        const list = (res.data?.data ?? [])
+          .map((r: ReportReason) => r.reason)
+          .filter(Boolean);
+        if (list.length) {
+          cachedReasons = list;
+          if (!cancelled) setApiReasons(list);
+        }
+      })
+      .catch(() => {
+        // The fallback lists below keep the modal usable.
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingReasons(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, apiReasons]);
+
+  const reasons =
+    apiReasons ?? (target ? FALLBACK_CONTENT_REASONS : FALLBACK_REASONS);
 
   const accent = module === 'Penpal' ? Colors.penpal : Colors.dating;
-  const isOther = selected === 'Other';
+  const isOther = selected?.toLowerCase() === 'other';
 
   const handleClose = () => {
     setSelected(null);
@@ -145,61 +183,67 @@ export default function ReportModal({
                 </TouchableOpacity>
               </View>
 
-              <ScrollView
-                style={styles.reasonScroll}
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-              >
-                {reasons.map(reason => {
-                  const active = selected === reason;
-                  return (
-                    <TouchableOpacity
-                      key={reason}
-                      style={styles.reasonRow}
-                      activeOpacity={0.7}
-                      onPress={() => {
-                        setSelected(reason);
+              {loadingReasons && !apiReasons ? (
+                <View style={styles.reasonsLoading}>
+                  <ActivityIndicator color={accent} />
+                </View>
+              ) : (
+                <ScrollView
+                  style={styles.reasonScroll}
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  {reasons.map(reason => {
+                    const active = selected === reason;
+                    return (
+                      <TouchableOpacity
+                        key={reason}
+                        style={styles.reasonRow}
+                        activeOpacity={0.7}
+                        onPress={() => {
+                          setSelected(reason);
+                          setError('');
+                        }}
+                      >
+                        <View
+                          style={[
+                            styles.radioOuter,
+                            active && { borderColor: accent },
+                          ]}
+                        >
+                          {active && (
+                            <View
+                              style={[styles.radioInner, { backgroundColor: accent }]}
+                            />
+                          )}
+                        </View>
+                        <Text style={styles.reasonText}>{reason}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+  
+                  {isOther && (
+                    <TextInput
+                      style={styles.describeInput}
+                      placeholder="Describe here"
+                      placeholderTextColor={Colors.textMuted}
+                      value={otherText}
+                      onChangeText={v => {
+                        setOtherText(v);
                         setError('');
                       }}
-                    >
-                      <View
-                        style={[
-                          styles.radioOuter,
-                          active && { borderColor: accent },
-                        ]}
-                      >
-                        {active && (
-                          <View
-                            style={[styles.radioInner, { backgroundColor: accent }]}
-                          />
-                        )}
-                      </View>
-                      <Text style={styles.reasonText}>{reason}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-
-                {isOther && (
-                  <TextInput
-                    style={styles.describeInput}
-                    placeholder="Describe here"
-                    placeholderTextColor={Colors.textMuted}
-                    value={otherText}
-                    onChangeText={v => {
-                      setOtherText(v);
-                      setError('');
-                    }}
-                    multiline
-                    maxLength={REASON_MAX}
-                    textAlignVertical="top"
-                  />
-                )}
-                {isOther && (
-                  <Text style={styles.counter}>
-                    {otherText.length}/{REASON_MAX}
-                  </Text>
-                )}
-              </ScrollView>
+                      multiline
+                      maxLength={REASON_MAX}
+                      textAlignVertical="top"
+                    />
+                  )}
+                  {isOther && (
+                    <Text style={styles.counter}>
+                      {otherText.length}/{REASON_MAX}
+                    </Text>
+                  )}
+                </ScrollView>
+              )}
 
               {!!error && <Text style={styles.errorText}>{error}</Text>}
 
@@ -249,6 +293,7 @@ const styles = StyleSheet.create({
   close: { fontSize: 18, color: Colors.text },
 
   reasonScroll: { flexGrow: 0 },
+  reasonsLoading: { paddingVertical: 48, alignItems: 'center' },
   reasonRow: {
     flexDirection: 'row',
     alignItems: 'center',

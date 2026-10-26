@@ -29,23 +29,25 @@ export function ModuleStatusProvider({ children }: { children: React.ReactNode }
       const mentor = user?.role === 'Mentor';
       setIsMentor(mentor);
 
-      if (!mentor) {
-        const [datingResult, penpalResult] = await Promise.allSettled([
-          datingApi.getProfile(),
-          penpalApi.getProfile(),
-        ]);
+      // A mentor can hold a penpal profile too (created from their drawer's
+      // Penpal Group), and PenpalNavigator lands on PenpalEntry whenever
+      // `hasPenpal` is false — so penpal is checked for everyone. Dating
+      // stays user-only: the mentor stack has no Dating route.
+      const [datingResult, penpalResult] = await Promise.allSettled([
+        mentor ? Promise.resolve(null) : datingApi.getProfile(),
+        penpalApi.getProfile(),
+      ]);
 
-        const datingProfile = datingResult.status === 'fulfilled'
-          ? (datingResult.value.data?.data ?? null)
-          : null;
-        setHasDating(!!datingProfile);
-        setDatingType(datingProfile?.datingType ?? null);
+      const datingProfile = datingResult.status === 'fulfilled'
+        ? (datingResult.value?.data?.data ?? null)
+        : null;
+      setHasDating(!!datingProfile);
+      setDatingType(datingProfile?.datingType ?? null);
 
-        const penpalProfile = penpalResult.status === 'fulfilled'
-          ? (penpalResult.value.data?.data ?? null)
-          : null;
-        setHasPenpal(!!penpalProfile);
-      }
+      const penpalProfile = penpalResult.status === 'fulfilled'
+        ? (penpalResult.value.data?.data ?? null)
+        : null;
+      setHasPenpal(!!penpalProfile);
     } catch {
       // keep existing state on error
     } finally {

@@ -11,7 +11,16 @@ export interface ReportTarget {
   id: number;
 }
 
+export interface ReportReason {
+  id: number;
+  reason: string;
+}
+
 export const sharedApi = {
+  // One list for every module and target type — the endpoint ignores
+  // `module`/`targetType` params (checked against beta 2026-09-29).
+  getReportReasons: () => api.get('/Reports/GetReportReasons'),
+
   reportUser: (
     reportedUserId: number,
     reason: string,

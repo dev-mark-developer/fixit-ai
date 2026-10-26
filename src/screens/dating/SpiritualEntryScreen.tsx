@@ -14,6 +14,7 @@ import { datingApi, DatingProfile, SpiritualRequest } from '../../api/dating';
 import { mentorApi, MentorRequest } from '../../api/mentor';
 import AppButton from '../../components/common/AppButton';
 import AppAlert from '../../components/common/AppAlert';
+import SwitchDatingTypeModal from '../../components/dating/SwitchDatingTypeModal';
 import { parseApiDate } from '../../utils/datetime';
 
 type Props = NativeStackScreenProps<DatingStackParamList, 'SpiritualEntry'>;
@@ -34,6 +35,7 @@ export default function SpiritualEntryScreen({ navigation }: Props) {
   // and nothing later in the app lets the user change it.
   const [interestedIn, setInterestedIn] = useState('Male');
   const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
+  const [switchVisible, setSwitchVisible] = useState(false);
 
   // Mentor request state (gateway phase)
   const [mentorRequest, setMentorRequest] = useState<MentorRequest | null>(null);
@@ -134,8 +136,8 @@ export default function SpiritualEntryScreen({ navigation }: Props) {
   const handleStartSpiritual = async () => {
     setStarting(true);
 
-    // Read the profile fresh: it decides whether this is a first-time setup or
-    // a Non-Spiritual member switching over.
+    // Read the profile fresh: it decides whether this is a first-time setup
+    // or an existing Non-Spiritual member, who cannot be converted in place.
     let existing: DatingProfile | null = null;
     try {
       const res = await datingApi.getProfile();
@@ -156,19 +158,18 @@ export default function SpiritualEntryScreen({ navigation }: Props) {
       return;
     }
 
-    // No profile yet, or a Non-Spiritual one being switched over — the same
-    // POST covers both. Existing details are sent back so the switch keeps them.
+    // A Non-Spiritual profile is no longer carried across — switching is a
+    // re-registration (deleting this account), so make that offer instead.
+    if (existing) {
+      setStarting(false);
+      setSwitchVisible(true);
+      return;
+    }
+
     try {
       await datingApi.saveProfile({
         datingType: 'Spiritual',
         interestedInGender: interestedIn,
-        about: existing?.about,
-        displayImageId: existing?.displayImageId,
-        pseudoName: existing?.pseudoName,
-        dateOfBirth: existing?.dateOfBirth,
-        country: existing?.country,
-        city: existing?.city,
-        state: existing?.state,
       });
       // The account is Spiritual from this moment — tell the app before the
       // user can reach any screen that branches on datingType.
@@ -394,6 +395,10 @@ export default function SpiritualEntryScreen({ navigation }: Props) {
           title={alert?.title ?? ''}
           message={alert?.message}
           onClose={() => setAlert(null)}
+        />
+        <SwitchDatingTypeModal
+          target={switchVisible ? 'Spiritual' : null}
+          onClose={() => setSwitchVisible(false)}
         />
       </SafeAreaView>
     );

@@ -151,12 +151,14 @@ function PenpalDrawerContent({ navigation }: DrawerContentComponentProps) {
   const moreItems: { label: string; icon: any; onPress: () => void }[] = [
     // A mentor reaches penpal by pushing it onto their own stack, and none of
     // the penpal screens draw a back button — without this the only way out is
-    // the Android hardware back. Popping keeps the dashboard's state.
+    // the Android hardware back. Popping keeps the dashboard's state. Only a
+    // mentor with a completed profile can be here at all (MentorNavigator
+    // lands profileless mentors on setup), so no extra profile check needed.
     // They get no Explore Dating: the mentor stack has no Dating route
     // (removed in 8448b23), so the entry would only dead-end.
     ...(isMentor
       ? [{
-          label: 'My Seekers',
+          label: 'Switch to Mentor',
           icon: require('../assets/home.png'),
           onPress: () => { navigation.closeDrawer(); (rootNav as any)?.goBack(); },
         }]

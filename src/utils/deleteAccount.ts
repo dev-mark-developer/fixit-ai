@@ -23,16 +23,24 @@ export function confirmDeleteAccount(logout: () => Promise<void>): void {
       {
         text: 'Delete Account',
         style: 'destructive',
-        onPress: () => confirmForever(logout),
+        onPress: () => confirmDeleteForever(logout),
       },
     ],
   );
 }
 
-function confirmForever(logout: () => Promise<void>): void {
+/**
+ * The final, native confirmation + the deletion itself. Also the second step
+ * of the dating-type switch (SwitchDatingTypeModal), which brings its own
+ * first step and message.
+ */
+export function confirmDeleteForever(
+  logout: () => Promise<void>,
+  message = 'Your account cannot be recovered once it is deleted.',
+): void {
   Alert.alert(
     'Are you sure?',
-    'Your account cannot be recovered once it is deleted.',
+    message,
     [
       { text: 'Keep My Account', style: 'cancel' },
       {

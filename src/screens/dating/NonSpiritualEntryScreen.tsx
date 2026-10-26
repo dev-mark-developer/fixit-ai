@@ -12,6 +12,7 @@ import { datingApi, DatingConfig, DatingProfile } from '../../api/dating';
 import { useModuleStatus } from '../../store/ModuleStatusContext';
 import AppButton from '../../components/common/AppButton';
 import AppAlert from '../../components/common/AppAlert';
+import SwitchDatingTypeModal from '../../components/dating/SwitchDatingTypeModal';
 import { extractApiError } from '../../utils/apiError';
 import { freeAllowanceLines } from '../../utils/swipeLimits';
 
@@ -38,9 +39,10 @@ export default function NonSpiritualEntryScreen({ navigation }: Props) {
           return;
         }
 
-        // A Spiritual account can never become Non-Spiritual — switching means
-        // deleting the account and registering again. Guarded here too because
-        // the lobby is not the only way onto this screen.
+        // A Spiritual profile can't set up Non-Spiritual directly — switching
+        // means deleting the account and registering again, offered by
+        // SwitchDatingTypeModal. Guarded here too because the lobby is not
+        // the only way onto this screen.
         if (profile.datingType === 'Spiritual') {
           setPhase('blocked');
           return;
@@ -114,14 +116,8 @@ export default function NonSpiritualEntryScreen({ navigation }: Props) {
     return (
       <SafeAreaView style={styles.root} edges={['top']}>
         <View style={styles.center} />
-        <AppAlert
-          visible
-          title="Switching Not Available"
-          message={
-            'Your account is registered for Spiritual Dating and cannot be switched to Non-Spiritual Dating.\n\n' +
-            'To use Non-Spiritual Dating you need to delete this account and register again.'
-          }
-          buttons={[{ text: 'Back to Dating', onPress: () => navigation.replace('DatingMain') }]}
+        <SwitchDatingTypeModal
+          target="NonSpiritual"
           onClose={() => navigation.replace('DatingMain')}
         />
       </SafeAreaView>

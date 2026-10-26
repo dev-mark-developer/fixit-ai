@@ -14,7 +14,8 @@ import type { DatingDrawerParamList, DatingStackParamList, RootStackParamList } 
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Colors } from '../utils/colors';
 import { useAuth } from '../store/AuthContext';
-import { useModuleStatus } from '../store/ModuleStatusContext';
+import { useModuleStatus, DatingType } from '../store/ModuleStatusContext';
+import SwitchDatingTypeModal from '../components/dating/SwitchDatingTypeModal';
 import { usersApi } from '../api/users';
 import { confirmDeleteAccount } from '../utils/deleteAccount';
 import RemoteImage from '../components/common/RemoteImage';
@@ -56,6 +57,7 @@ function DatingDrawerContent({ navigation }: DrawerContentComponentProps) {
   const insets = useSafeAreaInsets();
   const [legalModal, setLegalModal] = useState<ContentPageSlug | null>(null);
   const [tipsVisible, setTipsVisible] = useState(false);
+  const [switchTarget, setSwitchTarget] = useState<DatingType | null>(null);
 
   const isSpiritual = datingType === 'Spiritual';
   const accent = isSpiritual ? Colors.spiritual : Colors.dating;
@@ -99,20 +101,9 @@ function DatingDrawerContent({ navigation }: DrawerContentComponentProps) {
     navigation.closeDrawer();
     parentNav?.navigate('DatingIceBreakerSelection', { datingType: datingType ?? 'NonSpiritual', editMode: true });
   };
-  /**
-   * The Non-Spiritual member's way over to Spiritual Dating. It lands on the
-   * entry screen rather than the lobby — the lobby only exists to pick a path,
-   * and that choice is already made by tapping this row. Vetting still gates
-   * the move; SpiritualEntryScreen carries the profile across and finishes in
-   * the Discover deck.
-   */
   const goToBlockList = () => {
     navigation.closeDrawer();
     parentNav?.navigate('DatingBlockList');
-  };
-  const goToSpiritualSwitch = () => {
-    navigation.closeDrawer();
-    parentNav?.navigate('SpiritualEntry');
   };
   const goToRoot = (screen: keyof RootStackParamList, params?: any) => {
     navigation.closeDrawer();
@@ -127,11 +118,14 @@ function DatingDrawerContent({ navigation }: DrawerContentComponentProps) {
   };
 
   const items: { label: string; icon: string; onPress: () => void }[] = [
-    // A Spiritual account is permanent — there is nowhere to switch to, so the
-    // row is left out entirely for those users (see DatingLobbyScreen).
-    ...(isSpiritual
-      ? []
-      : [{ label: 'Switch to Spiritual Dating', icon: 'sync-circle', onPress: goToSpiritualSwitch }]),
+    // Either direction is a re-registration: the account (and everything on
+    // it) is deleted and the user signs up fresh — SwitchDatingTypeModal owns
+    // that warning and the delete flow.
+    {
+      label: isSpiritual ? 'Switch to Non-Spiritual Dating' : 'Switch to Spiritual Dating',
+      icon: 'sync-circle',
+      onPress: () => setSwitchTarget(isSpiritual ? 'NonSpiritual' : 'Spiritual'),
+    },
     { label: 'Switch to Penpal', icon: 'create', onPress: () => goToRoot('Penpal') },
     { label: 'My Subscription', icon: 'cash', onPress: goToPremium },
     { label: 'Configure Ice Breaker', icon: 'chatbox-ellipses', onPress: goToIceBreakers },
@@ -209,6 +203,9 @@ function DatingDrawerContent({ navigation }: DrawerContentComponentProps) {
 
       {/* Terms, User Guidelines, Privacy Policy — from the admin panel */}
       <LegalPageModal slug={legalModal} onClose={() => setLegalModal(null)} accent={accent} />
+
+      {/* Switching dating type = delete account + register again */}
+      <SwitchDatingTypeModal target={switchTarget} onClose={() => setSwitchTarget(null)} />
 
       {/* Dating tips — app text, not an admin page */}
       <Modal visible={tipsVisible} animationType="slide" onRequestClose={() => setTipsVisible(false)}>

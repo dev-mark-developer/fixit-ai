@@ -7,15 +7,15 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { DatingStackParamList } from '../../types/navigation';
 import { Colors } from '../../utils/colors';
 import { useAuth } from '../../store/AuthContext';
-import { useModuleStatus } from '../../store/ModuleStatusContext';
-import AppAlert, { AlertButton } from '../../components/common/AppAlert';
+import { useModuleStatus, DatingType } from '../../store/ModuleStatusContext';
+import SwitchDatingTypeModal from '../../components/dating/SwitchDatingTypeModal';
 
 type Props = NativeStackScreenProps<DatingStackParamList, 'DatingLobby'>;
 
 export default function DatingLobbyScreen({ navigation }: Props) {
   const { logout } = useAuth();
   const { isMentor, hasDating, datingType } = useModuleStatus();
-  const [alert, setAlert] = useState<{ title: string; message: string; buttons?: AlertButton[] } | null>(null);
+  const [switchTarget, setSwitchTarget] = useState<DatingType | null>(null);
 
   const handleLogout = () => {
     Alert.alert('Log Out', 'Are you sure you want to log out?', [
@@ -24,17 +24,14 @@ export default function DatingLobbyScreen({ navigation }: Props) {
     ]);
   };
 
-  // A Spiritual account is permanent: the only way to Non-Spiritual is to
-  // delete the account and register again.
+  // Crossing between the two types — either direction — is a re-registration:
+  // the account is deleted and the user signs up fresh (SwitchDatingTypeModal
+  // owns that warning and the delete flow).
   const isSpiritual = datingType === 'Spiritual';
 
   const handleNonSpiritual = () => {
     if (isSpiritual) {
-      setAlert({
-        title: 'Switching Not Available',
-        message:
-          'Your account is registered for Spiritual Dating and cannot be switched to Non-Spiritual Dating.\n\nTo use Non-Spiritual Dating you need to delete this account and register again.',
-      });
+      setSwitchTarget('NonSpiritual');
       return;
     }
     // Already set up as Non-Spiritual — this card just means "stay where I am",
@@ -47,6 +44,11 @@ export default function DatingLobbyScreen({ navigation }: Props) {
   };
 
   const handleSpiritual = () => {
+    // An existing Non-Spiritual profile is no longer carried across.
+    if (hasDating && !isSpiritual) {
+      setSwitchTarget('Spiritual');
+      return;
+    }
     navigation.navigate('SpiritualEntry');
   };
 
@@ -108,11 +110,9 @@ export default function DatingLobbyScreen({ navigation }: Props) {
         </TouchableOpacity>
 
         <Text style={styles.disclaimer}>
-          {isSpiritual
-            ? 'Spiritual accounts cannot be switched to Non-Spiritual. Switching requires deleting your account and registering again.'
-            : hasDating
-              ? 'You can move to Spiritual Dating at any time, but the move is permanent — a Spiritual account can never go back to Non-Spiritual.'
-              : 'You can only be active in one dating type at a time.'}
+          {hasDating
+            ? 'Switching between dating types requires deleting your account and registering again — your data and subscription do not carry over.'
+            : 'You can only be active in one dating type at a time.'}
         </Text>
       </ScrollView>
 
@@ -130,13 +130,7 @@ export default function DatingLobbyScreen({ navigation }: Props) {
         </TouchableOpacity>
       )}
 
-      <AppAlert
-        visible={!!alert}
-        title={alert?.title ?? ''}
-        message={alert?.message}
-        buttons={alert?.buttons}
-        onClose={() => setAlert(null)}
-      />
+      <SwitchDatingTypeModal target={switchTarget} onClose={() => setSwitchTarget(null)} />
     </View>
   );
 }
