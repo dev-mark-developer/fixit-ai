@@ -33,7 +33,7 @@ import Toast from '../../components/common/Toast';
 import type { ToastMessage } from '../../components/common/Toast';
 import CountryPicker from '../../components/common/CountryPicker';
 import DatingTopBar from '../../components/dating/DatingTopBar';
-import DatingBottomBar from '../../components/dating/DatingBottomBar';
+import DatingBottomBar, { DATING_BOTTOM_BAR_HEIGHT } from '../../components/dating/DatingBottomBar';
 import { Colors } from '../../utils/colors';
 import { useSubscription } from '../../store/SubscriptionContext';
 import { useAuth } from '../../store/AuthContext';
@@ -70,10 +70,13 @@ const CARD_H = SCREEN_H * 0.56;
  * actually has, and the buttons ended up under the bottom bar (QA: iPhone 11
  * Pro). The deck measures itself and the card shrinks to fit; on a tall phone
  * nothing changes, because 56% is still the smaller of the two.
+ *
+ * The deck runs underneath the floating bottom bar, so the bar's height comes
+ * off too — without it a short window (iPad, windowed) put the pill on the tabs.
  */
 const PILL_OVERHANG = 42;
 const DECK_BOTTOM_GAP = 8;
-const MIN_CARD_H = 280;
+const MIN_CARD_H = 200;
 
 /** The bars inside the loading skeleton — darker than the block they sit on. */
 const SKELETON_INK = 'rgba(17,24,39,0.09)';
@@ -614,7 +617,10 @@ export default function DatingDiscoverScreen({ navigation }: Props) {
   /** Measured height of the deck area; drives the card size (see PILL_OVERHANG). */
   const [deckHeight, setDeckHeight] = useState(0);
   const cardHeight = deckHeight > 0
-    ? Math.max(MIN_CARD_H, Math.min(CARD_H, deckHeight - PILL_OVERHANG - DECK_BOTTOM_GAP))
+    ? Math.max(
+        MIN_CARD_H,
+        Math.min(CARD_H, deckHeight - DATING_BOTTOM_BAR_HEIGHT - PILL_OVERHANG - DECK_BOTTOM_GAP),
+      )
     : CARD_H;
 
   const [filterVisible, setFilterVisible] = useState(false);

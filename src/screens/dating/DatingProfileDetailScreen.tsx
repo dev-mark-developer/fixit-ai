@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Dimensions, ActivityIndicator, Alert,
+  ActivityIndicator, Alert, useWindowDimensions,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -16,10 +16,7 @@ import { useModuleStatus } from '../../store/ModuleStatusContext';
 
 type Props = NativeStackScreenProps<DatingStackParamList, 'DatingProfileDetail'>;
 
-const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
-const HEADER_H = SCREEN_H * 0.48;
 const GRID_GAP = 10;
-const TILE_W = (SCREEN_W - 40 - GRID_GAP * 2) / 3;
 
 function ageFromDob(dob?: string): number | undefined {
   if (!dob) return undefined;
@@ -42,6 +39,13 @@ export default function DatingProfileDetailScreen({ route, navigation }: Props) 
   const isSpiritual = datingType === 'Spiritual';
   const accent = isSpiritual ? Colors.spiritual : Colors.dating;
   const limeLight = isSpiritual ? Colors.spiritualLimeLight : Colors.datingLight;
+
+  // Read live, not once at import: on iPad the window can be resized while
+  // the screen is open, and a stale width pushed the flag button off the edge.
+  const { width: windowW, height: windowH } = useWindowDimensions();
+  const headerSize = { height: windowH * 0.48 };
+  const tileW = (windowW - 40 - GRID_GAP * 2) / 3;
+  const tileSize = { width: tileW, height: tileW * 1.25 };
 
   const [profile, setProfile] = useState<DatingUserDetail | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
@@ -137,7 +141,7 @@ export default function DatingProfileDetailScreen({ route, navigation }: Props) 
 
       <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
         {/* Full-bleed photo header */}
-        <View style={styles.headerWrap}>
+        <View style={[styles.headerWrap, headerSize]}>
           {headerUri ? (
             <RemoteImage
               uri={headerUri}
@@ -253,14 +257,14 @@ export default function DatingProfileDetailScreen({ route, navigation }: Props) 
                   <RemoteImage
                     key={i}
                     uri={uri}
-                    style={styles.galleryTile}
+                    style={[styles.galleryTile, tileSize]}
                     /* Without this a photo that fails to download renders
                        nothing at all, so the tile silently disappears and the
                        grid looks short — which is what QA reported. A
                        placeholder keeps the slot and makes the failure
                        visible. See gap #12. */
                     fallback={
-                      <View style={[styles.galleryTile, styles.galleryTileEmpty]}>
+                      <View style={[styles.galleryTile, tileSize, styles.galleryTileEmpty]}>
                         <Icon name="image-outline" size={22} color={Colors.textMuted} />
                       </View>
                     }
@@ -280,7 +284,7 @@ export default function DatingProfileDetailScreen({ route, navigation }: Props) 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },
 
-  headerWrap: { width: SCREEN_W, height: HEADER_H },
+  headerWrap: { width: '100%' },
   headerImage: {
     width: '100%', height: '100%',
     borderBottomLeftRadius: 32, borderBottomRightRadius: 32,
@@ -344,7 +348,7 @@ const styles = StyleSheet.create({
 
   galleryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: GRID_GAP },
   galleryTile: {
-    width: TILE_W, height: TILE_W * 1.25, borderRadius: 12,
+    borderRadius: 12,
     backgroundColor: Colors.surface,
   },
   galleryTileEmpty: { alignItems: 'center', justifyContent: 'center' },

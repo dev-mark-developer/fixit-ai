@@ -57,7 +57,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
           let appDelegate = UIApplication.shared.delegate as? AppDelegate,
           let factory = appDelegate.reactNativeFactory else { return }
 
-    let window = UIWindow(windowScene: windowScene)
+    let window = WindowControlsAwareWindow(windowScene: windowScene)
     self.window = window
     appDelegate.window = window
 
@@ -66,6 +66,30 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
       in: window,
       launchOptions: appDelegate.launchOptions
     )
+  }
+}
+
+// On iPadOS 26+ the app can run in a resizable window whose close/minimize/
+// zoom controls sit over the top-left corner. Plain safe-area insets don't
+// account for them (the top inset is often 0 there, with no status bar), so
+// React Native headers rendered under the controls. This pushes the root
+// view's safe area down by however much UIKit says is needed to clear them,
+// which every SafeAreaView / useSafeAreaInsets consumer picks up for free.
+class WindowControlsAwareWindow: UIWindow {
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    updateWindowControlsInset()
+  }
+
+  private func updateWindowControlsInset() {
+    guard #available(iOS 26.0, *), let root = rootViewController else { return }
+    // Measured on the window, not the root view: the window's own safe area
+    // isn't affected by the root's additionalSafeAreaInsets, so this can't loop.
+    let cleared = edgeInsets(for: .safeArea(cornerAdaptation: .vertical)).top
+    let extra = max(0, cleared - safeAreaInsets.top)
+    if root.additionalSafeAreaInsets.top != extra {
+      root.additionalSafeAreaInsets.top = extra
+    }
   }
 }
 

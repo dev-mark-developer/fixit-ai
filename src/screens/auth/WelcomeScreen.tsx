@@ -36,7 +36,12 @@ export default function WelcomeScreen({ navigation }: Props) {
   }, []);
 
   return (
-    <Animated.View style={[styles.root, { opacity: fadeIn }]}>
+    <Animated.ScrollView
+      style={[styles.scroll, { opacity: fadeIn }]}
+      contentContainerStyle={styles.root}
+      showsVerticalScrollIndicator={false}
+      bounces={false}
+    >
       {/* Logo */}
       <Image source={LOGO} style={styles.logo} resizeMode="contain" />
 
@@ -69,14 +74,17 @@ export default function WelcomeScreen({ navigation }: Props) {
           <Text style={styles.footerLink}>Sign Up</Text>
         </TouchableOpacity>
       </View>
-    </Animated.View>
+    </Animated.ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  root: {
+  scroll: {
     flex: 1,
     backgroundColor: Colors.background,
+  },
+  root: {
+    flexGrow: 1,
     alignItems: 'center',
     paddingHorizontal: 28,
     paddingTop: 64,

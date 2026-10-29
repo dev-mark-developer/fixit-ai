@@ -24,6 +24,13 @@ const TABS: { route: TabRoute; icon: string; iconActive: string }[] = [
  * Profile. The active tab sits in a filled accent circle. Rendered inside
  * each main dating screen; navigates between the existing drawer routes.
  */
+/**
+ * How far the bar reaches up from the bottom of the screen at least (tab +
+ * bar padding + the minimum bottom padding). It floats over the content, so
+ * screens that size things to the space above it subtract this.
+ */
+export const DATING_BOTTOM_BAR_HEIGHT = 52 + 20 + 12;
+
 export default function DatingBottomBar({ active }: { active: TabRoute }) {
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
